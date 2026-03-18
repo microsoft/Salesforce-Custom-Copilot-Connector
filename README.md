@@ -1,33 +1,28 @@
 # Salesforce CRM Custom Connector for Microsoft 365
 
-This repository now includes a Python Azure Functions implementation of the Salesforce CRM Custom connector for Microsoft 365 in [python_connector/README.md](python_connector/README.md).
+This repository contains a Python Azure Functions connector that pulls Salesforce CRM data into a Microsoft Graph external connection for Microsoft 365 search and Copilot experiences.
 
-The original TypeScript implementation is still present in the root of the repository as a reference during the migration. The new Python project is the runnable path documented in this repository.
+## What The Connector Does
 
-## What The Python Project Does
-
-- Reads connector and credential settings from local env files created from [env/.env.local.example](env/.env.local.example) and [env/.env.local.user.example](env/.env.local.user.example)
+- Reads connector settings from local environment files created from committed templates
 - Authenticates to Microsoft Graph with `DefaultAzureCredential`
 - Authenticates to Salesforce with OAuth 2.0 client credentials
-- Creates the Salesforce CRM Custom connector external connection, deploys the schema, applies the result template, and ingests Salesforce items
-- Runs a full crawl on startup and an incremental crawl every 12 hours
-- Exposes local-only helper endpoints to clear or retract the connection
+- Creates or validates the external connection
+- Deploys the external connection schema and result template
+- Ingests Salesforce Account, Lead, Contact, Opportunity, Case, and `Customer_Project__c` records
+- Runs a full crawl on startup and daily, plus an incremental crawl every 12 hours
+- Exposes Development-only helper routes to clear items or retract the connection
 
-## Equivalent Python Project
+## Repository Layout
 
-The Python app lives in [python_connector/](python_connector/README.md) and maps to the original TypeScript structure like this:
-
-| TypeScript | Python | Responsibility |
-| --- | --- | --- |
-| [src/functions/connections.ts](src/functions/connections.ts) | [python_connector/function_app.py](python_connector/function_app.py) | Azure Functions triggers and routes |
-| [src/config.ts](src/config.ts) | [python_connector/connector/settings.py](python_connector/connector/settings.py) | Config loading and validation |
-| [src/graphClient.ts](src/graphClient.ts) | [python_connector/connector/graph.py](python_connector/connector/graph.py) | Microsoft Graph client |
-| [src/connection.ts](src/connection.ts) | [python_connector/connector/connection.py](python_connector/connector/connection.py) | Connection lifecycle |
-| [src/schema.ts](src/schema.ts) | [python_connector/connector/schema.py](python_connector/connector/schema.py) | Schema deployment |
-| [src/custom/getAllItemsFromAPI.ts](src/custom/getAllItemsFromAPI.ts) | [python_connector/connector/salesforce.py](python_connector/connector/salesforce.py) | Salesforce fetch logic |
-| [src/custom/getExternalItemFromItem.ts](src/custom/getExternalItemFromItem.ts) | [python_connector/connector/transform.py](python_connector/connector/transform.py) | Item transformation |
-| [src/ingest.ts](src/ingest.ts) | [python_connector/connector/ingest.py](python_connector/connector/ingest.py) | Graph ingestion |
-| [src/services/crawlService.ts](src/services/crawlService.ts) | [python_connector/connector/crawl_state.py](python_connector/connector/crawl_state.py) | Last crawl persistence |
+- [python_connector/README.md](python_connector/README.md): Azure Functions application and module-level runbook
+- [env/.env.local.example](env/.env.local.example): Local non-secret configuration template
+- [env/.env.local.user.example](env/.env.local.user.example): Local secret configuration template
+- [env/.env.dev.example](env/.env.dev.example): Shared dev environment template
+- [env/.env.dev.user.example](env/.env.dev.user.example): Shared dev secret template
+- [infra/azure.bicep](infra/azure.bicep): Azure deployment template
+- [infra/azure.parameters.json](infra/azure.parameters.json): Deployment parameter mapping
+- [DEMO_SCRIPT.md](DEMO_SCRIPT.md): Demo walkthrough
 
 ## Prerequisites
 
@@ -38,65 +33,78 @@ The Python app lives in [python_connector/](python_connector/README.md) and maps
 - An Entra application with the required Microsoft Graph permissions
 - A Salesforce Connected App configured for client credentials flow
 
-## Configure The Python App
+## Configure The Connector
 
-Create local env files from the committed examples:
+For local runs:
 
-- Copy [env/.env.local.example](env/.env.local.example) to `env/.env.local`
-- Copy [env/.env.local.user.example](env/.env.local.user.example) to `env/.env.local.user`
+1. Copy [env/.env.local.example](env/.env.local.example) to `env/.env.local`
+2. Copy [env/.env.local.user.example](env/.env.local.user.example) to `env/.env.local.user`
+3. Copy [python_connector/local.settings.example.json](python_connector/local.settings.example.json) to `python_connector/local.settings.json`
 
-The Python implementation loads those local files automatically and maps the existing `AAD_APP_*` and `SECRET_*` values into the `AZURE_*` and `SALESFORCE_*` environment variables that the runtime needs.
+For provisioned dev environments:
 
-The example connector name is already set to `Salesforce-CRM-1803` in [env/.env.local.example](env/.env.local.example#L6), and the description identifies it as a Salesforce CRM Custom connector.
+1. Copy [env/.env.dev.example](env/.env.dev.example) to `env/.env.dev`
+2. Copy [env/.env.dev.user.example](env/.env.dev.user.example) to `env/.env.dev.user`
+
+Important local values:
+
+- [env/.env.local.example](env/.env.local.example): `CONNECTOR_ID`, `CONNECTOR_NAME`, `CONNECTOR_DESCRIPTION`, `SALESFORCE_INSTANCE_URL`, `SALESFORCE_API_VERSION`, `SALESFORCE_CLIENT_ID`, `AAD_APP_CLIENT_ID`, `AAD_APP_TENANT_ID`
+- [env/.env.local.user.example](env/.env.local.user.example): `SECRET_SALESFORCE_CLIENT_SECRET`, `SECRET_AAD_APP_CLIENT_SECRET`
+
+At startup, the app maps `AAD_APP_*` and `SECRET_*` values into the `AZURE_*` and `SALESFORCE_*` variables used by the runtime. The local copies of these files are ignored by Git.
 
 ## Run Locally
 
-From the repository root, start local storage in one terminal:
+Start local storage from the repository root:
 
 ```powershell
 azurite --silent --location .azurite --debug .azurite/debug.log
 ```
 
-Then start the Python Functions app in a second terminal:
+Start the Functions app in another terminal:
 
 ```powershell
 cd python_connector
 Copy-Item local.settings.example.json local.settings.json
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 func start
 ```
 
-If you already use the original workspace tooling for Azurite, `npm run storage` from the repository root is still fine.
+If `python` is not on your Windows PATH, use `py -3` instead.
 
-## What Happens On Startup
+## Runtime Flow
 
-When you run [python_connector/function_app.py](python_connector/function_app.py), the app:
+When the app starts, it:
 
-1. Loads environment settings from local files copied from [env/.env.local.example](env/.env.local.example) and [env/.env.local.user.example](env/.env.local.user.example)
+1. Loads environment settings from local files
 2. Creates or validates the external connection
-3. Creates the Graph schema from [python_connector/connector/references/graph-schema.json](python_connector/connector/references/graph-schema.json)
-4. Applies the adaptive card result template from [python_connector/connector/references/template.json](python_connector/connector/references/template.json)
-5. Starts a full crawl immediately
+3. Deploys the schema from [python_connector/connector/references/graph-schema.json](python_connector/connector/references/graph-schema.json)
+4. Applies the result template from [python_connector/connector/references/template.json](python_connector/connector/references/template.json)
+5. Starts ingestion
 
-Incremental crawl is scheduled every 12 hours in [python_connector/function_app.py](python_connector/function_app.py).
+Scheduled operations:
+
+- `deployConnection`: startup and yearly
+- `fullCrawl`: daily
+- `incrementalCrawl`: every 12 hours
 
 ## Local Helper Endpoints
 
-The Python project includes [python_connector/api.http](python_connector/api.http) for local helper routes:
+Use [python_connector/api.http](python_connector/api.http) for local helper routes:
 
 - `POST /api/clear`
 - `POST /api/retract`
 
-These routes return `404` unless the app is running in Development mode.
+These routes are available only when the app is running in Development mode.
 
-## Project Notes
+## Deployment Notes
 
-- The Python app keeps the connector schema and result template behavior equivalent to the TypeScript project by copying the same JSON assets into [python_connector/connector/references/](python_connector/connector/references).
-- Crawl state is still stored in [tmp/lastCrawl.json](tmp/lastCrawl.json) so repeated local runs behave similarly to the original project.
-- The existing Teams Toolkit and Bicep files at the repository root were not rewired to deploy the Python app. The new Python project is the equivalent runtime implementation; deployment automation can be updated separately if needed.
+- [m365agents.local.yml](m365agents.local.yml) and [m365agents.yml](m365agents.yml) define Microsoft 365 Agents Toolkit workflows
+- [infra/azure.parameters.json](infra/azure.parameters.json) maps environment variables into deployment parameters
+- [infra/azure.bicep](infra/azure.bicep) stores the Azure AD client secret in Key Vault and injects it into the Function App settings during Azure deployment
 
-## Next Reference
+## Further Reading
 
-For the Python runbook and file structure, use [python_connector/README.md](python_connector/README.md).
+See [python_connector/README.md](python_connector/README.md) for the application structure, configuration model, and runtime details.

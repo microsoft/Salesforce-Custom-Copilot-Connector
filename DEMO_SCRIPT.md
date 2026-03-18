@@ -25,7 +25,7 @@ Talking points:
 - `CONNECTOR_DESCRIPTION` identifies this as a Salesforce CRM Custom connector in [env/.env.local.example](env/.env.local.example#L7)
 - Salesforce URL, API version, and client ID come from [env/.env.local.example](env/.env.local.example)
 - Secrets are documented in [env/.env.local.user.example](env/.env.local.user.example)
-- The Python app maps the existing `AAD_APP_*` and `SECRET_*` values into runtime credentials automatically in [python_connector/connector/settings.py](python_connector/connector/settings.py)
+- The Python app maps `AAD_APP_*` and `SECRET_*` values into runtime credentials automatically in [python_connector/connector/settings.py](python_connector/connector/settings.py)
 
 ## 2. Show The Python Entry Point
 
@@ -38,7 +38,7 @@ Talking points:
 - `incrementalCrawl` is scheduled every 12 hours
 - Local helper routes `clear` and `retract` are exposed for Development mode only
 
-## 3. Show The Equivalent Python Modules
+## 3. Show The Core Python Modules
 
 Open these files in order:
 
@@ -77,7 +77,7 @@ Talking points:
 
 - Titles and content are customized by Salesforce object type
 - `FIELD_NAME_MAP` handles Graph-safe property names for custom fields
-- ACLs are currently set to `everyone`, matching the existing project behavior
+- ACLs are currently set to `everyone` in the current demo configuration
 
 ## 6. Run The Python Project Live
 
@@ -137,4 +137,4 @@ After the crawl completes:
 
 ## Short Closing
 
-This repository now has a Python Azure Functions implementation of a Salesforce CRM Custom connector that is functionally equivalent to the original TypeScript connector structure, while preserving the same Salesforce source, Graph schema, and result template behavior.
+This repository contains a Python Azure Functions Salesforce CRM connector that publishes Salesforce data into Microsoft Graph and makes it searchable in Microsoft 365.
