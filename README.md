@@ -53,6 +53,8 @@ Important local values:
 
 At startup, the app maps `AAD_APP_*` and `SECRET_*` values into the `AZURE_*` and `SALESFORCE_*` variables used by the runtime. The local copies of these files are ignored by Git.
 
+For `SECRET_AAD_APP_CLIENT_SECRET`, use the client secret value from the Entra app registration. Do not use the secret ID.
+
 ## Run Locally
 
 Start local storage from the repository root:

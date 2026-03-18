@@ -124,7 +124,7 @@ def incremental_crawl_timer(timer: func.TimerRequest) -> None:
 
 @app.function_name(name="retract")
 @app.route(route="retract", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def retract_connection(request: func.HttpRequest) -> func.HttpResponse:
+def retract_connection(req: func.HttpRequest) -> func.HttpResponse:
     global full_crawl_in_progress
     global retract_in_progress
 
@@ -151,7 +151,7 @@ def retract_connection(request: func.HttpRequest) -> func.HttpResponse:
 
 @app.function_name(name="clear")
 @app.route(route="clear", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def clear_connection(request: func.HttpRequest) -> func.HttpResponse:
+def clear_connection(req: func.HttpRequest) -> func.HttpResponse:
     if not _is_development():
         return func.HttpResponse(status_code=404)
 

@@ -33,6 +33,7 @@ appPackage/build
 # Azure Functions
 dist
 local.settings.json
+python_connector/.python_packages/
 
 env/.env.dev
 env/.env.local
