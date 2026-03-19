@@ -8,6 +8,7 @@ import logging
 
 import requests
 
+from connector.item_converter import METADATA_COLUMNS, load_converter_config
 from connector.settings import AppConfig
 from connector.utils import to_iso_z
 
@@ -15,55 +16,147 @@ from connector.utils import to_iso_z
 logger = logging.getLogger("salesforce_connector")
 QUERY_LIMIT = 10
 
+LEGACY_QUERY_FIELDS: dict[str, tuple[str, ...]] = {
+    "Account": (
+        "Name",
+        "Type",
+        "Industry",
+        "Phone",
+        "Website",
+        "BillingCity",
+        "BillingState",
+        "BillingCountry",
+        "AccountNumber",
+        "TickerSymbol",
+        "Site",
+    ),
+    "Lead": (
+        "FirstName",
+        "LastName",
+        "Company",
+        "Title",
+        "Email",
+        "Phone",
+        "MobilePhone",
+        "Fax",
+        "Status",
+        "LeadSource",
+        "City",
+        "State",
+        "Country",
+        "OwnerId",
+        "IsConverted",
+        "CreatedById",
+    ),
+    "Contact": (
+        "FirstName",
+        "LastName",
+        "Email",
+        "Phone",
+        "MobilePhone",
+        "HomePhone",
+        "OtherPhone",
+        "Title",
+        "Department",
+        "AccountId",
+        "MailingCity",
+        "MailingState",
+        "MailingCountry",
+        "AssistantName",
+        "AssistantPhone",
+    ),
+    "Opportunity": (
+        "Name",
+        "StageName",
+        "Amount",
+        "CloseDate",
+        "Probability",
+        "AccountId",
+        "Type",
+        "LeadSource",
+        "OwnerId",
+        "LastModifiedDate",
+    ),
+    "Case": (
+        "CaseNumber",
+        "Subject",
+        "Status",
+        "Priority",
+        "Origin",
+        "Reason",
+        "AccountId",
+        "ContactId",
+        "Description",
+        "OwnerId",
+        "CreatedDate",
+        "ClosedDate",
+        "IsClosed",
+        "LastModifiedById",
+    ),
+    "Customer_Project__c": (
+        "Name",
+        "Account__c",
+        "CreatedById",
+        "CreatedDate",
+        "LastModifiedById",
+        "LastModifiedDate",
+        "Project_description__c",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class SalesforceObjectConfig:
     object_type: str
-    fields: str
+    fields: tuple[str, ...]
+    filter_condition: str = ""
 
 
-OBJECT_CONFIGS = (
-    SalesforceObjectConfig(
-        object_type="Account",
-        fields=(
-            "Id, Name, Type, Industry, Phone, Website, BillingCity, BillingState, "
-            "BillingCountry, AccountNumber, TickerSymbol, Site"
-        ),
-    ),
-    SalesforceObjectConfig(
-        object_type="Lead",
-        fields=(
-            "Id, FirstName, LastName, Company, Title, Email, Phone, MobilePhone, Fax, "
-            "Status, LeadSource, City, State, Country, OwnerId, IsConverted, CreatedById"
-        ),
-    ),
-    SalesforceObjectConfig(
-        object_type="Contact",
-        fields=(
-            "Id, FirstName, LastName, Email, Phone, MobilePhone, HomePhone, OtherPhone, "
-            "Title, Department, AccountId, MailingCity, MailingState, MailingCountry, "
-            "AssistantName, AssistantPhone"
-        ),
-    ),
-    SalesforceObjectConfig(
-        object_type="Opportunity",
-        fields="Id, Name, StageName, Amount, CloseDate, Probability, AccountId, Type, LeadSource, OwnerId, LastModifiedDate",
-    ),
-    SalesforceObjectConfig(
-        object_type="Case",
-        fields=(
-            "Id, CaseNumber, Subject, Status, Priority, Origin, Reason, AccountId, ContactId, "
-            "Description, OwnerId, CreatedDate, ClosedDate, IsClosed, LastModifiedById"
-        ),
-    ),
-    SalesforceObjectConfig(
-        object_type="Customer_Project__c",
-        fields=(
-            "Id, Name, Account__c, CreatedById, CreatedDate, LastModifiedById, "
-            "LastModifiedDate, Project_description__c"
-        ),
-    ),
-)
+def _dedupe_fields(fields: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for field in fields:
+        if not field or field in seen:
+            continue
+        seen.add(field)
+        ordered.append(field)
+    return tuple(ordered)
+
+
+def _build_object_configs() -> tuple[SalesforceObjectConfig, ...]:
+    converter_config = load_converter_config()
+    converter_objects = {
+        object_config["objectName"]: object_config
+        for object_config in converter_config["objectList"]
+    }
+
+    configs: list[SalesforceObjectConfig] = []
+    ordered_object_names = ["Account", "Lead", "Contact", "Opportunity", "Case"]
+
+    for object_name in ordered_object_names:
+        object_config = converter_objects.get(object_name)
+        selected_fields = list((object_config or {}).get("selectedFields", {}).keys())
+        legacy_fields = list(LEGACY_QUERY_FIELDS.get(object_name, ()))
+        fields = _dedupe_fields(["Id", *selected_fields, *METADATA_COLUMNS, *legacy_fields])
+        configs.append(
+            SalesforceObjectConfig(
+                object_type=object_name,
+                fields=fields,
+                filter_condition=(object_config or {}).get("filterCondition", ""),
+            )
+        )
+
+    configs.append(
+        SalesforceObjectConfig(
+            object_type="Customer_Project__c",
+            fields=_dedupe_fields(["Id", *LEGACY_QUERY_FIELDS["Customer_Project__c"]]),
+        )
+    )
+
+    return tuple(configs)
+
+
+OBJECT_CONFIGS = _build_object_configs()
 
 
 def get_salesforce_access_token(config: AppConfig) -> str:
@@ -149,8 +242,13 @@ def fetch_salesforce_records(
 
 
 def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | None) -> str:
-    soql = f"SELECT {object_config.fields} FROM {object_config.object_type}"
+    soql = f"SELECT {', '.join(object_config.fields)} FROM {object_config.object_type}"
+    where_clauses: list[str] = []
+    if object_config.filter_condition:
+        where_clauses.append(object_config.filter_condition)
     if since:
-        soql += f" WHERE LastModifiedDate >= {to_iso_z(since)}"
+        where_clauses.append(f"LastModifiedDate >= {to_iso_z(since)}")
+    if where_clauses:
+        soql += f" WHERE {' AND '.join(where_clauses)}"
     soql += f" LIMIT {QUERY_LIMIT}"
     return soql
