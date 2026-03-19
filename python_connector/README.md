@@ -119,6 +119,31 @@ Expected markers in the output:
 - `ITEM_COUNT=<n>`
 - `TEST_FLOW_OK`
 
+## Automated Mock Tests
+
+Use the connector-level pytest suite when you want repeatable offline coverage for object transformation, ACL resolution, and ingestion uploads without calling live Salesforce or Microsoft Graph.
+
+Install the test dependencies:
+
+```powershell
+cd python_connector
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+```
+
+Run the connector mock-data tests:
+
+```powershell
+cd python_connector
+.venv\Scripts\python.exe -m pytest tests/test_connector_flow.py -v
+```
+
+The reusable fixture and mock-data helpers live under [tests/mock_data](tests/mock_data):
+
+- [tests/mock_data/salesforce_records](tests/mock_data/salesforce_records): separate files for `Account`, `Lead`, `Contact`, `Opportunity`, `Case`, and `Customer_Project__c`, with up to 10 samples per object type
+- [tests/mock_data/permissions](tests/mock_data/permissions): org defaults, share rows, users, groups, roles, and ACL helpers attached to the sample records
+- [tests/test_connector_flow.py](tests/test_connector_flow.py): focused regression tests for the live `connector/*` path
+- [tests/README.md](tests/README.md): quick reference for extending the suite
+
 ## Operational Notes
 
 - The committed runtime template is [local.settings.example.json](local.settings.example.json)
