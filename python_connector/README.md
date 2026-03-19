@@ -85,6 +85,40 @@ Use [api.http](api.http) against the local host:
 - `POST /api/clear`
 - `POST /api/retract`
 
+## Executable Smoke Test
+
+Run the connector end to end without waiting for the timer triggers:
+
+```powershell
+cd python_connector
+.venv\Scripts\python.exe test_flow.py --check-acl --show-items 5
+```
+
+Demo-friendly example:
+
+```powershell
+cd python_connector
+.venv\Scripts\python.exe test_flow.py --check-acl --show-items 3 --show-item-json
+```
+
+Useful options:
+
+- `--clear-first`: delete existing external items before the test ingest
+- `--retract-first`: delete the external connection and recreate it from scratch
+- `--skip-ingest`: validate connection, schema, and readiness without uploading items
+- `--since 2026-03-19T00:00:00Z`: run the ingest path as an incremental test
+- `--show-item-json`: print the full JSON payload for the first verified Graph item
+- `--trace-connector`: include the connector's internal INFO logs in the demo output
+
+Expected markers in the output:
+
+- `CONFIG_OK`
+- `SALESFORCE_AUTH_OK`
+- `READY_OK`
+- `INGEST_OK`
+- `ITEM_COUNT=<n>`
+- `TEST_FLOW_OK`
+
 ## Operational Notes
 
 - The committed runtime template is [local.settings.example.json](local.settings.example.json)
