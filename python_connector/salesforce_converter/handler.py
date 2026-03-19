@@ -204,6 +204,7 @@ class SalesforceObjectHandler:
             props["IconUrl"] = self.icon_url
 
         content = Content()
+        additional_content_parts: list[str] = []  # Collect non-schema fields for content
 
         # Iterate all fields in the record
         for field_key, field_value in record.items():
@@ -222,6 +223,11 @@ class SalesforceObjectHandler:
                         content = Content(
                             parsed_data=raw if isinstance(raw, str) and raw else ""
                         )
+                else:
+                    # Field is in selected_fields but NOT in schema - add to content
+                    self._add_non_schema_field_to_content(
+                        additional_content_parts, property_name, field_value
+                    )
 
             # Priority 2: MetadataColumnSchemaMapping match
             elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
@@ -265,6 +271,14 @@ class SalesforceObjectHandler:
             props[SYSTEM_CREATED_BY_USER_ID] = str(record["CreatedById"])
         if SYSTEM_MODIFIED_BY_USER_ID in schema_properties and "LastModifiedById" in record:
             props[SYSTEM_MODIFIED_BY_USER_ID] = str(record["LastModifiedById"])
+
+        # Append non-schema fields to content
+        if additional_content_parts:
+            additional_content = ". ".join(additional_content_parts)
+            if content.parsed_data:
+                content.parsed_data = f"{content.parsed_data}. {additional_content}"
+            else:
+                content.parsed_data = additional_content
 
         return content
 
@@ -387,6 +401,45 @@ class SalesforceObjectHandler:
             logger.error("Could not parse address: %s", e)
             return ""
         return "".join(parts)
+
+    # -------------------------------------------------------------------
+    # AddNonSchemaFieldToContent
+    # -------------------------------------------------------------------
+
+    @staticmethod
+    def _add_non_schema_field_to_content(
+        content_parts: list[str],
+        property_name: str,
+        field_value: Any,
+    ) -> None:
+        """
+        Add a non-schema field to the content parts list.
+        Formats as "PropertyName: value".
+        
+        Args:
+            content_parts: List to append formatted content to
+            property_name: Name of the property
+            field_value: Value of the field
+        """
+        if field_value is None:
+            return
+        
+        # Convert value to string representation
+        if isinstance(field_value, dict):
+            # For dict/object values, skip or use JSON representation
+            try:
+                import json
+                value_str = json.dumps(field_value)
+            except Exception:
+                value_str = str(field_value)
+        elif isinstance(field_value, (list, tuple)):
+            # For collections, join with commas
+            value_str = ", ".join(str(v) for v in field_value)
+        else:
+            value_str = str(field_value)
+        
+        if value_str:
+            content_parts.append(f"{property_name}: {value_str}")
 
     # -------------------------------------------------------------------
     # GetAuthorsSourceProperty
