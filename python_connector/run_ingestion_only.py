@@ -14,6 +14,7 @@ Environment Configuration:
 
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path
@@ -25,11 +26,18 @@ from connector.ingest import ingest_content
 from connector.settings import load_config
 
 
+# Setup logging to both console and file
+log_file = Path(__file__).parent / f"ingestion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger("ingestion_only")
+logger.info(f"📄 Logging to: {log_file}")
 
 
 def run_ingestion_only():
@@ -101,6 +109,7 @@ def run_ingestion_only():
         logger.info("  ✓ Schema verified (existing)")
         logger.info("  ✓ Items ingested with ACLs")
         logger.info("  Mode: %s", "MOCK DATA" if config.use_mock_data else "REAL SALESFORCE")
+        logger.info("  📄 Full log: %s", log_file)
         logger.info("=" * 70)
         
         return True

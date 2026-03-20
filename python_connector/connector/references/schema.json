@@ -119,6 +119,26 @@
       },
       "filterCondition": "",
       "iconUrl": ""
+    },
+    {
+      "objectName": "Customer_Project__c",
+      "selectedFields": {
+        "Name": "Name",
+        "Project_Description__c": "ProjectDescription",
+        "Status__c": "Status",
+        "Start_Date__c": "StartDate",
+        "End_Date__c": "EndDate",
+        "Budget__c": "Budget",
+        "Account__c": "AccountId",
+        "Account__r.Name": "AccountName"
+      },
+      "SfColumnTypes": {
+        "Budget__c": "System.Double, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "Start_Date__c": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "End_Date__c": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+      },
+      "filterCondition": "",
+      "iconUrl": ""
     }
   ]
 }

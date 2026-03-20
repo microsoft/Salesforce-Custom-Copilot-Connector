@@ -22,7 +22,7 @@ def build_case_record(index: int, owner_id: str = OWNER_USER_ID) -> dict[str, An
             "ContactPhone": f"(206) 555-14{index:02d}",
             "Description": f"Support case sample {index:02d} for connector testing.",
             "IsClosed": False,
-            "Priority": "High",
+            "Priority": ["High", "Medium"],
             "Reason": "Installation",
             "Status": "New",
             "Subject": f"Connector test case {index:02d}",
