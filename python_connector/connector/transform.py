@@ -144,6 +144,7 @@ class SalesforceItemTransformer:
                 "type": "text",
             },
             "acl": acl or _fallback_acl(),
+            **({"shouldHashId": True} if converted_item.get("shouldHashId") else {}),
         }
 
     @staticmethod

@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_ROOT = PROJECT_ROOT / "connector" / "references"
 
 LOCAL_ENV_FILES = (
+    REPO_ROOT / "env" / ".env.local.example",  # Changed to use .example file
     REPO_ROOT / "env" / ".env.local",
     REPO_ROOT / "env" / ".env.local.user",
     PROJECT_ROOT / ".env.local",
@@ -64,6 +65,7 @@ class AppConfig:
     client_id: str
     connector: ConnectorSettings
     repo_root: Path
+    use_mock_data: bool = True  # Enable mock data for testing
 
 
 def _load_json(file_name: str) -> Any:
@@ -115,10 +117,14 @@ def load_config() -> AppConfig:
 
     connector_id = _require_env("CONNECTOR_ID")
     validate_connector_id(connector_id)
+    
+    # Check if mock data mode is enabled
+    use_mock_data = os.getenv("USE_MOCK_DATA", "false").lower() in ("true", "1", "yes")
 
     return AppConfig(
         client_id=_require_env("AZURE_CLIENT_ID"),
         repo_root=REPO_ROOT,
+        use_mock_data=use_mock_data,
         connector=ConnectorSettings(
             id=connector_id,
             name=_require_env("CONNECTOR_NAME"),

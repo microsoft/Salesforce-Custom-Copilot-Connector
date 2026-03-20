@@ -250,6 +250,41 @@ class SalesforceObjectHandler:
         if SYSTEM_MODIFIED_BY_USER_ID in schema_properties and "LastModifiedById" in record:
             props[SYSTEM_MODIFIED_BY_USER_ID] = str(record["LastModifiedById"])
 
+        content_parts: list[str] = []
+        if content.parsed_data:
+            content_parts.append(content.parsed_data)
+
+        for field_key, field_value in record.items():
+            if field_key in {"attributes", "Id"}:
+                continue
+
+            field_in_schema = False
+            if field_key in self.selected_fields:
+                property_name = self.selected_fields[field_key]
+                if property_name in schema_properties:
+                    field_in_schema = True
+            elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
+                property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
+                if property_name in schema_properties:
+                    field_in_schema = True
+
+            if field_in_schema or field_value is None:
+                continue
+
+            if isinstance(field_value, dict):
+                for sub_key, sub_value in field_value.items():
+                    if (
+                        sub_key != "attributes"
+                        and sub_value is not None
+                        and not isinstance(sub_value, (dict, list))
+                    ):
+                        content_parts.append(f"{field_key}.{sub_key}: {sub_value}")
+            elif not isinstance(field_value, list):
+                content_parts.append(f"{field_key}: {field_value}")
+
+        if content_parts:
+            content.parsed_data = "\n".join(content_parts)
+
         return content
 
     def _add_schema_property_for_field(
