@@ -119,6 +119,10 @@ Expected markers in the output:
 - `ITEM_COUNT=<n>`
 - `TEST_FLOW_OK`
 
+## Team Notes
+
+- [ACL_PARENT_CHILD_INHERITANCE.md](ACL_PARENT_CHILD_INHERITANCE.md): shareable explanation of schema-driven ACL parent-child inheritance and how it now follows `schema.json`
+
 ## Operational Notes
 
 - The committed runtime template is [local.settings.example.json](local.settings.example.json)
