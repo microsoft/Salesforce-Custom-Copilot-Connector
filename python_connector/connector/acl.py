@@ -492,7 +492,7 @@ class AclResolver:
 
             visiting.add(name)
             handler = self._handlers.get(name)
-            parent_object_name = handler.parent_object_name if handler else None
+            parent_object_name = getattr(handler, "parent_object_name", None) if handler else None
             depth = 0
             if parent_object_name and parent_object_name in object_name_set:
                 depth = _dependency_depth(parent_object_name) + 1
