@@ -1,6 +1,6 @@
 # Python Salesforce CRM Custom Connector
 
-This directory contains the Azure Functions application that builds, updates, and maintains the Salesforce CRM external connection in Microsoft Graph.
+Azure Functions application that creates and maintains a Salesforce CRM external connection in Microsoft Graph, with support for ACL-based security and mock data testing.
 
 ## Application Structure
 
@@ -149,3 +149,210 @@ The reusable fixture and mock-data helpers live under [tests/mock_data](tests/mo
 - The committed runtime template is [local.settings.example.json](local.settings.example.json)
 - Crawl state is stored in [../tmp/lastCrawl.json](../tmp/lastCrawl.json)
 - Deployment templates live in [../infra/azure.bicep](../infra/azure.bicep), [../infra/azure.parameters.json](../infra/azure.parameters.json), [../m365agents.local.yml](../m365agents.local.yml), and [../m365agents.yml](../m365agents.yml)
+
+---
+
+## Mock Data Testing
+
+Test the complete connector flow without a live Salesforce connection using mock data mode.
+
+### Quick Start: Enable Mock Mode
+
+1. **Set the flag** in `env/.env.local`:
+   ```bash
+   USE_MOCK_DATA=true
+   ```
+
+2. **Configure Azure AD credentials** (required even in mock mode):
+   ```bash
+   # Azure AD App - REQUIRED for Graph API
+   AAD_APP_CLIENT_ID=your_client_id
+   AAD_APP_TENANT_ID=your_tenant_id
+   SECRET_AAD_APP_CLIENT_SECRET=your_client_secret
+   
+   # Connector Info - REQUIRED
+   CONNECTOR_ID=SFCRMDemoConnector
+   CONNECTOR_NAME=Salesforce-CRM-Mock
+   CONNECTOR_DESCRIPTION=Salesforce connector with mock data
+   
+   # Salesforce - CAN BE DUMMY VALUES in mock mode
+   SALESFORCE_INSTANCE_URL=https://mock-org.salesforce.com
+   SALESFORCE_CLIENT_ID=mock_client_id
+   SECRET_SALESFORCE_CLIENT_SECRET=mock_secret
+   ```
+
+3. **Run the flow**:
+   ```powershell
+   # Full deployment with mock data
+   python run_full_deployment.py
+   
+   # Or just ingestion (skip connection/schema)
+   python run_ingestion_only.py
+   
+   # Verify ACL wiring
+   python tests/test_acl_wiring.py
+   ```
+
+### What Gets Mocked
+
+| Component | Mock Mode | Real Mode | Auth Required? |
+|-----------|-----------|-----------|----------------|
+| Salesforce Records | ✅ Mock | ❌ Real API | Mock: No / Real: Yes |
+| Identity/Permissions | ✅ Mock | ❌ Real API | Mock: No / Real: Yes |
+| Graph Connection | ❌ Real API | ❌ Real API | **Always Yes** |
+| Graph Schema | ❌ Real API | ❌ Real API | **Always Yes** |
+| Graph Ingestion | ❌ Real API | ❌ Real API | **Always Yes** |
+
+**Important:** Mock mode only mocks Salesforce data sources. All Microsoft Graph API operations are real and require Azure AD authentication.
+
+### Mock Data Files
+
+- **[tests/mock_salesforce_client.py](tests/mock_salesforce_client.py)** - Replaces Salesforce API
+- **[tests/mock_identity_sync_client.py](tests/mock_identity_sync_client.py)** - Replaces identity/permissions API
+- **[tests/mock_data/](tests/mock_data/)** - Pre-defined records, users, groups, shares
+
+Mock records include:
+- 10 Accounts
+- 10 Contacts  
+- 10 Leads
+- 10 Opportunities
+- 10 Cases
+- 5 Customer Projects
+
+### Retrieve Ingested Items
+
+After ingestion, verify items in Graph:
+
+```powershell
+# Get a specific item
+python get_item.py 006000000000002
+
+# This will show:
+# - Item ID and properties
+# - ACL entries with GUIDs
+# - Content (searchable text)
+```
+
+---
+
+## Access Control Lists (ACLs)
+
+Items are ingested with ACLs based on Salesforce sharing rules and organizational defaults.
+
+### ACL Structure
+
+Each item includes an `acl` array with entries like:
+
+```json
+{
+  "id": "006000000000002",
+  "properties": { "Name": "Acme Renewal", ... },
+  "acl": [
+    {
+      "type": "user",
+      "value": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "accessType": "grant"
+    }
+  ]
+}
+```
+
+**Note:** ACL `value` must be:
+- **Azure AD GUID** when using Azure Active Directory identity
+- **Email address** when using external identity source
+
+### ACL Building Logic
+
+The [connector/acl.py](connector/acl.py) builds ACLs based on:
+
+1. **Organization-wide Defaults** - Base visibility (Public, Private, Controlled by Parent)
+2. **Record Ownership** - Owner always gets access
+3. **Sharing Rules** - Explicit shares from UserShare, AccountShare, etc.
+4. **Role Hierarchy** - Manager access based on roles
+
+### Identity Mapping
+
+When `aad_identity_mapping_enabled=True`:
+- Uses `FederationIdentifier` (Azure AD GUID) from user records
+- Example: `"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"`
+
+When `external_identity_mapping_enabled=True`:
+- Uses `Email` from user records
+- Example: `"user@example.com"`
+
+### Testing ACLs
+
+1. **Verify ACL wiring**:
+   ```powershell
+   python tests/test_acl_wiring.py
+   ```
+
+2. **Check ingested item ACLs**:
+   ```powershell
+   python get_item.py <ITEM_ID>
+   ```
+
+3. **Review ingestion logs** for ACL statistics:
+   ```
+   ACL Statistics:
+     Items with ACLs: 20/20
+     Total ACL entries: 45
+     Average per item: 2.25
+   ```
+
+---
+
+## Project Structure
+
+### Core Modules
+
+- **[connector/](connector/)** - Main connector logic
+  - [ingest.py](connector/ingest.py) - Routes to mock/real flow based on `USE_MOCK_DATA`
+  - [graph.py](connector/graph.py) - Graph API client with authentication
+  - [settings.py](connector/settings.py) - Configuration loading and validation
+  - [acl.py](connector/acl.py) - ACL resolution using AclResolver
+  - [item_converter.py](connector/item_converter.py) - Salesforce-to-Graph transformation
+  - [transform.py](connector/transform.py) - Item transformation orchestration
+
+- **[tests/](tests/)** - Mock data and tests
+  - [mock_salesforce_client.py](tests/mock_salesforce_client.py) - Mock Salesforce API
+  - [mock_identity_sync_client.py](tests/mock_identity_sync_client.py) - Mock identity API
+  - [mock_data/](tests/mock_data/) - Pre-defined test data
+
+### Scripts
+
+- **[run_full_deployment.py](run_full_deployment.py)** - Complete flow: connection → schema → ingestion
+- **[run_ingestion_only.py](run_ingestion_only.py)** - Ingestion only (assumes connection exists)
+- **[get_item.py](get_item.py)** - Retrieve and display ingested items from Graph
+- **[test_flow.py](test_flow.py)** - Legacy test script (use pytest instead)
+
+---
+
+## Development
+
+### Adding New Salesforce Objects
+
+1. Add field mappings to [SalesforceConfiguration.json](SalesforceConfiguration.json)
+2. Add handler config in [connector/references/schema.json](connector/references/schema.json)
+3. Add mock records to [tests/mock_data/salesforce_records/](tests/mock_data/salesforce_records/)
+4. Update schema in [connector/references/graph-schema.json](connector/references/graph-schema.json)
+
+### Modifying ACL Logic
+
+1. Edit [connector/acl.py](connector/acl.py)
+2. Update tests in [tests/](tests/)
+3. Verify with `pytest tests/test_mock_acl_flow.py -v`
+
+### Testing Changes
+
+```powershell
+# Unit tests (connector modules)
+pytest tests/ -v
+
+# Integration tests (with mock data)
+pytest tests/test_connector_flow.py -v
+python tests/test_acl_wiring.py
+
+# End-to-end (requires Azure AD credentials)
+python run_full_deployment.py
+```

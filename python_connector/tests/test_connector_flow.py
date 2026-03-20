@@ -137,6 +137,7 @@ def test_ingest_content_uploads_mock_records(monkeypatch, test_config):
 
     ingest_content(test_config, graph_client, since=None)
 
+    # All records should be uploaded (configured types use converter, others use legacy builder)
     assert len(graph_client.put_calls) == len(raw_records)
     assert graph_client.delete_calls == []
 

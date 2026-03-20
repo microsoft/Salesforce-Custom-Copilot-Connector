@@ -7,8 +7,6 @@ from urllib.parse import urlencode
 import asyncio
 import logging
 
-import requests
-
 
 logger = logging.getLogger("salesforce_connector")
 
@@ -291,6 +289,8 @@ class AsyncSalesforceClient:
         return await asyncio.to_thread(self._execute_query, soql, access_token, True)
 
     def _execute_query(self, soql: str, access_token: str, use_query_all: bool) -> dict[str, Any]:
+        import requests  # Import here to avoid requiring it when just using enums
+        
         endpoint = "queryAll" if use_query_all else "query"
         query_url = (
             f"{self.instance_url}/services/data/{self.api_version}/{endpoint}?"

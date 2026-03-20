@@ -20,6 +20,7 @@ def test_config() -> AppConfig:
     return AppConfig(
         client_id="00000000-0000-0000-0000-000000000000",
         repo_root=PROJECT_ROOT.parent,
+        use_mock_data=False,  # Disable to allow monkeypatching in tests
         connector=ConnectorSettings(
             id="SalesforceCRMTestAutomation",
             name="Salesforce CRM Test Automation",
