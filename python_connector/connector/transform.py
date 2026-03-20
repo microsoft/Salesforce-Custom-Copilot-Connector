@@ -23,6 +23,35 @@ CONVERTER_TO_LIVE_PROPERTY_MAP = {
 EXCLUDED_KEYS = {"Id", "objectType", "url", "attributes"}
 
 
+def _get_collection_type(values: list) -> str | None:
+    """
+    Determine the OData collection type from list values.
+    Returns: "String", "Int64", "Double", "Boolean", or "DateTime"
+    """
+    if not values:
+        return "String"  # Default to String for empty lists
+    
+    # Check first non-None value to determine type
+    for value in values:
+        if value is None:
+            continue
+        
+        if isinstance(value, bool):
+            return "Boolean"
+        elif isinstance(value, int):
+            return "Int64"
+        elif isinstance(value, float):
+            return "Double"
+        elif isinstance(value, str):
+            # Check if it's a datetime string (ISO 8601 format)
+            if "T" in value and ("Z" in value or "+" in value or value.endswith("00")):
+                return "DateTime"
+            return "String"
+        break
+    
+    return "String"  # Default fallback
+
+
 def _fallback_acl() -> list[dict[str, str]]:
     return [
         {
@@ -106,9 +135,7 @@ class SalesforceItemTransformer:
     ) -> dict[str, Any]:
         converted_properties = converted_item.get("properties") or {}
         properties: dict[str, Any] = {
-            "title@odata.type": "String",
             "title": get_item_title(raw_item),
-            "url@odata.type": "String",
             "url": converted_properties.get("Url") or raw_item["url"],
             "objectType": raw_item["objectType"],
         }
@@ -121,6 +148,13 @@ class SalesforceItemTransformer:
                 continue
             if live_key in {"title", "url", "objectType"}:
                 continue
+            
+            # Add @odata.type for collection properties
+            if isinstance(value, list):
+                collection_type = _get_collection_type(value)
+                if collection_type:
+                    properties[f"{live_key}@odata.type"] = f"Collection({collection_type})"
+            
             properties[live_key] = value
 
         for key, value in raw_item.items():
@@ -131,6 +165,13 @@ class SalesforceItemTransformer:
                 continue
             if live_key in {"title", "url", "objectType"}:
                 continue
+            
+            # Add @odata.type for collection properties
+            if isinstance(value, list):
+                collection_type = _get_collection_type(value)
+                if collection_type:
+                    properties.setdefault(f"{live_key}@odata.type", f"Collection({collection_type})")
+            
             properties.setdefault(live_key, value)
 
         converted_content = converted_item.get("content") or {}
@@ -144,7 +185,6 @@ class SalesforceItemTransformer:
                 "type": "text",
             },
             "acl": acl or _fallback_acl(),
-            **({"shouldHashId": True} if converted_item.get("shouldHashId") else {}),
         }
 
     @staticmethod
@@ -153,9 +193,7 @@ class SalesforceItemTransformer:
         acl: list[dict[str, str]] | None,
     ) -> dict[str, Any]:
         properties: dict[str, Any] = {
-            "title@odata.type": "String",
             "title": get_item_title(item),
-            "url@odata.type": "String",
             "url": item["url"],
             "objectType": item["objectType"],
         }
@@ -163,7 +201,15 @@ class SalesforceItemTransformer:
         for key, value in item.items():
             if key in EXCLUDED_KEYS or value is None:
                 continue
-            properties[FIELD_NAME_MAP.get(key, key)] = value
+            field_key = FIELD_NAME_MAP.get(key, key)
+            
+            # Add @odata.type for collection properties
+            if isinstance(value, list):
+                collection_type = _get_collection_type(value)
+                if collection_type:
+                    properties[f"{field_key}@odata.type"] = f"Collection({collection_type})"
+            
+            properties[field_key] = value
 
         return {
             "id": item["Id"],
