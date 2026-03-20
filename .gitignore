@@ -19,6 +19,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Log files
+*.log
+python_connector/*.log
+
 # Azurite artifacts
 __blobstorage__
 __queuestorage__
