@@ -227,7 +227,7 @@
   },
   {
     "name": "Priority",
-    "type": "string",
+    "type": "StringCollection",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,

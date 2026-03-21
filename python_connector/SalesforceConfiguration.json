@@ -93,6 +93,46 @@
         },
         "filterCondition": "",
         "iconUrl": ""
+      },
+      {
+        "objectName": "Case",
+        "selectedFields": {
+          "CaseNumber": "CaseNumber",
+          "Subject": "Subject",
+          "Description": "Description",
+          "Status": "Status",
+          "Priority": "Priority",
+          "Origin": "Origin",
+          "Type": "Type",
+          "Reason": "Reason",
+          "Account.Id": "AccountId",
+          "Account.Name": "AccountName",
+          "Contact.Id": "ContactId",
+          "Contact.Name": "ContactName"
+        },
+        "SfColumnTypes": {},
+        "filterCondition": "",
+        "iconUrl": ""
+      },
+      {
+        "objectName": "Customer_Project__c",
+        "selectedFields": {
+          "Name": "Name",
+          "Description__c": "Description",
+          "Status__c": "Status",
+          "Start_Date__c": "StartDate",
+          "End_Date__c": "EndDate",
+          "Budget__c": "Budget",
+          "Account__c": "AccountId",
+          "Account__r.Name": "AccountName"
+        },
+        "SfColumnTypes": {
+          "Budget__c": "System.Double, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+          "Start_Date__c": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+          "End_Date__c": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+        },
+        "filterCondition": "",
+        "iconUrl": ""
       }
     ]
 }

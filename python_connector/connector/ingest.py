@@ -23,33 +23,39 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
     payload = {key: value for key, value in item.items() if key != "id"}
     url = f"/external/connections/{config.connector.id}/items/{quote(item_id, safe='')}"
 
-    # Log sample item details for first item of each object type
+    # Log sample item request/response for first item of each object type
     object_type = item.get("properties", {}).get("objectType")
     if object_type and object_type not in _sample_items_logged_by_type:
         _sample_items_logged_by_type.add(object_type)
-        logger.info("\n" + "=" * 70)
-        logger.info("SAMPLE ITEM: %s", object_type)
-        logger.info("=" * 70)
-        logger.info("Request URL: PUT %s", url)
-        logger.info("Item ID: %s", item_id)
-        logger.info("\nACL Details:")
         import json
-        logger.info("%s", json.dumps(payload.get("acl", []), indent=2))
-        logger.info("\nContent Type: %s", payload.get("content", {}).get("type"))
-        content_value = payload.get("content", {}).get("value", "")
-        logger.info("Content Preview (first 300 chars):\n%s...", content_value[:300])
-        logger.info("\nProperties (%d total):", len(payload.get("properties", {})))
-        for key, value in list(payload.get("properties", {}).items())[:15]:
-            value_str = str(value)[:100]
-            logger.info("  %s: %s", key, value_str)
-        if len(payload.get("properties", {})) > 15:
-            logger.info("  ... and %d more properties", len(payload.get("properties", {})) - 15)
-        logger.info("=" * 70 + "\n")
+        logger.info("\n" + "=" * 80)
+        logger.info("SAMPLE ITEM REQUEST: %s (ID: %s)", object_type, item_id)
+        logger.info("=" * 80)
+        logger.info("PUT %s", url)
+        logger.info("\nRequest Payload:")
+        logger.info(json.dumps(payload, indent=2))
+    
+    # For real data flow (not mock), log every item request payload
+    elif not config.use_mock_data:
+        import json
+        logger.info("\n" + "=" * 80)
+        logger.info("ITEM REQUEST: %s", item_id)
+        logger.info("=" * 80)
+        logger.info(json.dumps(payload, indent=2))
+        logger.info("=" * 80 + "\n")
     
     logger.info("PUT %s", url)
 
     try:
-        client.put(url, json_body=payload, headers={"content-type": "application/json"})
+        response = client.put(url, json_body=payload, headers={"content-type": "application/json"})
+        
+        # Log response for sample items
+        if object_type and object_type in _sample_items_logged_by_type and len(_sample_items_logged_by_type) <= 6:
+            import json
+            logger.info("\nResponse:")
+            logger.info(json.dumps(response if response else {"status": "success"}, indent=2))
+            logger.info("=" * 80 + "\n")
+            
     except GraphApiError as error:
         logger.error("Failed to load %s: %s", item_id, error)
         if error.body:
@@ -95,6 +101,16 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     if not raw_items:
         logger.info("No items returned from Salesforce")
         return
+
+    # Log Salesforce API response (real data flow only)
+    logger.info("\n" + "=" * 70)
+    logger.info("SALESFORCE API RESPONSE")
+    logger.info("=" * 70)
+    logger.info("Total records retrieved: %d", len(raw_items))
+    logger.info("\nFirst record (sample):")
+    import json
+    logger.info(json.dumps(raw_items[0] if raw_items else {}, indent=2))
+    logger.info("=" * 70 + "\n")
 
     transformer = SalesforceItemTransformer(
         config.connector.salesforce.instance_url,
@@ -162,7 +178,7 @@ def _ingest_mock_content(config: AppConfig, client: GraphClient) -> None:
     logger.info("Using MOCK DATA for ingestion")
 
     sf_client = MockSalesforceClient()
-    object_types = ["Account", "Contact", "Lead", "Opportunity"]
+    object_types = ["Account", "Contact", "Lead", "Opportunity", "Case", "Customer_Project__c"]
 
     raw_items: list[dict] = []
     for object_type in object_types:
