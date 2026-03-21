@@ -39,6 +39,20 @@ Required values:
 - Microsoft Graph: `AAD_APP_CLIENT_ID`, `AAD_APP_TENANT_ID`, `SECRET_AAD_APP_CLIENT_SECRET`
 - Salesforce: `SALESFORCE_INSTANCE_URL`, `SALESFORCE_API_VERSION`, `SALESFORCE_CLIENT_ID`, `SECRET_SALESFORCE_CLIENT_SECRET`
 
+Optional local behavior values:
+
+- `TEAMSFX_ENV=local`: makes [connector/settings.py](connector/settings.py) default `AZURE_FUNCTIONS_ENVIRONMENT` to `Development`
+- `USE_MOCK_DATA=true`: routes [connector/ingest.py](connector/ingest.py) through the mock-ingestion path instead of live Salesforce fetches
+
+Not used by the Python connector runtime:
+
+- `APP_NAME_SUFFIX`
+- `AAD_APP_OBJECT_ID`
+- `AAD_APP_OAUTH_AUTHORITY`
+- `AAD_APP_OAUTH_AUTHORITY_HOST`
+
+Those values can still appear in Microsoft 365 Agents Toolkit provisioning files, but this Python runtime does not read them.
+
 Use the Entra client secret value for `SECRET_AAD_APP_CLIENT_SECRET`. The secret ID will fail authentication.
 
 ## Local Run Steps
