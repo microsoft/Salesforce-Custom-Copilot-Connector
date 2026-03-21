@@ -103,15 +103,20 @@ class AclResolver:
         records: list[dict[str, Any]],
         acl_maps: dict[str, dict[str, list[dict[str, str]]]],
     ) -> dict[str, list[dict[str, str]]]:
-        account_acl_map = acl_maps.get(SalesforceConstants.ACCOUNT, {})
+        handler = self._handlers.get(object_name)
+        parent_object_name = handler.parent_object_name if handler else None
+        if not parent_object_name or handler is None:
+            return await self._build_private_acl_map(object_name, records)
+
+        parent_acl_map = acl_maps.get(parent_object_name, {})
         resolved: dict[str, list[dict[str, str]]] = {}
         unresolved_records: list[dict[str, Any]] = []
 
         for record in records:
             record_id = record.get("Id")
-            account_id = record.get("AccountId")
-            if record_id and account_id and account_id in account_acl_map:
-                resolved[record_id] = account_acl_map[account_id]
+            parent_record_id = handler.get_parent_record_id(record)
+            if record_id and parent_record_id and parent_record_id in parent_acl_map:
+                resolved[record_id] = parent_acl_map[parent_record_id]
             else:
                 unresolved_records.append(record)
 
@@ -465,8 +470,7 @@ class AclResolver:
             }
         ]
 
-    @staticmethod
-    def _sort_object_names(object_names: Any) -> list[str]:
+    def _sort_object_names(self, object_names: Any) -> list[str]:
         priority = {
             SalesforceConstants.ACCOUNT: 0,
             SalesforceConstants.CONTACT: 1,
@@ -474,7 +478,32 @@ class AclResolver:
             SalesforceConstants.LEAD: 3,
             SalesforceConstants.CASE: 4,
         }
-        return sorted(object_names, key=lambda name: priority.get(name, 100))
+        ordered_names = [str(name) for name in object_names]
+        object_name_set = set(ordered_names)
+        dependency_depths: dict[str, int] = {}
+        visiting: set[str] = set()
+
+        def _dependency_depth(name: str) -> int:
+            if name in dependency_depths:
+                return dependency_depths[name]
+
+            if name in visiting:
+                return 0
+
+            visiting.add(name)
+            handler = self._handlers.get(name)
+            parent_object_name = getattr(handler, "parent_object_name", None) if handler else None
+            depth = 0
+            if parent_object_name and parent_object_name in object_name_set:
+                depth = _dependency_depth(parent_object_name) + 1
+            visiting.remove(name)
+            dependency_depths[name] = depth
+            return depth
+
+        return sorted(
+            ordered_names,
+            key=lambda name: (_dependency_depth(name), priority.get(name, 100), name),
+        )
 
     @staticmethod
     def _build_in_filter(field_name: str, values: list[str]) -> str:

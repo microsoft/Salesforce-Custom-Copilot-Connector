@@ -48,10 +48,17 @@ For provisioned dev environments:
 
 Important local values:
 
-- [env/.env.local.example](env/.env.local.example): `CONNECTOR_ID`, `CONNECTOR_NAME`, `CONNECTOR_DESCRIPTION`, `SALESFORCE_INSTANCE_URL`, `SALESFORCE_API_VERSION`, `SALESFORCE_CLIENT_ID`, `AAD_APP_CLIENT_ID`, `AAD_APP_TENANT_ID`
+- [env/.env.local.example](env/.env.local.example): `TEAMSFX_ENV`, `CONNECTOR_ID`, `CONNECTOR_NAME`, `CONNECTOR_DESCRIPTION`, `SALESFORCE_INSTANCE_URL`, `SALESFORCE_API_VERSION`, `SALESFORCE_CLIENT_ID`, `AAD_APP_CLIENT_ID`, `AAD_APP_TENANT_ID`, `USE_MOCK_DATA`
 - [env/.env.local.user.example](env/.env.local.user.example): `SECRET_SALESFORCE_CLIENT_SECRET`, `SECRET_AAD_APP_CLIENT_SECRET`
 
-At startup, the app maps `AAD_APP_*` and `SECRET_*` values into the `AZURE_*` and `SALESFORCE_*` variables used by the runtime. The local copies of these files are ignored by Git.
+Provisioning values:
+
+- [env/.env.dev.example](env/.env.dev.example): `TEAMSFX_ENV`, `CONNECTOR_ID`, `CONNECTOR_NAME`, `CONNECTOR_DESCRIPTION`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP_NAME`, `RESOURCE_SUFFIX`, `CONNECTOR_REPOS`
+- [env/.env.dev.user.example](env/.env.dev.user.example): `SECRET_AAD_APP_CLIENT_SECRET` when reusing an existing Entra app; the default `aadApp/create` step can write it during provisioning
+
+At startup, the Python runtime maps `AAD_APP_CLIENT_ID`, `AAD_APP_TENANT_ID`, `SECRET_AAD_APP_CLIENT_SECRET`, and `SECRET_SALESFORCE_CLIENT_SECRET` into the `AZURE_*` and `SALESFORCE_*` variables used by the runtime. The local copies of these files are ignored by Git.
+
+The Python runtime does not read `APP_NAME_SUFFIX`, `AAD_APP_OBJECT_ID`, `AAD_APP_OAUTH_AUTHORITY`, or `AAD_APP_OAUTH_AUTHORITY_HOST`. Those values are only relevant to Microsoft 365 Agents Toolkit provisioning flows when they are generated.
 
 For `SECRET_AAD_APP_CLIENT_SECRET`, use the client secret value from the Entra app registration. Do not use the secret ID.
 

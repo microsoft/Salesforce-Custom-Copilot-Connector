@@ -39,6 +39,20 @@ Required values:
 - Microsoft Graph: `AAD_APP_CLIENT_ID`, `AAD_APP_TENANT_ID`, `SECRET_AAD_APP_CLIENT_SECRET`
 - Salesforce: `SALESFORCE_INSTANCE_URL`, `SALESFORCE_API_VERSION`, `SALESFORCE_CLIENT_ID`, `SECRET_SALESFORCE_CLIENT_SECRET`
 
+Optional local behavior values:
+
+- `TEAMSFX_ENV=local`: makes [connector/settings.py](connector/settings.py) default `AZURE_FUNCTIONS_ENVIRONMENT` to `Development`
+- `USE_MOCK_DATA=true`: routes [connector/ingest.py](connector/ingest.py) through the mock-ingestion path instead of live Salesforce fetches
+
+Not used by the Python connector runtime:
+
+- `APP_NAME_SUFFIX`
+- `AAD_APP_OBJECT_ID`
+- `AAD_APP_OAUTH_AUTHORITY`
+- `AAD_APP_OAUTH_AUTHORITY_HOST`
+
+Those values can still appear in Microsoft 365 Agents Toolkit provisioning files, but this Python runtime does not read them.
+
 Use the Entra client secret value for `SECRET_AAD_APP_CLIENT_SECRET`. The secret ID will fail authentication.
 
 ## Local Run Steps
@@ -119,9 +133,15 @@ Expected markers in the output:
 - `ITEM_COUNT=<n>`
 - `TEST_FLOW_OK`
 
+## Team Notes
+
+- [ACL_PARENT_CHILD_INHERITANCE.md](ACL_PARENT_CHILD_INHERITANCE.md): shareable explanation of schema-driven ACL parent-child inheritance and how it now follows `schema.json`
+
 ## Automated Mock Tests
 
 Use the connector-level pytest suite when you want repeatable offline coverage for object transformation, ACL resolution, and ingestion uploads without calling live Salesforce or Microsoft Graph.
+
+For real Graph calls with mocked Salesforce sources, use the mock-mode flow documented in [Mock Data Testing](#mock-data-testing) below.
 
 Install the test dependencies:
 

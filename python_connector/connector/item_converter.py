@@ -127,6 +127,46 @@ class SalesforceObjectHandler:
             if child_handler.object_name_as_child:
                 self._child_handler_map[child_handler.object_name_as_child] = child_handler
 
+        self.parent_record_lookup_paths: tuple[str, ...] = self._build_parent_record_lookup_paths()
+
+    def get_parent_record_id(self, record: dict[str, Any]) -> str | None:
+        for field_path in self.parent_record_lookup_paths:
+            value = self._get_record_value(record, field_path)
+            if value:
+                return str(value)
+        return None
+
+    def _build_parent_record_lookup_paths(self) -> tuple[str, ...]:
+        if not self.parent_object_name:
+            return ()
+
+        expected_property_name = f"{self.parent_object_name}Id"
+        lookup_paths: list[str] = []
+
+        for raw_field, property_name in self.selected_fields.items():
+            if property_name == expected_property_name and raw_field not in lookup_paths:
+                lookup_paths.append(raw_field)
+
+        for fallback_path in (expected_property_name, f"{self.parent_object_name}.Id"):
+            if fallback_path not in lookup_paths:
+                lookup_paths.append(fallback_path)
+
+        return tuple(lookup_paths)
+
+    @staticmethod
+    def _get_record_value(record: dict[str, Any], field_path: str) -> Any:
+        if field_path in record:
+            return record.get(field_path)
+
+        current: Any = record
+        for part in field_path.split("."):
+            if not isinstance(current, dict):
+                return None
+            current = current.get(part)
+            if current is None:
+                return None
+        return current
+
     def construct_ingestion_items(
         self,
         sf_query_result: dict[str, Any],
