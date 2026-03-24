@@ -14,7 +14,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_ROOT = PROJECT_ROOT / "connector" / "references"
 
 LOCAL_ENV_FILES = (
-    REPO_ROOT / "env" / ".env.local.example",  # Changed to use .example file
     REPO_ROOT / "env" / ".env.local",
     REPO_ROOT / "env" / ".env.local.user",
     PROJECT_ROOT / ".env.local",

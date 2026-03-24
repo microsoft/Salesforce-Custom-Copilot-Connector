@@ -136,6 +136,7 @@ Expected markers in the output:
 ## Team Notes
 
 - [ACL_PARENT_CHILD_INHERITANCE.md](ACL_PARENT_CHILD_INHERITANCE.md): shareable explanation of schema-driven ACL parent-child inheritance and how it now follows `schema.json`
+- [SALESFORCE_ACL_TEST_DATA_REQUIREMENTS.md](SALESFORCE_ACL_TEST_DATA_REQUIREMENTS.md): handoff document for Salesforce admins who need to populate live-org data for end-to-end ACL validation
 
 ## Automated Mock Tests
 

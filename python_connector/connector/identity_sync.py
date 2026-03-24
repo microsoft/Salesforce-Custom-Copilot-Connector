@@ -90,6 +90,7 @@ class User(IdentityResponseBase):
 
 @dataclass
 class EntityShareBase(IdentityResponseBase):
+    Id: str = ""
     UserOrGroupId: Optional[str] = None
     RowCause: Optional[str] = None
     UserOrGroup: Optional[UserOrGroup] = None
@@ -192,6 +193,7 @@ class SalesforceIdentitySOQLResponseProcessor:
 
     def _parse_entity_share(self, record: dict[str, Any]) -> EntityShareBase:
         share_data = self._filter_fields(record, EntityShareBase)
+        share_data.setdefault("Id", "")
         if "UserOrGroup" in record and isinstance(record["UserOrGroup"], dict):
             share_data["UserOrGroup"] = UserOrGroup(
                 Type=record["UserOrGroup"].get("Type", ""),
@@ -238,7 +240,7 @@ class IdentitySyncQueries:
         "DefaultLeadAccess, DefaultCampaignAccess, DefaultCaseAccess from Organization"
     )
     AllSharesFromRecords = (
-        "SELECT Id, IsDeleted, (SELECT UserOrGroupId, UserOrGroup.Type from Shares) "
+        "SELECT Id, IsDeleted, (SELECT Id, UserOrGroupId, UserOrGroup.Type from Shares) "
         "from {0}{1} ORDER BY Id {2}"
     )
     GroupMembersQueryFormat = "SELECT Id, GroupId, UserOrGroupId from GroupMember{0} ORDER BY Id asc"

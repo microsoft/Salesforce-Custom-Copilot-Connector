@@ -7,6 +7,12 @@ import logging
 
 from connector.acl import AclResolver
 from connector.graph import GraphApiError, GraphClient
+from connector.item_upload_log import (
+    initialize_item_request_debug_log,
+    initialize_item_upload_log,
+    record_item_put_request,
+    record_uploaded_item,
+)
 from connector.salesforce import get_all_items_from_api
 from connector.settings import AppConfig
 from connector.transform import SalesforceItemTransformer
@@ -46,8 +52,24 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
     
     logger.info("PUT %s", url)
 
+    record_item_put_request(
+        config,
+        item_id=item_id,
+        object_type=object_type,
+        url=payload.get("properties", {}).get("url"),
+        graph_path=url,
+        request_payload=payload,
+    )
+
     try:
         response = client.put(url, json_body=payload, headers={"content-type": "application/json"})
+        record_uploaded_item(
+            config,
+            item_id=item_id,
+            object_type=object_type,
+            graph_path=url,
+            url=payload.get("properties", {}).get("url"),
+        )
         
         # Log response for sample items
         if object_type and object_type in _sample_items_logged_by_type and len(_sample_items_logged_by_type) <= 6:
@@ -85,6 +107,8 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     """
     logger.info("Starting ingestion process...")
     logger.info("Mock data mode: %s", "ENABLED" if config.use_mock_data else "DISABLED")
+    initialize_item_request_debug_log(config)
+    initialize_item_upload_log(config)
     
     if since:
         logger.info("Incremental sync from: %s", since.isoformat())

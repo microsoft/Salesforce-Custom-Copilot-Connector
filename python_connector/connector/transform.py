@@ -13,6 +13,14 @@ FIELD_NAME_MAP = {
     "Title": "JobTitle",
 }
 
+COLLECTION_SCHEMA_TO_ODATA_TYPE = {
+    "StringCollection": "String",
+    "Int64Collection": "Int64",
+    "DoubleCollection": "Double",
+    "BooleanCollection": "Boolean",
+    "DateTimeCollection": "DateTime",
+}
+
 CONVERTER_TO_LIVE_PROPERTY_MAP = {
     "Title": "JobTitle",
     "LeadStatus": "Status",
@@ -97,7 +105,12 @@ def get_item_content(item: dict[str, Any]) -> str:
 
 class SalesforceItemTransformer:
     def __init__(self, instance_url: str, schema: list[dict[str, Any]]):
-        self._schema_properties = {prop["name"] for prop in schema if prop.get("name")}
+        self._schema_property_types = {
+            prop["name"]: prop.get("type")
+            for prop in schema
+            if prop.get("name")
+        }
+        self._schema_properties = set(self._schema_property_types)
         self._converter = SalesforceConverter(instance_url=instance_url)
         self._supported_objects = set(self._converter.object_names)
 
@@ -148,14 +161,10 @@ class SalesforceItemTransformer:
                 continue
             if live_key in {"title", "url", "objectType"}:
                 continue
-            
-            # Add @odata.type for collection properties
-            if isinstance(value, list):
-                collection_type = _get_collection_type(value)
-                if collection_type:
-                    properties[f"{live_key}@odata.type"] = f"Collection({collection_type})"
-            
-            properties[live_key] = value
+
+            normalized_value = self._normalize_schema_value(live_key, value)
+            self._apply_collection_annotation(properties, live_key, normalized_value)
+            properties[live_key] = normalized_value
 
         for key, value in raw_item.items():
             if key in EXCLUDED_KEYS or value is None:
@@ -165,14 +174,10 @@ class SalesforceItemTransformer:
                 continue
             if live_key in {"title", "url", "objectType"}:
                 continue
-            
-            # Add @odata.type for collection properties
-            if isinstance(value, list):
-                collection_type = _get_collection_type(value)
-                if collection_type:
-                    properties.setdefault(f"{live_key}@odata.type", f"Collection({collection_type})")
-            
-            properties.setdefault(live_key, value)
+
+            normalized_value = self._normalize_schema_value(live_key, value)
+            self._apply_collection_annotation(properties, live_key, normalized_value)
+            properties.setdefault(live_key, normalized_value)
 
         converted_content = converted_item.get("content") or {}
         content_value = converted_content.get("parsedData") if isinstance(converted_content, dict) else None
@@ -202,13 +207,12 @@ class SalesforceItemTransformer:
             if key in EXCLUDED_KEYS or value is None:
                 continue
             field_key = FIELD_NAME_MAP.get(key, key)
-            
-            # Add @odata.type for collection properties
+
             if isinstance(value, list):
                 collection_type = _get_collection_type(value)
                 if collection_type:
                     properties[f"{field_key}@odata.type"] = f"Collection({collection_type})"
-            
+
             properties[field_key] = value
 
         return {
@@ -220,3 +224,34 @@ class SalesforceItemTransformer:
             },
             "acl": acl or _fallback_acl(),
         }
+
+    def _normalize_schema_value(self, live_key: str, value: Any) -> Any:
+        collection_type = COLLECTION_SCHEMA_TO_ODATA_TYPE.get(self._schema_property_types.get(live_key, ""))
+        if not collection_type:
+            return value
+
+        if isinstance(value, list):
+            return value
+
+        if isinstance(value, tuple):
+            return list(value)
+
+        return [value]
+
+    def _apply_collection_annotation(
+        self,
+        properties: dict[str, Any],
+        live_key: str,
+        value: Any,
+    ) -> None:
+        schema_collection_type = COLLECTION_SCHEMA_TO_ODATA_TYPE.get(
+            self._schema_property_types.get(live_key, "")
+        )
+        if schema_collection_type:
+            properties[f"{live_key}@odata.type"] = f"Collection({schema_collection_type})"
+            return
+
+        if isinstance(value, list):
+            collection_type = _get_collection_type(value)
+            if collection_type:
+                properties.setdefault(f"{live_key}@odata.type", f"Collection({collection_type})")

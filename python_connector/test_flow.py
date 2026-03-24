@@ -18,8 +18,12 @@ from connector.connection import (
     is_connection_ready,
     set_search_settings,
 )
-from connector.graph import GraphClient
+from connector.graph import GraphApiError, GraphClient
 from connector.ingest import ingest_content
+from connector.item_upload_log import (
+    initialize_item_response_debug_log,
+    record_item_get_response,
+)
 from connector.salesforce import get_all_items_from_api, get_salesforce_access_token
 from connector.schema import ensure_schema
 from connector.settings import load_config
@@ -28,6 +32,7 @@ from connector.utils import parse_datetime
 
 
 logger = logging.getLogger("salesforce_connector")
+VERIFY_OBJECT_TYPE = "Case"
 
 
 def parse_args() -> argparse.Namespace:
@@ -194,19 +199,51 @@ def collect_items(
     client: GraphClient,
     raw_items: list[dict[str, Any]],
     show_items: int,
-) -> tuple[int, list[dict[str, Any]]]:
+) -> tuple[str, int, list[dict[str, Any]]]:
     samples: list[dict[str, Any]] = []
+    case_items = [item for item in raw_items if item.get("objectType") == VERIFY_OBJECT_TYPE]
+    items_to_verify = case_items or raw_items
+    verify_object_type = VERIFY_OBJECT_TYPE if case_items else "All"
 
-    for raw_item in raw_items[:show_items]:
+    initialize_item_response_debug_log(config)
+
+    for raw_item in items_to_verify:
         item_id = str(raw_item["Id"])
-        payload = client.get(
-            f"/external/connections/{config.connector.id}/items/{quote(item_id, safe='')}"
+        object_type = str(raw_item.get("objectType") or "Unknown")
+        graph_path = f"/external/connections/{config.connector.id}/items/{quote(item_id, safe='')}"
+        try:
+            payload = client.get(graph_path)
+        except GraphApiError as error:
+            record_item_get_response(
+                config,
+                item_id=item_id,
+                object_type=object_type,
+                url=raw_item.get("url"),
+                graph_path=graph_path,
+                error={
+                    "statusCode": error.status_code,
+                    "code": error.code,
+                    "message": str(error),
+                    "body": error.body,
+                },
+            )
+            raise
+
+        record_item_get_response(
+            config,
+            item_id=item_id,
+            object_type=object_type,
+            url=raw_item.get("url"),
+            graph_path=graph_path,
+            response_payload=payload if isinstance(payload, dict) else {"rawResponse": payload},
         )
+
         if not isinstance(payload, dict) or payload.get("id") != item_id:
             raise RuntimeError(f"Failed to verify Graph item {item_id}")
-        samples.append(payload)
+        if len(samples) < show_items:
+            samples.append(payload)
 
-    return len(raw_items), samples
+    return verify_object_type, len(items_to_verify), samples
 
 
 def print_item_samples(samples: list[dict[str, Any]], show_item_json: bool) -> None:
@@ -302,7 +339,8 @@ def main() -> int:
         print_kv("INGEST_ITEM_COUNT", len(raw_items))
 
     print_step("Verify Items")
-    item_count, samples = collect_items(config, client, raw_items, max(args.show_items, 0))
+    verify_object_type, item_count, samples = collect_items(config, client, raw_items, max(args.show_items, 0))
+    print_kv("VERIFY_OBJECT_TYPE", verify_object_type)
     print_kv("ITEM_COUNT", item_count)
     print_item_samples(samples, args.show_item_json)
     print("TEST_FLOW_OK")

@@ -1,7 +1,7 @@
 {
   "id": "${{AAD_APP_OBJECT_ID}}",
   "appId": "${{AAD_APP_CLIENT_ID}}",
-  "displayName": "Salesforce-${{TEAMSFX_ENV}}",
+  "displayName": "ACLTesting21032026",
   "signInAudience": "AzureADMyOrg",
   "api": {
     "requestedAccessTokenVersion": 2
