@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Any
 from urllib.parse import quote
 import asyncio
+import logging
 import os
 
 from connector.graph import GraphApiError, GraphClient
@@ -24,6 +25,7 @@ from connector.settings import AppConfig
 
 
 USER_ID_PREFIX = "005"
+logger = logging.getLogger("salesforce_connector")
 
 
 class AclResolver:
@@ -63,14 +65,29 @@ class AclResolver:
         self,
         records_by_object_type: dict[str, list[dict[str, Any]]],
     ) -> dict[str, dict[str, list[dict[str, str]]]]:
+        logger.info("\n" + "=" * 80)
+        logger.info("ACL RESOLUTION START")
+        logger.info("=" * 80)
+        
         acl_maps: dict[str, dict[str, list[dict[str, str]]]] = {}
         visibility_map = await self._helper.get_org_wide_defaults_map()
+        
+        logger.info("\nOrg-Wide Defaults (OWD) Visibility Map:")
+        for obj_name, visibility in visibility_map.items():
+            logger.info("  %s: %s", obj_name, visibility)
 
         object_order = self._sort_object_names(records_by_object_type.keys())
+        logger.info("\nObject processing order: %s", object_order)
+        
         for object_name in object_order:
             records = records_by_object_type.get(object_name, [])
             if not records:
                 continue
+            
+            logger.info("\n" + "-" * 80)
+            logger.info("Processing object: %s (%d records)", object_name, len(records))
+            logger.info("-" * 80)
+            
             acl_maps[object_name] = await self._build_acl_map_for_object(
                 object_name,
                 records,
@@ -78,6 +95,10 @@ class AclResolver:
                 acl_maps,
             )
 
+        logger.info("\n" + "=" * 80)
+        logger.info("ACL RESOLUTION COMPLETE")
+        logger.info("=" * 80 + "\n")
+        
         return acl_maps
 
     async def _build_acl_map_for_object(
@@ -88,13 +109,18 @@ class AclResolver:
         acl_maps: dict[str, dict[str, list[dict[str, str]]]],
     ) -> dict[str, list[dict[str, str]]]:
         visibility = visibility_map.get(object_name, EntityVisibility.PUBLIC_READ_ONLY)
+        
+        logger.info("Visibility for %s: %s", object_name, visibility)
 
         if self._is_public_visibility(visibility):
+            logger.info("  → Public visibility - granting everyone access")
             return {record["Id"]: self._public_acl() for record in records if record.get("Id")}
 
         if self._is_controlled_by_parent(visibility):
+            logger.info("  → Controlled by parent - using parent ACLs")
             return await self._build_parent_controlled_acl_map(object_name, records, acl_maps)
 
+        logger.info("  → Private visibility - building custom ACLs")
         return await self._build_private_acl_map(object_name, records)
 
     async def _build_parent_controlled_acl_map(
@@ -131,11 +157,14 @@ class AclResolver:
         records: list[dict[str, Any]],
     ) -> dict[str, list[dict[str, str]]]:
         if object_name not in self._handlers:
+            logger.info("    No handler for %s - defaulting to public ACL", object_name)
             return {record["Id"]: self._public_acl() for record in records if record.get("Id")}
 
         record_ids = [str(record["Id"]) for record in records if record.get("Id")]
         if not record_ids:
             return {}
+
+        logger.info("    Building private ACLs for %d %s records", len(record_ids), object_name)
 
         shares_by_record = await self._get_shares_by_record(object_name, record_ids)
 
@@ -153,6 +182,13 @@ class AclResolver:
             owner_id = record.get("OwnerId")
             if owner_id:
                 user_ids.add(str(owner_id))
+                
+                # Add role hierarchy access: grant access to users in parent roles of the owner
+                # This implements "Grant Access Using Hierarchies" for implicit upward sharing
+                owner_role_id = self._get_owner_role_id(record)
+                if owner_role_id:
+                    parent_role_users = await self._get_parent_role_users(owner_role_id)
+                    user_ids.update(parent_role_users)
 
             for share in shares_by_record.get(record_id, []):
                 share_id = share.UserOrGroupId
@@ -174,14 +210,22 @@ class AclResolver:
             union_user_ids.update(user_ids)
             union_group_ids.update(group_ids)
 
-        authorized_users_by_object, _ = await self._helper.get_authorized_users_and_groups_from_salesforce(
-            list(union_user_ids),
-            list(union_group_ids),
-            self._handlers[object_name],
-            EntityVisibility.NONE,
-            await self._get_frozen_users(),
-        )
+        logger.info("    Authorizing %d users and %d groups", len(union_user_ids), len(union_group_ids))
+
+        try:
+            authorized_users_by_object, _ = await self._helper.get_authorized_users_and_groups_from_salesforce(
+                list(union_user_ids),
+                list(union_group_ids),
+                self._handlers[object_name],
+                EntityVisibility.NONE,
+                await self._get_frozen_users(),
+            )
+        except Exception as auth_error:
+            logger.error("    ❌ Failed to authorize users: %s", auth_error)
+            raise
+        
         users_by_id = authorized_users_by_object.get(object_name, {})
+        logger.info("    Retrieved %d authorized users from Salesforce", len(users_by_id))
 
         acl_map: dict[str, list[dict[str, str]]] = {}
         for record_id in record_ids:
@@ -216,6 +260,7 @@ class AclResolver:
     async def _expand_groups(self, group_ids: set[str]) -> tuple[set[str], bool]:
         user_ids: set[str] = set()
         includes_everyone = False
+        
         for group_id in group_ids:
             group_users, group_everyone = await self._resolve_group(group_id)
             user_ids.update(group_users)
@@ -327,6 +372,52 @@ class AclResolver:
             frontier.extend(self._role_children_cache.get(current, set()))
         return descendants
 
+    async def _get_parent_role_ids(self, role_id: str) -> set[str]:
+        """Get all parent role IDs (upward in hierarchy) for implicit sharing"""
+        if self._role_children_cache is None:
+            await self._get_descendant_role_ids("")  # Initialize cache
+        
+        # Build parent map from children cache
+        parent_map: dict[str, str] = {}
+        roles = await self._helper.get_user_role_hierarchy_from_salesforce(fetch_all=True)
+        for role in roles:
+            if role.Id and role.ParentRoleId:
+                parent_map[role.Id] = role.ParentRoleId
+        
+        # Traverse upward to collect all parent roles
+        parents: set[str] = set()
+        current = role_id
+        while current in parent_map:
+            parent = parent_map[current]
+            parents.add(parent)
+            current = parent
+        
+        return parents
+
+    async def _get_parent_role_users(self, role_id: str) -> set[str]:
+        """Get all users in parent roles for implicit upward sharing"""
+        parent_role_ids = await self._get_parent_role_ids(role_id)
+        
+        if not parent_role_ids:
+            return set()
+        
+        users = await self._helper.get_users_from_salesforce(
+            self._build_in_filter("UserRoleId", sorted(parent_role_ids)),
+            fetch_all=True,
+        )
+        user_ids = {user.Id for user in users if user.Id}
+        return user_ids
+
+    @staticmethod
+    def _get_owner_role_id(record: dict[str, Any]) -> str | None:
+        """Extract the owner's role ID from the record"""
+        owner = record.get("Owner")
+        if isinstance(owner, dict):
+            user_role = owner.get("UserRole")
+            if isinstance(user_role, dict):
+                return user_role.get("Id")
+        return None
+
     async def _get_users_and_managers(self) -> list[User]:
         if self._users_and_managers is None:
             self._users_and_managers = await self._helper.get_users_and_managers()
@@ -351,11 +442,16 @@ class AclResolver:
 
         for user_id in sorted(user_ids):
             user = users_by_id.get(user_id)
+            
             if not user or user.IsFrozen:
                 continue
+            
             principal = self._resolve_user_guid(user)
+            
             if not principal:
+                logger.warning("    ✗ User %s (%s): No M365 account found", user_id, user.Email or user.UserName or "no-identifier")
                 continue
+            
             normalized = principal.lower()
             if normalized in seen_values:
                 continue
@@ -367,7 +463,7 @@ class AclResolver:
                     "value": principal,
                 }
             )
-
+        
         return acl_entries
 
     @staticmethod
@@ -378,10 +474,18 @@ class AclResolver:
         return None
 
     def _resolve_user_guid(self, user: User) -> str | None:
-        for candidate in (user.FederationIdentifier, user.UserName, user.Email):
-            resolved = self._resolve_principal_guid(candidate)
-            if resolved:
-                return resolved
+        resolved = self._resolve_principal_guid(user.FederationIdentifier)
+        if resolved:
+            return resolved
+        
+        resolved = self._resolve_principal_guid(user.UserName)
+        if resolved:
+            return resolved
+        
+        resolved = self._resolve_principal_guid(user.Email)
+        if resolved:
+            return resolved
+        
         return None
 
     def _resolve_principal_guid(self, identifier: str | None) -> str | None:
@@ -392,18 +496,22 @@ class AclResolver:
         if not normalized:
             return None
 
+        # Check cache
         cached = self._principal_id_cache.get(normalized)
         if cached is not None or normalized in self._principal_id_cache:
             return cached
 
+        # Check if already a GUID
         if self._looks_like_guid(normalized):
             self._principal_id_cache[normalized] = normalized
             return normalized
 
+        # Need Graph client to look up
         if self._graph_client is None:
             self._principal_id_cache[normalized] = None
             return None
 
+        # Lookup via Graph API
         graph_id = self._lookup_graph_user_id(normalized)
         self._principal_id_cache[normalized] = graph_id
         return graph_id
@@ -422,7 +530,7 @@ class AclResolver:
 
         escaped_identifier = identifier.replace("'", "''")
         filter_path = (
-            "/users?$select=id&$top=1&$filter="
+            f"/users?$select=id&$top=1&$filter="
             f"userPrincipalName eq '{escaped_identifier}' or mail eq '{escaped_identifier}'"
         )
         try:
@@ -430,6 +538,8 @@ class AclResolver:
             values = payload.get("value", []) if isinstance(payload, dict) else []
             if values and isinstance(values[0], dict) and values[0].get("id"):
                 return str(values[0]["id"])
+            else:
+                return None
         except GraphApiError as error:
             if error.status_code not in (400, 403, 404):
                 raise

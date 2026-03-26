@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from urllib.parse import quote
 import logging
+import os
 
 from connector.acl import AclResolver
 from connector.graph import GraphApiError, GraphClient
@@ -126,15 +127,71 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         logger.info("No items returned from Salesforce")
         return
 
+    # FILTER FOR SPECIFIC OBJECT TYPE (DEBUG MODE)
+    DEBUG_OBJECT_TYPE = os.getenv("DEBUG_OBJECT_TYPE")
+    if DEBUG_OBJECT_TYPE:
+        logger.info("DEBUG MODE: Looking for object type: %s", DEBUG_OBJECT_TYPE)
+        filtered_items = [item for item in raw_items if item.get("objectType") == DEBUG_OBJECT_TYPE]
+        if filtered_items:
+            logger.info("\n" + "!" * 70)
+            logger.info("DEBUG MODE: Found and filtering to %d records of type: %s", len(filtered_items), DEBUG_OBJECT_TYPE)
+            logger.info("!" * 70 + "\n")
+            raw_items = filtered_items
+        else:
+            logger.warning("\n" + "!" * 70)
+            logger.warning("DEBUG object type %s not found in results.", DEBUG_OBJECT_TYPE)
+            # Count objects by type
+            from collections import Counter
+            object_counts = Counter(item.get("objectType") for item in raw_items)
+            logger.warning("Available object types in results:")
+            for obj_type, count in object_counts.items():
+                logger.warning("  - %s: %d records", obj_type, count)
+            logger.warning("!" * 70 + "\n")
+            # Don't process any items if the specific object type wasn't found
+            logger.error("Stopping ingestion - specified object type not found")
+            return
+
+    # FILTER FOR SPECIFIC ITEM (DEBUG MODE)
+    DEBUG_ITEM_ID = os.getenv("DEBUG_ITEM_ID")
+    if DEBUG_ITEM_ID:
+        logger.info("DEBUG MODE: Looking for item ID: %s", DEBUG_ITEM_ID)
+        filtered_items = [item for item in raw_items if item.get("Id") == DEBUG_ITEM_ID]
+        if filtered_items:
+            logger.info("\n" + "!" * 70)
+            logger.info("DEBUG MODE: Found and filtering to only process item: %s", DEBUG_ITEM_ID)
+            logger.info("!" * 70 + "\n")
+            raw_items = filtered_items
+        else:
+            logger.warning("\n" + "!" * 70)
+            logger.warning("DEBUG item %s not found in results.", DEBUG_ITEM_ID)
+            logger.warning("Available IDs in results:")
+            for item in raw_items[:10]:  # Show first 10 IDs
+                logger.warning("  - %s (%s)", item.get("Id"), item.get("objectType"))
+            if len(raw_items) > 10:
+                logger.warning("  ... and %d more", len(raw_items) - 10)
+            logger.warning("!" * 70 + "\n")
+            # Don't process any items if the specific item wasn't found
+            logger.error("Stopping ingestion - specified item not found")
+            return
+
     # Log Salesforce API response (real data flow only)
     logger.info("\n" + "=" * 70)
     logger.info("SALESFORCE API RESPONSE")
     logger.info("=" * 70)
     logger.info("Total records retrieved: %d", len(raw_items))
-    logger.info("\nFirst record (sample):")
-    import json
-    logger.info(json.dumps(raw_items[0] if raw_items else {}, indent=2))
     logger.info("=" * 70 + "\n")
+
+    # Log each raw item from Salesforce API
+    import json
+    for idx, raw_item in enumerate(raw_items, 1):
+        logger.info("\n" + "-" * 70)
+        logger.info("SALESFORCE ITEM %d/%d", idx, len(raw_items))
+        logger.info("-" * 70)
+        logger.info("Object Type: %s", raw_item.get("objectType", "Unknown"))
+        logger.info("Record ID: %s", raw_item.get("Id", "Unknown"))
+        logger.info("\nRaw Salesforce Record:")
+        logger.info(json.dumps(raw_item, indent=2))
+        logger.info("-" * 70 + "\n")
 
     transformer = SalesforceItemTransformer(
         config.connector.salesforce.instance_url,
@@ -149,18 +206,29 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
 
     acl_map_by_object: dict[str, dict[str, list[dict[str, str]]]] = {}
     try:
+        logger.info("Starting ACL resolution for %d object types", len(records_by_object_type))
         acl_map_by_object = AclResolver(
             config,
             transformer.handlers,
             graph_client=client,
         ).resolve(dict(records_by_object_type))
+        logger.info("ACL resolution completed successfully. Resolved ACLs for %d object types", len(acl_map_by_object))
     except Exception as error:  # pragma: no cover - runtime error fan-in
-        logger.exception("Failed to resolve ACLs, falling back to public ACLs: %s", error)
+        logger.exception("❌ CRITICAL: Failed to resolve ACLs, falling back to public ACLs: %s", error)
+        logger.error("⚠️ ALL ITEMS WILL HAVE PUBLIC ACCESS (everyone) DUE TO ACL FAILURE")
 
     ingested_count = 0
     for item in raw_items:
         object_type = item.get("objectType", "")
-        acl = acl_map_by_object.get(object_type, {}).get(item["Id"])
+        item_id = item["Id"]
+        acl = acl_map_by_object.get(object_type, {}).get(item_id)
+        
+        # Log ACL retrieval
+        if acl is None:
+            logger.warning("No ACL found for item %s (%s) - will use fallback ACL", item_id, object_type)
+        else:
+            logger.info("Retrieved ACL for item %s (%s): %d entries", item_id, object_type, len(acl))
+        
         transformed_items = transformer.transform_record(item, acl)
 
         for transformed_item in transformed_items:

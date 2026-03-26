@@ -21,6 +21,7 @@ METADATA_COLUMNS = [
     "Id",
     "LastModifiedDate",
     "IsDeleted",
+    "Owner.UserRole.Id",
     "Owner.UserRole.ParentRoleId",
     "OwnerId",
     "Owner.Name",
@@ -323,7 +324,7 @@ class SalesforceObjectHandler:
                 content_parts.append(f"{field_key}: {field_value}")
 
         if content_parts:
-            content.parsed_data = "\n".join(content_parts)
+            content.parsed_data = ", ".join(content_parts)
 
         return content
 

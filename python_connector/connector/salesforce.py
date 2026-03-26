@@ -15,7 +15,7 @@ from connector.utils import to_iso_z
 
 
 logger = logging.getLogger("salesforce_connector")
-QUERY_LIMIT = 10
+QUERY_LIMIT = 200
 
 INVALID_FIELD_NAME_PATTERNS = (
     re.compile(r"No such column '([^']+)' on entity", re.IGNORECASE),
