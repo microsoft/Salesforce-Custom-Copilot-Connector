@@ -10,6 +10,7 @@ Azure Functions application that creates and maintains a Salesforce CRM external
 - [connector/connection.py](connector/connection.py): External connection lifecycle
 - [connector/schema.py](connector/schema.py): Schema deployment
 - [connector/salesforce.py](connector/salesforce.py): Salesforce authentication and SOQL queries
+- [connector/identity_sync.py](connector/identity_sync.py): Org-wide defaults, user/group/role/territory queries and identity resolution
 - [connector/transform.py](connector/transform.py): Graph external item mapping
 - [connector/ingest.py](connector/ingest.py): Content ingestion
 - [connector/crawl_state.py](connector/crawl_state.py): Last crawl persistence
@@ -211,7 +212,7 @@ Test the complete connector flow without a live Salesforce connection using mock
    python run_ingestion_only.py
    
    # Verify ACL wiring
-   python tests/test_acl_wiring.py
+   python -m pytest tests/test_mock_acl_flow.py -v
    ```
 
 ### What Gets Mocked
@@ -289,7 +290,8 @@ The [connector/acl.py](connector/acl.py) builds ACLs based on:
 1. **Organization-wide Defaults** - Base visibility (Public, Private, Controlled by Parent)
 2. **Record Ownership** - Owner always gets access
 3. **Sharing Rules** - Explicit shares from UserShare, AccountShare, etc.
-4. **Role Hierarchy** - Manager access based on roles
+4. **Role Hierarchy** - Manager access based on Salesforce role hierarchy (ParentRoleId chain)
+5. **Territory Hierarchy** - Access via Territory2 assignments and ancestor territory chain (if Territory2 is enabled in the org)
 
 ### Identity Mapping
 
@@ -305,7 +307,7 @@ When `external_identity_mapping_enabled=True`:
 
 1. **Verify ACL wiring**:
    ```powershell
-   python tests/test_acl_wiring.py
+   python -m pytest tests/test_mock_acl_flow.py -v
    ```
 
 2. **Check ingested item ACLs**:
@@ -372,7 +374,7 @@ pytest tests/ -v
 
 # Integration tests (with mock data)
 pytest tests/test_connector_flow.py -v
-python tests/test_acl_wiring.py
+pytest tests/test_mock_acl_flow.py -v
 
 # End-to-end (requires Azure AD credentials)
 python run_full_deployment.py
