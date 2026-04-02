@@ -15,7 +15,6 @@ from connector.identity_sync import (
     EntityVisibility,
     GroupMember,
     RecordEnumerationDirection,
-    SalesforceConstants,
     User,
     UserOrGroupType,
 )
@@ -581,13 +580,6 @@ class AclResolver:
         ]
 
     def _sort_object_names(self, object_names: Any) -> list[str]:
-        priority = {
-            SalesforceConstants.ACCOUNT: 0,
-            SalesforceConstants.CONTACT: 1,
-            SalesforceConstants.OPPORTUNITY: 2,
-            SalesforceConstants.LEAD: 3,
-            SalesforceConstants.CASE: 4,
-        }
         ordered_names = [str(name) for name in object_names]
         object_name_set = set(ordered_names)
         dependency_depths: dict[str, int] = {}
@@ -612,7 +604,7 @@ class AclResolver:
 
         return sorted(
             ordered_names,
-            key=lambda name: (_dependency_depth(name), priority.get(name, 100), name),
+            key=lambda name: (_dependency_depth(name), name),
         )
 
     @staticmethod

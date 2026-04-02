@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dc_field, make_dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar
 from urllib.parse import urlencode
 import asyncio
 import logging
+
+from connector.item_converter import load_converter_config
 
 
 logger = logging.getLogger("salesforce_connector")
@@ -235,10 +237,11 @@ class SalesforceIdentitySOQLResponseProcessor:
 
 
 class IdentitySyncQueries:
-    OrgWideDefaultQuery = (
-        "SELECT DefaultAccountAccess, DefaultContactAccess, DefaultOpportunityAccess, "
-        "DefaultLeadAccess, DefaultCampaignAccess, DefaultCaseAccess from Organization"
-    )
+    _owd_fields: list[str] = list(dict.fromkeys(
+        [obj["owdField"] for obj in load_converter_config()["objectList"] if "owdField" in obj]
+        + ["DefaultCampaignAccess"]
+    ))
+    OrgWideDefaultQuery = f"SELECT {', '.join(_owd_fields)} from Organization"
     AllSharesFromRecords = (
         "SELECT Id, IsDeleted, (SELECT Id, UserOrGroupId, UserOrGroup.Type from Shares) "
         "from {0}{1} ORDER BY Id {2}"
@@ -270,13 +273,13 @@ class IdentitySyncQueries:
 
 
 class SalesforceConstants:
-    SF_QUERY_BATCH_SIZE = 2000
-    MAX_FILTER_IDS_IN_NESTED_QUERY = 100
-    ACCOUNT = "Account"
-    CONTACT = "Contact"
-    OPPORTUNITY = "Opportunity"
-    LEAD = "Lead"
-    CASE = "Case"
+    _config = load_converter_config()
+    # Per-object config keyed by objectName, loaded from schema.json
+    OBJECTS: dict[str, dict] = {obj["objectName"]: obj for obj in _config["objectList"]}
+    # Object names in the order defined in schema.json
+    ORDERED_OBJECT_NAMES: list[str] = [obj["objectName"] for obj in _config["objectList"]]
+    # Maximum number of IDs to include in a nested SOQL IN clause
+    MAX_FILTER_IDS_IN_NESTED_QUERY: int = 100
 
 
 class AsyncSalesforceClient:
@@ -298,6 +301,7 @@ class AsyncSalesforceClient:
             f"{self.instance_url}/services/data/{self.api_version}/{endpoint}?"
             f"{urlencode({'q': soql})}"
         )
+
         response = requests.get(
             query_url,
             headers={
@@ -336,11 +340,9 @@ class ClientHelperForIdentitySync:
     async def get_org_wide_defaults_map(self) -> dict[str, EntityVisibility]:
         organization = await self.get_org_wide_defaults_from_salesforce()
         return {
-            SalesforceConstants.ACCOUNT: organization.DefaultAccountAccess,
-            SalesforceConstants.CONTACT: organization.DefaultContactAccess,
-            SalesforceConstants.OPPORTUNITY: organization.DefaultOpportunityAccess,
-            SalesforceConstants.LEAD: organization.DefaultLeadAccess,
-            SalesforceConstants.CASE: organization.DefaultCaseAccess,
+            obj_name: getattr(organization, obj_cfg["owdField"], EntityVisibility.PUBLIC_READ_WRITE)
+            for obj_name, obj_cfg in SalesforceConstants.OBJECTS.items()
+            if "owdField" in obj_cfg
         }
 
     async def get_records_with_shares(

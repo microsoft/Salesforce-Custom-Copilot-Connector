@@ -55,11 +55,7 @@ def run_single_item_ingestion(item_id: str):
         config = load_config()
         logger.info("Configuration loaded:")
         logger.info("  Connector ID: %s", config.connector.id)
-        logger.info("  Mock Data Mode: %s", config.use_mock_data)
-        if config.use_mock_data:
-            logger.warning("  ⚠ Mock data mode is enabled - item may not exist in mock data")
-        else:
-            logger.info("  → Using REAL SALESFORCE API")
+        logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
         
         # Set the debug item ID in environment
         os.environ['DEBUG_ITEM_ID'] = item_id
@@ -105,7 +101,6 @@ def run_single_item_ingestion(item_id: str):
         logger.info("Summary:")
         logger.info("  ✓ Item ID: %s", item_id)
         logger.info("  ✓ Connection: %s", config.connector.id)
-        logger.info("  ✓ Mode: %s", "MOCK DATA" if config.use_mock_data else "REAL SALESFORCE")
         logger.info("  📄 Full log: %s", log_file)
         logger.info("=" * 70)
         

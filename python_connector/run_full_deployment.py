@@ -2,19 +2,9 @@
 Single Command: Deploy Connection → Register Schema → Ingest Items with ACLs
 
 This script runs the complete end-to-end flow in one command.
-Works with both mock and real data (controlled by USE_MOCK_DATA env variable).
-
-When USE_MOCK_DATA=true:
-- REAL Graph API calls for connection creation and schema registration
-- MOCK Salesforce data for item ingestion (no Salesforce API calls)
-- REAL Graph API calls to ingest items with ACLs
 
 Usage:
     python run_full_deployment.py
-
-Environment Configuration:
-    Set USE_MOCK_DATA=true in env/.env.local for mock data
-    Set USE_MOCK_DATA=false (or omit) for real Salesforce data
 """
 
 import logging
@@ -63,12 +53,7 @@ def run_full_deployment():
         logger.info("Configuration loaded:")
         logger.info("  Connector ID: %s", config.connector.id)
         logger.info("  Connector Name: %s", config.connector.name)
-        logger.info("  Mock Data Mode: %s", config.use_mock_data)
-        
-        if config.use_mock_data:
-            logger.info("  → Using MOCK DATA for testing")
-        else:
-            logger.info("  → Using REAL SALESFORCE API")
+        logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
         
         # Step 1: Initialize Graph client
         logger.info("\n" + "=" * 70)
@@ -125,15 +110,9 @@ def run_full_deployment():
         logger.info("STEP 6: Ingest Items with ACLs")
         logger.info("=" * 70)
         
-        if config.use_mock_data:
-            logger.info("Data Source Mode: MOCK DATA")
-            logger.info("  - Salesforce Records: MockSalesforceClient (no real SF API calls)")
-            logger.info("  - Graph Ingestion: Real Graph API calls")
-            logger.info("  - Sample items will be logged with full request/response")
-        else:
-            logger.info("Using real Salesforce API:")
-            logger.info("  - Instance: %s", config.connector.salesforce.instance_url)
-            logger.info("  - API Version: %s", config.connector.salesforce.api_version)
+        logger.info("Using Salesforce API:")
+        logger.info("  - Instance: %s", config.connector.salesforce.instance_url)
+        logger.info("  - API Version: %s", config.connector.salesforce.api_version)
         
         ingest_content(config, client, since=None)  # Full sync
         logger.info("✓ Ingestion completed")
@@ -147,7 +126,6 @@ def run_full_deployment():
         logger.info("  ✓ Schema registered")
         logger.info("  ✓ Search settings configured")
         logger.info("  ✓ Items ingested with ACLs")
-        logger.info("  Data Source: %s", "MOCK DATA" if config.use_mock_data else "REAL SALESFORCE")
         logger.info("  📄 Full log: %s", log_file)
         logger.info("=" * 70)
         

@@ -41,9 +41,7 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
         logger.info("PUT %s", url)
         logger.info("\nRequest Payload:")
         logger.info(json.dumps(payload, indent=2))
-    
-    # For real data flow (not mock), log every item request payload
-    elif not config.use_mock_data:
+    else:
         import json
         logger.info("\n" + "=" * 80)
         logger.info("ITEM REQUEST: %s", item_id)
@@ -99,7 +97,7 @@ def delete_content(config: AppConfig, client: GraphClient, item_id: str) -> None
 
 def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None) -> None:
     """
-    Ingest content from Salesforce (or mock data if enabled).
+    Ingest content from Salesforce.
     
     Args:
         config: Application configuration
@@ -107,7 +105,6 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         since: Timestamp for incremental sync (None for full sync)
     """
     logger.info("Starting ingestion process...")
-    logger.info("Mock data mode: %s", "ENABLED" if config.use_mock_data else "DISABLED")
     initialize_item_request_debug_log(config)
     initialize_item_upload_log(config)
     
@@ -116,12 +113,6 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     else:
         logger.info("Full sync (all items)")
 
-    # Use mock data if enabled
-    if config.use_mock_data:
-        _ingest_mock_content(config, client)
-        return
-    
-    # Original real Salesforce API flow
     raw_items = list(get_all_items_from_api(config, since))
     if not raw_items:
         logger.info("No items returned from Salesforce")
@@ -196,6 +187,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     transformer = SalesforceItemTransformer(
         config.connector.salesforce.instance_url,
         config.connector.schema,
+        include_non_schema_fields_in_content=config.include_non_schema_fields_in_content,
     )
 
     records_by_object_type: dict[str, list[dict]] = defaultdict(list)
@@ -245,69 +237,3 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
 
     logger.info("Ingestion complete. Total items ingested: %s", ingested_count)
 
-
-def _ingest_mock_content(config: AppConfig, client: GraphClient) -> None:
-    """
-    Ingest content using mock data (for testing without live Salesforce).
-    """
-    try:
-        import sys
-        from pathlib import Path
-
-        tests_dir = Path(__file__).parent.parent / "tests"
-        if str(tests_dir) not in sys.path:
-            sys.path.insert(0, str(tests_dir))
-
-        import mock_salesforce_client
-
-        MockSalesforceClient = mock_salesforce_client.MockSalesforceClient
-
-    except ImportError as e:
-        logger.error("Failed to import mock data modules: %s", e)
-        logger.exception("Full error:")
-        return
-
-    logger.info("Using MOCK DATA for ingestion")
-
-    sf_client = MockSalesforceClient()
-    object_types = ["Account", "Contact", "Lead", "Opportunity", "Case", "Customer_Project__c"]
-
-    raw_items: list[dict] = []
-    for object_type in object_types:
-        logger.info("Processing mock data for: %s", object_type)
-        query_result = sf_client.get_records(object_type, limit=5)
-        records = query_result.get("records", [])
-        if not records:
-            logger.info("No mock records for %s", object_type)
-            continue
-        for record in records:
-            record.setdefault("objectType", object_type)
-        raw_items.extend(records)
-        logger.info("Retrieved %s mock %s records", len(records), object_type)
-
-    if not raw_items:
-        logger.info("No mock items returned")
-        return
-
-    transformer = SalesforceItemTransformer(
-        config.connector.salesforce.instance_url,
-        config.connector.schema,
-    )
-
-    ingested_count = 0
-    for item in raw_items:
-        transformed_items = transformer.transform_record(item)
-
-        for transformed_item in transformed_items:
-            ingested_count += 1
-
-            if ingested_count % 10 == 0:
-                logger.info("Ingested %s items so far...", ingested_count)
-
-            if transformed_item.get("type") == "deleted":
-                delete_content(config, client, transformed_item["id"])
-                continue
-
-            load_content(config, client, transformed_item)
-
-    logger.info("Mock data ingestion complete. Total items ingested: %s", ingested_count)

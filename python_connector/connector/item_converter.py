@@ -173,6 +173,7 @@ class SalesforceObjectHandler:
         sf_query_result: dict[str, Any],
         instance_url: str,
         schema_properties: set[str],
+        include_non_schema_fields_in_content: bool = True,
     ) -> list[dict[str, Any]]:
         records = sf_query_result.get("records", [])
         all_items: list[dict[str, Any]] = []
@@ -181,6 +182,7 @@ class SalesforceObjectHandler:
                 record,
                 instance_url,
                 schema_properties,
+                include_non_schema_fields_in_content,
             )
             if items:
                 all_items.extend(items)
@@ -191,6 +193,7 @@ class SalesforceObjectHandler:
         record: dict[str, Any],
         instance_url: str,
         schema_properties: set[str],
+        include_non_schema_fields_in_content: bool = True,
     ) -> list[dict[str, Any]] | None:
         record_id = record.get("Id")
         if not record_id:
@@ -201,7 +204,7 @@ class SalesforceObjectHandler:
             if key in self._child_handler_map and isinstance(value, dict):
                 child_handler = self._child_handler_map[key]
                 child_items.extend(
-                    child_handler.construct_ingestion_items(value, instance_url, schema_properties)
+                    child_handler.construct_ingestion_items(value, instance_url, schema_properties, include_non_schema_fields_in_content)
                 )
 
         if record.get("IsDeleted") is True:
@@ -213,6 +216,7 @@ class SalesforceObjectHandler:
             instance_url,
             item.properties,
             schema_properties,
+            include_non_schema_fields_in_content,
         )
         return child_items + [item.to_dict()]
 
@@ -222,6 +226,7 @@ class SalesforceObjectHandler:
         instance_url: str,
         props: dict[str, Any],
         schema_properties: set[str],
+        include_non_schema_fields_in_content: bool = True,
     ) -> Content:
         props["ObjectName"] = self.object_name
         props["Url"] = f"{instance_url}/{record['Id']}"
@@ -265,6 +270,7 @@ class SalesforceObjectHandler:
                         field_key,
                         self.object_fields[field_key],
                         self.selected_fields,
+                        instance_url,
                     )
                 elif field_key in METADATA_OBJECT_COLUMN_SCHEMA_MAPPING:
                     self._add_schema_property_for_object_field(
@@ -273,6 +279,7 @@ class SalesforceObjectHandler:
                         field_key,
                         METADATA_OBJECT_COLUMN_SCHEMA_MAPPING[field_key],
                         METADATA_COLUMN_SCHEMA_MAPPING,
+                        instance_url,
                     )
 
         for fls_field in self.fls_fields:
@@ -295,33 +302,34 @@ class SalesforceObjectHandler:
         if content.parsed_data:
             content_parts.append(content.parsed_data)
 
-        for field_key, field_value in record.items():
-            if field_key in {"attributes", "Id"}:
-                continue
+        if include_non_schema_fields_in_content:
+            for field_key, field_value in record.items():
+                if field_key in {"attributes", "Id"}:
+                    continue
 
-            field_in_schema = False
-            if field_key in self.selected_fields:
-                property_name = self.selected_fields[field_key]
-                if property_name in schema_properties:
-                    field_in_schema = True
-            elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
-                property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
-                if property_name in schema_properties:
-                    field_in_schema = True
+                field_in_schema = False
+                if field_key in self.selected_fields:
+                    property_name = self.selected_fields[field_key]
+                    if property_name in schema_properties:
+                        field_in_schema = True
+                elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
+                    property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
+                    if property_name in schema_properties:
+                        field_in_schema = True
 
-            if field_in_schema or field_value is None:
-                continue
+                if field_in_schema or field_value is None:
+                    continue
 
-            if isinstance(field_value, dict):
-                for sub_key, sub_value in field_value.items():
-                    if (
-                        sub_key != "attributes"
-                        and sub_value is not None
-                        and not isinstance(sub_value, (dict, list))
-                    ):
-                        content_parts.append(f"{field_key}.{sub_key}: {sub_value}")
-            elif not isinstance(field_value, list):
-                content_parts.append(f"{field_key}: {field_value}")
+                if isinstance(field_value, dict):
+                    for sub_key, sub_value in field_value.items():
+                        if (
+                            sub_key != "attributes"
+                            and sub_value is not None
+                            and not isinstance(sub_value, (dict, list))
+                        ):
+                            content_parts.append(f"{field_key}.{sub_key}: {sub_value}")
+                elif not isinstance(field_value, list):
+                    content_parts.append(f"{field_key}: {field_value}")
 
         if content_parts:
             content.parsed_data = ", ".join(content_parts)
@@ -371,6 +379,7 @@ class SalesforceObjectHandler:
         field_key: str,
         keys: list[str],
         schema_mapping: dict[str, str],
+        instance_url: str = "",
     ) -> None:
         parent_object = record.get(field_key)
         if not isinstance(parent_object, dict):
@@ -390,11 +399,19 @@ class SalesforceObjectHandler:
                         if nested_value is None:
                             break
                     if nested_value is not None:
-                        props[property_name] = str(nested_value)
+                        field_data = str(nested_value)
+                        if instance_url and "id" in key.lower() and "url" in property_name.lower():
+                            props[property_name] = f"{instance_url}/{field_data}"
+                        else:
+                            props[property_name] = field_data
                 else:
                     nested_value = parent_object.get(key)
                     if nested_value is not None:
-                        props[property_name] = str(nested_value)
+                        field_data = str(nested_value)
+                        if instance_url and "id" in key.lower() and "url" in property_name.lower():
+                            props[property_name] = f"{instance_url}/{field_data}"
+                        else:
+                            props[property_name] = field_data
             except Exception as error:  # pragma: no cover - defensive fallback
                 logger.error("Could not parse %s.%s: %s", self.object_name, field_key, error)
                 props[property_name] = ""
@@ -479,8 +496,10 @@ class SalesforceConverter:
         config: dict[str, Any] | None = None,
         schema_properties: set[str] | None = None,
         icon_url: str = "",
+        include_non_schema_fields_in_content: bool = True,
     ):
         self._instance_url = instance_url
+        self._include_non_schema_fields_in_content = include_non_schema_fields_in_content
         effective_config = config if config is not None else load_converter_config()
         self._handlers = build_handlers_from_config(effective_config, icon_url=icon_url)
         self._schema_properties = schema_properties if schema_properties is not None else _build_schema_properties(self._handlers)
@@ -517,6 +536,7 @@ class SalesforceConverter:
             sf_query_result,
             self._instance_url,
             self._schema_properties,
+            self._include_non_schema_fields_in_content,
         )
 
     @staticmethod

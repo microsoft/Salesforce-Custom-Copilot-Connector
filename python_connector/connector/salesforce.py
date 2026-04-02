@@ -9,13 +9,14 @@ import re
 
 import requests
 
+from connector.identity_sync import SalesforceConstants
 from connector.item_converter import METADATA_COLUMNS, load_converter_config
 from connector.settings import AppConfig
 from connector.utils import to_iso_z
 
 
 logger = logging.getLogger("salesforce_connector")
-QUERY_LIMIT = 200
+QUERY_LIMIT = 400
 
 INVALID_FIELD_NAME_PATTERNS = (
     re.compile(r"No such column '([^']+)' on entity", re.IGNORECASE),
@@ -25,94 +26,6 @@ INVALID_RELATIONSHIP_PATTERN = re.compile(
     r"Didn't understand relationship '([^']+)' in field path",
     re.IGNORECASE,
 )
-
-LEGACY_QUERY_FIELDS: dict[str, tuple[str, ...]] = {
-    "Account": (
-        "Name",
-        "Type",
-        "Industry",
-        "Phone",
-        "Website",
-        "BillingCity",
-        "BillingState",
-        "BillingCountry",
-        "AccountNumber",
-        "TickerSymbol",
-        "Site",
-    ),
-    "Lead": (
-        "FirstName",
-        "LastName",
-        "Company",
-        "Title",
-        "Email",
-        "Phone",
-        "MobilePhone",
-        "Fax",
-        "Status",
-        "LeadSource",
-        "City",
-        "State",
-        "Country",
-        "OwnerId",
-        "IsConverted",
-        "CreatedById",
-    ),
-    "Contact": (
-        "FirstName",
-        "LastName",
-        "Email",
-        "Phone",
-        "MobilePhone",
-        "HomePhone",
-        "OtherPhone",
-        "Title",
-        "Department",
-        "AccountId",
-        "MailingCity",
-        "MailingState",
-        "MailingCountry",
-        "AssistantName",
-        "AssistantPhone",
-    ),
-    "Opportunity": (
-        "Name",
-        "StageName",
-        "Amount",
-        "CloseDate",
-        "Probability",
-        "AccountId",
-        "Type",
-        "LeadSource",
-        "OwnerId",
-        "LastModifiedDate",
-    ),
-    "Case": (
-        "CaseNumber",
-        "Subject",
-        "Status",
-        "Priority",
-        "Origin",
-        "Reason",
-        "AccountId",
-        "ContactId",
-        "Description",
-        "OwnerId",
-        "CreatedDate",
-        "ClosedDate",
-        "IsClosed",
-        "LastModifiedById",
-    ),
-    "Customer_Project__c": (
-        "Name",
-        "Account__c",
-        "CreatedById",
-        "CreatedDate",
-        "LastModifiedById",
-        "LastModifiedDate",
-        "Project_description__c",
-    ),
-}
 
 
 @dataclass(frozen=True)
@@ -148,13 +61,11 @@ def _build_object_configs() -> tuple[SalesforceObjectConfig, ...]:
     }
 
     configs: list[SalesforceObjectConfig] = []
-    ordered_object_names = ["Account", "Lead", "Contact", "Opportunity", "Case"]
 
-    for object_name in ordered_object_names:
+    for object_name in SalesforceConstants.ORDERED_OBJECT_NAMES:
         object_config = converter_objects.get(object_name)
         selected_fields = list((object_config or {}).get("selectedFields", {}).keys())
-        legacy_fields = list(LEGACY_QUERY_FIELDS.get(object_name, ()))
-        fields = _dedupe_fields(["Id", *selected_fields, *METADATA_COLUMNS, *legacy_fields])
+        fields = _dedupe_fields(["Id", *selected_fields, *METADATA_COLUMNS])
         configs.append(
             SalesforceObjectConfig(
                 object_type=object_name,
@@ -163,12 +74,12 @@ def _build_object_configs() -> tuple[SalesforceObjectConfig, ...]:
             )
         )
 
-    configs.append(
-        SalesforceObjectConfig(
-            object_type="Customer_Project__c",
-            fields=_dedupe_fields(["Id", *LEGACY_QUERY_FIELDS["Customer_Project__c"]]),
-        )
-    )
+    # configs.append(
+    #     SalesforceObjectConfig(
+    #         object_type="Customer_Project__c",
+    #         fields=_dedupe_fields(["Id", *LEGACY_QUERY_FIELDS["Customer_Project__c"]]),
+    #     )
+    #)
 
     return tuple(configs)
 

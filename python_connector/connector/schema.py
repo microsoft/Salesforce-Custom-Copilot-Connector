@@ -16,7 +16,7 @@ def create_schema(config: AppConfig, client: GraphClient) -> None:
         "Creating schema for connection %s. This should take under 10 minutes...",
         config.connector.id,
     )
-    client.post(
+    client.patch(
         f"/external/connections/{config.connector.id}/schema",
         json_body={
             "baseType": "microsoft.graph.externalItem",
@@ -48,6 +48,8 @@ def ensure_schema(config: AppConfig, client: GraphClient) -> None:
             return
         except GraphApiError as error:
             if error.status_code == 404:
+                logger.info("Schema not found. Waiting 5 seconds before creating...")
+                delay(5)
                 create_schema(config, client)
                 return
 

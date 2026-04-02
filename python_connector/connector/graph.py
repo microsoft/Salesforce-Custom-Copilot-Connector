@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Iterator
+import logging
 import time
 
 from azure.identity import DefaultAzureCredential
@@ -9,6 +10,13 @@ import requests
 
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
+
+# Transient HTTP status codes that should be retried
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_MAX_RETRIES = 4
+_RETRY_BACKOFF_BASE = 2  # seconds — delays: 2, 4, 8, 16
+
+logger = logging.getLogger("salesforce_connector")
 
 
 class GraphApiError(RuntimeError):
@@ -97,6 +105,7 @@ class GraphClient:
     ) -> Any:
         url = self._normalize_url(path_or_url)
         request_headers = self._get_headers(headers)
+        attempt = 0
 
         while True:
             response = self._session.request(
@@ -117,6 +126,28 @@ class GraphClient:
                 continue
 
             if not response.ok:
+                if response.status_code in _RETRYABLE_STATUS_CODES and attempt < _MAX_RETRIES:
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait = float(retry_after)
+                        except ValueError:
+                            wait = _RETRY_BACKOFF_BASE * (2 ** attempt)
+                    else:
+                        wait = _RETRY_BACKOFF_BASE * (2 ** attempt)
+                    attempt += 1
+                    logger.warning(
+                        "Graph API transient error %d for %s %s — retrying in %.0fs (attempt %d/%d)",
+                        response.status_code,
+                        method,
+                        url,
+                        wait,
+                        attempt,
+                        _MAX_RETRIES,
+                    )
+                    time.sleep(wait)
+                    request_headers = self._get_headers(headers)  # refresh token
+                    continue
                 raise GraphApiError.from_response(response)
 
             payload = self._parse_response(response)

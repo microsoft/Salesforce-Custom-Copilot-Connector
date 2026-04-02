@@ -64,7 +64,7 @@ class AppConfig:
     client_id: str
     connector: ConnectorSettings
     repo_root: Path
-    use_mock_data: bool = True  # Enable mock data for testing
+    include_non_schema_fields_in_content: bool = True  # Flight: include non-schema fields in item content
 
 
 def _load_json(file_name: str) -> Any:
@@ -117,13 +117,13 @@ def load_config() -> AppConfig:
     connector_id = _require_env("CONNECTOR_ID")
     validate_connector_id(connector_id)
     
-    # Check if mock data mode is enabled
-    use_mock_data = os.getenv("USE_MOCK_DATA", "false").lower() in ("true", "1", "yes")
+    # Flight: include non-schema fields in item content (default: true for backward compat)
+    include_non_schema_fields_in_content = os.getenv("INCLUDE_NON_SCHEMA_FIELDS_IN_CONTENT", "true").lower() in ("true", "1", "yes")
 
     return AppConfig(
         client_id=_require_env("AZURE_CLIENT_ID"),
         repo_root=REPO_ROOT,
-        use_mock_data=use_mock_data,
+        include_non_schema_fields_in_content=include_non_schema_fields_in_content,
         connector=ConnectorSettings(
             id=connector_id,
             name=_require_env("CONNECTOR_NAME"),

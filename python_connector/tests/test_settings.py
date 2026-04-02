@@ -9,7 +9,7 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path: Path
     example_env = tmp_path / ".env.local.example"
     local_env = tmp_path / ".env.local"
 
-    example_env.write_text("USE_MOCK_DATA=true\n", encoding="utf-8")
+    example_env.write_text("CONNECTOR_ID=ignored\n", encoding="utf-8")
     local_env.write_text(
         "\n".join(
             [
@@ -41,7 +41,6 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path: Path
         "SALESFORCE_CLIENT_ID",
         "SECRET_SALESFORCE_CLIENT_SECRET",
         "SALESFORCE_CLIENT_SECRET",
-        "USE_MOCK_DATA",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -58,4 +57,4 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path: Path
 
     config = settings.load_config()
 
-    assert config.use_mock_data is False
+    assert config.include_non_schema_fields_in_content is True

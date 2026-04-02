@@ -10,7 +10,7 @@ Azure Functions application that creates and maintains a Salesforce CRM external
 - [connector/connection.py](connector/connection.py): External connection lifecycle
 - [connector/schema.py](connector/schema.py): Schema deployment
 - [connector/salesforce.py](connector/salesforce.py): Salesforce authentication and SOQL queries
-- [connector/identity_sync.py](connector/identity_sync.py): Org-wide defaults, user/group/role/territory queries and identity resolution
+- [connector/identity_sync.py](connector/identity_sync.py): Org-wide defaults, user/group/role queries and identity resolution
 - [connector/transform.py](connector/transform.py): Graph external item mapping
 - [connector/ingest.py](connector/ingest.py): Content ingestion
 - [connector/crawl_state.py](connector/crawl_state.py): Last crawl persistence
@@ -291,7 +291,6 @@ The [connector/acl.py](connector/acl.py) builds ACLs based on:
 2. **Record Ownership** - Owner always gets access
 3. **Sharing Rules** - Explicit shares from UserShare, AccountShare, etc.
 4. **Role Hierarchy** - Manager access based on Salesforce role hierarchy (ParentRoleId chain)
-5. **Territory Hierarchy** - Access via Territory2 assignments and ancestor territory chain (if Territory2 is enabled in the org)
 
 ### Identity Mapping
 

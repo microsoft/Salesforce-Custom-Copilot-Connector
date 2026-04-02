@@ -58,11 +58,7 @@ def run_single_object_ingestion(object_type: str):
         config = load_config()
         logger.info("Configuration loaded:")
         logger.info("  Connector ID: %s", config.connector.id)
-        logger.info("  Mock Data Mode: %s", config.use_mock_data)
-        if config.use_mock_data:
-            logger.warning("  ⚠ Mock data mode is enabled - object may not exist in mock data")
-        else:
-            logger.info("  → Using REAL SALESFORCE API")
+        logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
         
         # Set the debug object type in environment
         os.environ['DEBUG_OBJECT_TYPE'] = object_type
@@ -108,7 +104,6 @@ def run_single_object_ingestion(object_type: str):
         logger.info("Summary:")
         logger.info("  ✓ Object Type: %s", object_type)
         logger.info("  ✓ Connection: %s", config.connector.id)
-        logger.info("  ✓ Mode: %s", "MOCK DATA" if config.use_mock_data else "REAL SALESFORCE")
         logger.info("  📄 Full log: %s", log_file)
         logger.info("=" * 70)
         

@@ -6,10 +6,6 @@ are already deployed.
 
 Usage:
     python run_ingestion_only.py
-
-Environment Configuration:
-    Set USE_MOCK_DATA=true in env/.env.local for mock data
-    Set USE_MOCK_DATA=false (or omit) for real Salesforce data
 """
 
 import logging
@@ -55,12 +51,7 @@ def run_ingestion_only():
         config = load_config()
         logger.info("Configuration loaded:")
         logger.info("  Connector ID: %s", config.connector.id)
-        logger.info("  Mock Data Mode: %s", config.use_mock_data)
-        
-        if config.use_mock_data:
-            logger.info("  → Using MOCK DATA for testing")
-        else:
-            logger.info("  → Using REAL SALESFORCE API")
+        logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
         
         # Initialize Graph client
         logger.info("\n" + "=" * 70)
@@ -88,14 +79,9 @@ def run_ingestion_only():
         logger.info("STEP 3: Ingest Items with ACLs")
         logger.info("=" * 70)
         
-        if config.use_mock_data:
-            logger.info("Using mock data sources:")
-            logger.info("  - MockSalesforceClient for records")
-            logger.info("  - MockIdentitySyncClient for permissions")
-        else:
-            logger.info("Using real Salesforce API:")
-            logger.info("  - Instance: %s", config.connector.salesforce.instance_url)
-            logger.info("  - API Version: %s", config.connector.salesforce.api_version)
+        logger.info("Using Salesforce API:")
+        logger.info("  - Instance: %s", config.connector.salesforce.instance_url)
+        logger.info("  - API Version: %s", config.connector.salesforce.api_version)
         
         ingest_content(config, client, since=None)  # Full sync
         logger.info("✓ Ingestion completed")
@@ -108,7 +94,6 @@ def run_ingestion_only():
         logger.info("  ✓ Connection verified (existing)")
         logger.info("  ✓ Schema verified (existing)")
         logger.info("  ✓ Items ingested with ACLs")
-        logger.info("  Mode: %s", "MOCK DATA" if config.use_mock_data else "REAL SALESFORCE")
         logger.info("  📄 Full log: %s", log_file)
         logger.info("=" * 70)
         
