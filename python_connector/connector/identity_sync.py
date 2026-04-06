@@ -127,6 +127,32 @@ class UserLogin(IdentityResponseBase):
 
 
 @dataclass
+class ObjectTerritory2Association(IdentityResponseBase):
+    """Maps Salesforce records (Account / Opportunity) to Territory2 assignments."""
+
+    ObjectId: Optional[str] = None
+    Territory2Id: Optional[str] = None
+    AssociationCause: Optional[str] = None
+    SobjectType: Optional[str] = None
+
+
+@dataclass
+class UserTerritory2Association(IdentityResponseBase):
+    """Maps users to Territory2 assignments."""
+
+    UserId: Optional[str] = None
+    Territory2Id: Optional[str] = None
+    RoleInTerritory2: Optional[str] = None
+
+
+@dataclass
+class Territory2(IdentityResponseBase):
+    """Territory hierarchy node – holds the parent territory reference."""
+
+    ParentTerritory2Id: Optional[str] = None
+
+
+@dataclass
 class Organization(IdentityResponseBase):
     Id: str = ""
     DefaultAccountAccess: EntityVisibility = EntityVisibility.NONE
@@ -270,6 +296,23 @@ class IdentitySyncQueries:
         "FROM UserRole{0} ORDER BY Id asc"
     )
     UserAndMangerQuery = "SELECT Id, ManagerId from User{0} ORDER BY Id asc"
+
+    # ── Territory-based ACL queries ──────────────────────────────────────────
+    # Step 1 – fetch Territory2Ids for a given Account / Opportunity record
+    ObjectTerritory2AssociationQueryFormat = (
+        "SELECT Id, ObjectId, Territory2Id, AssociationCause, SobjectType "
+        "FROM ObjectTerritory2Association WHERE {0}"
+    )
+    # Step 2 / 4 – fetch UserIds for a set of Territory2Ids
+    UserTerritory2AssociationQueryFormat = (
+        "SELECT Id, UserId, Territory2Id, RoleInTerritory2 "
+        "FROM UserTerritory2Association WHERE Territory2Id IN ({0})"
+    )
+    # Step 3 – fetch the parent territory for a given Territory2 node
+    Territory2ParentQueryFormat = (
+        "SELECT Id, ParentTerritory2Id "
+        "FROM Territory2 WHERE Id = '{0}'"
+    )
 
 
 class SalesforceConstants:
@@ -557,6 +600,46 @@ class ClientHelperForIdentitySync:
             None,
             User,
         )
+
+    # ── Territory-based ACL helpers ──────────────────────────────────────────
+
+    async def get_territory_ids_for_record(self, object_id: str) -> list[str]:
+        """Step 1: Fetch Territory2Ids assigned to a given Account / Opportunity record.
+
+        Queries: ObjectTerritory2Association WHERE ObjectId = '<object_id>'
+        """
+        soql = IdentitySyncQueries.ObjectTerritory2AssociationQueryFormat.format(
+            f"ObjectId = '{object_id}'"
+        )
+        response = await self._execute_query(soql)
+        associations = self.response_processor.get(response, ObjectTerritory2Association)
+        return [a.Territory2Id for a in associations if a.Territory2Id]
+
+    async def get_users_for_territories(self, territory_ids: list[str]) -> list[str]:
+        """Steps 2 / 4: Fetch UserIds for a list of Territory2Ids.
+
+        Queries: UserTerritory2Association WHERE Territory2Id IN (<territory_ids>)
+        """
+        if not territory_ids:
+            return []
+        quoted = ", ".join(f"'{t}'" for t in sorted(set(territory_ids)))
+        soql = IdentitySyncQueries.UserTerritory2AssociationQueryFormat.format(quoted)
+        response = await self._execute_query(soql)
+        associations = self.response_processor.get(response, UserTerritory2Association)
+        return [a.UserId for a in associations if a.UserId]
+
+    async def get_parent_territory_id(self, territory_id: str) -> str | None:
+        """Step 3: Fetch the ParentTerritory2Id for a given Territory2 node.
+
+        Returns None when there is no parent (i.e. the territory is a root node).
+        Queries: Territory2 WHERE Id = '<territory_id>'
+        """
+        soql = IdentitySyncQueries.Territory2ParentQueryFormat.format(territory_id)
+        response = await self._execute_query(soql)
+        territories = self.response_processor.get(response, Territory2)
+        if territories and territories[0].ParentTerritory2Id:
+            return territories[0].ParentTerritory2Id
+        return None
 
     async def _get_records_using_last_id(
         self,

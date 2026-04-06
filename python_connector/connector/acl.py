@@ -51,6 +51,9 @@ class AclResolver:
         self._role_children_cache: dict[str, set[str]] | None = None
         self._users_and_managers: list[User] | None = None
         self._frozen_users: set[str] | None = None
+        # territory ACL caches
+        self._territory_parent_cache: dict[str, str | None] = {}
+        self._territory_users_cache: dict[str, set[str]] = {}
 
     def resolve(
         self,
@@ -108,7 +111,7 @@ class AclResolver:
         acl_maps: dict[str, dict[str, list[dict[str, str]]]],
     ) -> dict[str, list[dict[str, str]]]:
         visibility = visibility_map.get(object_name, EntityVisibility.PUBLIC_READ_ONLY)
-        
+
         logger.info("Visibility for %s: %s", object_name, visibility)
 
         if self._is_public_visibility(visibility):
@@ -203,6 +206,24 @@ class AclResolver:
 
             if includes_everyone:
                 public_records.add(record_id)
+
+            # Territory-based ACL: Account and Opportunity can be governed by
+            # Territory2 assignments.  Include all users from directly assigned
+            # territories as well as every ancestor territory in the hierarchy.
+            if object_name in ("Account", "Opportunity"):
+                logger.info(
+                    "  [Territory ACL] Resolving territory-based access for %s record %s",
+                    object_name,
+                    record_id,
+                )
+                territory_user_ids = await self._get_territory_user_ids(record_id)
+                if territory_user_ids:
+                    logger.info(
+                        "  [Territory ACL] Adding %d territory user(s) to ACL for record %s",
+                        len(territory_user_ids),
+                        record_id,
+                    )
+                user_ids.update(territory_user_ids)
 
             record_user_ids[record_id] = user_ids
             record_group_ids[record_id] = group_ids
@@ -407,9 +428,128 @@ class AclResolver:
         user_ids = {user.Id for user in users if user.Id}
         return user_ids
 
+    # ── Territory-based ACL helpers ───────────────────────────────────────────
+
+    async def _get_all_parent_territory_ids(self, territory_id: str) -> set[str]:
+        """Walk the Territory2 hierarchy upward, collecting every ancestor ID.
+
+        The loop terminates when there is no ParentTerritory2Id (root territory)
+        or when a cycle is detected (safety guard).
+        Results are cached in _territory_parent_cache to avoid redundant queries.
+        """
+        parent_ids: set[str] = set()
+        visited: set[str] = {territory_id}
+        current_id: str | None = territory_id
+
+        while current_id:
+            cached = current_id in self._territory_parent_cache
+            if not cached:
+                self._territory_parent_cache[current_id] = (
+                    await self._helper.get_parent_territory_id(current_id)
+                )
+            parent_id = self._territory_parent_cache[current_id]
+            cache_note = "(cached)" if cached else "(fetched)"
+            logger.info(
+                "      Territory hierarchy: %s → parent: %s %s",
+                current_id,
+                parent_id or "(none – root)",
+                cache_note,
+            )
+            if not parent_id or parent_id in visited:
+                break
+            parent_ids.add(parent_id)
+            visited.add(parent_id)
+            current_id = parent_id
+
+        return parent_ids
+
+    async def _get_territory_users_cached(self, territory_id: str) -> set[str]:
+        """Return the set of Salesforce UserIds assigned to *one* territory.
+
+        Results are cached in _territory_users_cache so repeated lookups for the
+        same territory (across multiple records) hit memory instead of Salesforce.
+        """
+        if territory_id not in self._territory_users_cache:
+            logger.info("      Querying UserTerritory2Association for territory %s", territory_id)
+            user_ids = await self._helper.get_users_for_territories([territory_id])
+            self._territory_users_cache[territory_id] = set(user_ids)
+            logger.info("      → %d user(s) found for territory %s", len(user_ids), territory_id)
+        else:
+            logger.info(
+                "      Territory %s users served from cache (%d user(s))",
+                territory_id,
+                len(self._territory_users_cache[territory_id]),
+            )
+        return self._territory_users_cache[territory_id]
+
+    async def _get_territory_user_ids(self, record_id: str) -> set[str]:
+        """Resolve the full set of territory-based Salesforce UserIds for one record.
+
+        ACL resolution flow (per the spec):
+          Step 1 – ObjectTerritory2Association   → direct Territory2Ids for this record
+          Step 2 – Territory2.ParentTerritory2Id → recurse upward until root
+          Step 3 – UserTerritory2Association     → UserIds for every territory collected
+          Step 5 – return the union (callers merge with owner / share-based sets)
+        """
+        logger.info("    ── Territory ACL: Step 1 – ObjectTerritory2Association ──────────")
+        territory_ids = await self._helper.get_territory_ids_for_record(record_id)
+        if not territory_ids:
+            logger.info("    Step 1: No Territory2 assignments found for record %s", record_id)
+            return set()
+
+        logger.info(
+            "    Step 1: Record %s → %d direct territory ID(s): %s",
+            record_id,
+            len(territory_ids),
+            territory_ids,
+        )
+
+        # Step 2+3: Walk the Territory2 parent hierarchy upward for each direct territory
+        logger.info("    ── Territory ACL: Step 2 – Territory2 parent hierarchy walk ─────")
+        all_territory_ids: set[str] = set(territory_ids)
+        for t_id in territory_ids:
+            ancestor_ids = await self._get_all_parent_territory_ids(t_id)
+            if ancestor_ids:
+                logger.info(
+                    "    Step 2: Territory %s → %d ancestor(s): %s",
+                    t_id,
+                    len(ancestor_ids),
+                    sorted(ancestor_ids),
+                )
+            else:
+                logger.info("    Step 2: Territory %s has no parent (root territory)", t_id)
+            all_territory_ids.update(ancestor_ids)
+
+        logger.info(
+            "    Step 2: Total territories to check (direct + ancestors): %d → %s",
+            len(all_territory_ids),
+            sorted(all_territory_ids),
+        )
+
+        # Steps 4+5: Fetch users per territory (with per-territory caching)
+        logger.info("    ── Territory ACL: Steps 3-4 – UserTerritory2Association ──────────")
+        all_user_ids: set[str] = set()
+        for t_id in sorted(all_territory_ids):
+            users = await self._get_territory_users_cached(t_id)
+            logger.info(
+                "    Step 3/4: Territory %s → %d user(s): %s",
+                t_id,
+                len(users),
+                sorted(users) if users else "(none)",
+            )
+            all_user_ids.update(users)
+
+        logger.info("    ── Territory ACL: Step 5 – Final Effective ACL ──────────────────")
+        logger.info(
+            "    Step 5: Record %s → territory ACL union: %d unique user(s): %s",
+            record_id,
+            len(all_user_ids),
+            sorted(all_user_ids) if all_user_ids else "(none)",
+        )
+        return all_user_ids
+
     @staticmethod
     def _get_owner_role_id(record: dict[str, Any]) -> str | None:
-        """Extract the owner's role ID from the record"""
         owner = record.get("Owner")
         if isinstance(owner, dict):
             user_role = owner.get("UserRole")
@@ -476,15 +616,15 @@ class AclResolver:
         resolved = self._resolve_principal_guid(user.FederationIdentifier)
         if resolved:
             return resolved
-        
+
         resolved = self._resolve_principal_guid(user.UserName)
         if resolved:
             return resolved
-        
+
         resolved = self._resolve_principal_guid(user.Email)
         if resolved:
             return resolved
-        
+
         return None
 
     def _resolve_principal_guid(self, identifier: str | None) -> str | None:
