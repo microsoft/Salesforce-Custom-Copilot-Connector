@@ -66,16 +66,14 @@ class SalesforceItemTransformer:
     ) -> dict[str, Any]:
         converted_properties = converted_item.get("properties") or {}
         properties: dict[str, Any] = {
-            "url": converted_properties.get("Url") or raw_item["url"],
-            "objectType": raw_item["objectType"],
+            "Url": converted_properties.get("Url") or raw_item["url"],
+            "ObjectName": raw_item["objectType"],
         }
 
         for key, value in converted_properties.items():
             if key in {"ObjectName", "Url"} or value is None:
                 continue
             if key not in self._schema_properties:
-                continue
-            if key in {"url", "objectType"}:
                 continue
 
             normalized_value = self._normalize_schema_value(key, value)

@@ -31,7 +31,7 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
     url = f"/external/connections/{config.connector.id}/items/{quote(item_id, safe='')}"
 
     # Log sample item request/response for first item of each object type
-    object_type = item.get("properties", {}).get("objectType")
+    object_type = item.get("properties", {}).get("ObjectName")
     if object_type and object_type not in _sample_items_logged_by_type:
         _sample_items_logged_by_type.add(object_type)
         import json
