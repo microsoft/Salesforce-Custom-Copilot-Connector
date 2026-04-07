@@ -42,6 +42,19 @@ from acl_engine.sf_client import SalesforceClient
 logger = logging.getLogger("salesforce_connector.acl_engine")
 
 
+def _share_table_name(object_type: str) -> str:
+    """
+    Derive the share table API name for a given sObject type.
+
+    Standard objects : Account   → AccountShare
+    Custom objects   : Work_Order__c → Work_Order__Share
+                       (strip '__c', append '__Share')
+    """
+    if object_type.endswith("__c"):
+        return object_type[:-3] + "__Share"
+    return object_type + "Share"
+
+
 class ShareFetcher:
     """
     Fetches the owner and explicit share grants for a single Salesforce record.
@@ -104,7 +117,7 @@ class ShareFetcher:
                 ?q=SELECT+AccountId%2CUserOrGroupId%2CAccountAccessLevel%2CRowCause
                    +FROM+AccountShare+WHERE+AccountId='<record_id>'
         """
-        share_object = object_type + "Share"
+        share_object = _share_table_name(object_type)
 
         # Discover both fields concurrently in a single describe call
         parent_field, access_level_field = await self._get_share_fields(object_type, share_object)
