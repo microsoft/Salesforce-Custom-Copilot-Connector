@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import datetime
 from urllib.parse import quote
 import logging
 import os
 
-from connector.acl import AclResolver
+from connector.acl import AclResolver as LegacyAclResolver
 from connector.graph import GraphApiError, GraphClient
 from connector.item_upload_log import (
     initialize_item_request_debug_log,
@@ -17,7 +18,6 @@ from connector.item_upload_log import (
 from connector.salesforce import get_all_items_from_api
 from connector.settings import AppConfig
 from connector.transform import SalesforceItemTransformer
-
 
 logger = logging.getLogger("salesforce_connector")
 
@@ -95,10 +95,87 @@ def delete_content(config: AppConfig, client: GraphClient, item_id: str) -> None
             logger.error("Graph response: %s", error.body)
 
 
+# ── New ACL engine helper ─────────────────────────────────────────────────────
+
+async def _resolve_acl_new_engine(
+    config: AppConfig,
+    graph_client: GraphClient,
+    records_by_object_type: dict[str, list[dict]],
+) -> dict[str, dict[str, list[dict[str, str]]]]:
+    """
+    Resolve ACLs for all records using the new acl_engine pipeline.
+
+    Flow
+    ----
+    1. For each record, call AclResolver.resolve_async(object_type, record_id)
+       concurrently (asyncio.gather per object type).
+    2. Collect the union of all Salesforce User IDs across every record.
+    3. PrincipalMapper bulk-fetches user identity fields (FederationIdentifier /
+       UserName / Email) in a single SOQL per 100 IDs.
+    4. For each record's AclResult, call PrincipalMapper.to_acl_entries() to
+       produce the final Graph-API-ready ACL list.
+
+    Returns
+    -------
+    {object_type: {record_id: [acl_entry, ...]}}  – same shape as the legacy
+    AclResolver so the rest of ingest_content is unchanged.
+    """
+    from acl_engine import AclResolver as NewAclResolver, PrincipalMapper
+    from acl_engine.sf_client import SalesforceClient
+    from connector.salesforce import get_salesforce_access_token
+
+    sf_client = SalesforceClient(
+        instance_url=config.connector.salesforce.instance_url,
+        api_version=config.connector.salesforce.api_version,
+        access_token=get_salesforce_access_token(config),
+    )
+    resolver = NewAclResolver(sf_client)
+    mapper = PrincipalMapper(
+        sf_client=sf_client,
+        graph_client=graph_client,
+    )
+
+    acl_map_by_object: dict[str, dict[str, list[dict[str, str]]]] = {}
+
+    for object_type, records in records_by_object_type.items():
+        logger.info("[NewACL] Resolving %d %s record(s)", len(records), object_type)
+
+        # Resolve all records for this object type concurrently
+        tasks = [
+            resolver.resolve_async(object_type, str(record["Id"]))
+            for record in records
+            if record.get("Id")
+        ]
+        acl_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        object_acl: dict[str, list[dict[str, str]]] = {}
+        for record, acl_result in zip(records, acl_results):
+            record_id = str(record["Id"])
+            if isinstance(acl_result, Exception):
+                logger.error(
+                    "[NewACL] resolve_async failed for %s/%s: %s – using public ACL",
+                    object_type, record_id, acl_result,
+                )
+                object_acl[record_id] = _public_acl_entry()
+                continue
+
+            acl_entries = await mapper.to_acl_entries(acl_result)
+            object_acl[record_id] = acl_entries
+
+        acl_map_by_object[object_type] = object_acl
+        logger.info("[NewACL] %s: resolved %d ACL(s)", object_type, len(object_acl))
+
+    return acl_map_by_object
+
+
+def _public_acl_entry() -> list[dict[str, str]]:
+    return [{"accessType": "grant", "type": "everyone", "value": os.getenv("AZURE_TENANT_ID") or "everyone"}]
+
+
 def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None) -> None:
     """
     Ingest content from Salesforce.
-    
+
     Args:
         config: Application configuration
         client: Graph API client
@@ -198,13 +275,29 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
 
     acl_map_by_object: dict[str, dict[str, list[dict[str, str]]]] = {}
     try:
-        logger.info("Starting ACL resolution for %d object types", len(records_by_object_type))
-        acl_map_by_object = AclResolver(
-            config,
-            transformer.handlers,
-            graph_client=client,
-        ).resolve(dict(records_by_object_type))
-        logger.info("ACL resolution completed successfully. Resolved ACLs for %d object types", len(acl_map_by_object))
+        # Read the flag here (lazily) so dotenv values from load_local_environment() are visible
+        _USE_NEW_ACL_ENGINE: bool = (
+            os.getenv("USE_NEW_ACL_ENGINE", "false").lower() in ("true", "1", "yes")
+        )
+        logger.info(
+            "Starting ACL resolution for %d object type(s) using %s engine",
+            len(records_by_object_type),
+            "NEW (acl_engine)" if _USE_NEW_ACL_ENGINE else "LEGACY (connector.acl)",
+        )
+        if _USE_NEW_ACL_ENGINE:
+            acl_map_by_object = asyncio.run(
+                _resolve_acl_new_engine(config, client, dict(records_by_object_type))
+            )
+        else:
+            acl_map_by_object = LegacyAclResolver(
+                config,
+                transformer.handlers,
+                graph_client=client,
+            ).resolve(dict(records_by_object_type))
+        logger.info(
+            "ACL resolution completed. Resolved ACLs for %d object type(s)",
+            len(acl_map_by_object),
+        )
     except Exception as error:  # pragma: no cover - runtime error fan-in
         logger.exception("❌ CRITICAL: Failed to resolve ACLs, falling back to public ACLs: %s", error)
         logger.error("⚠️ ALL ITEMS WILL HAVE PUBLIC ACCESS (everyone) DUE TO ACL FAILURE")
