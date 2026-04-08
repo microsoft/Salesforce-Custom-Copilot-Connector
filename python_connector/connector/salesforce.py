@@ -277,5 +277,5 @@ def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | No
         where_clauses.append(f"LastModifiedDate >= {to_iso_z(since)}")
     if where_clauses:
         soql += f" WHERE {' AND '.join(where_clauses)}"
-    soql += f" LIMIT {QUERY_LIMIT}"
+    # soql += f" LIMIT {QUERY_LIMIT}"
     return soql
