@@ -1,47 +1,20 @@
-# TeamsFx files
-env/.env.*.user
-.localConfigs
-appPackage/build
-
-# dependencies
-node_modules/
-.venv/
-
-# misc
-.env
-.deployment
-.DS_Store
-*.zip
-.vscode/
-
 # Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
+
+# Environment / secrets
+.env
+env/.env.*.user
+env/.env.local
+env/.env.dev
 
 # Log files
 *.log
-python_connector/*.log
 
-# Azurite artifacts
-__blobstorage__
-__queuestorage__
-__azurite_db*__.json
-_storage_emulator
-.azurite/
-
-# Microsoft 365 Agents Toolkit
-build
-appPackage/build
-
-# Azure Functions
-dist
-local.settings.json
-python_connector/.python_packages/
-
-env/.env.dev
-env/.env.local
-python_connector/.env.local
-python_connector/.env.local.user
-
+# Misc
+.DS_Store
+*.zip
+.vscode/
 /tmp
