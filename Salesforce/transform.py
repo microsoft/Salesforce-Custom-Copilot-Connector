@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import os
 
-from connector.item_converter import SalesforceConverter
+from Item.item_converter import SalesforceConverter
 
 
 COLLECTION_SCHEMA_TO_ODATA_TYPE = {
@@ -25,14 +25,14 @@ def _fallback_acl() -> list[dict[str, str]]:
 
 
 class SalesforceItemTransformer:
-    def __init__(self, instance_url: str, schema: list[dict[str, Any]], include_non_schema_fields_in_content: bool = True):
+    def __init__(self, instance_url: str, schema: list[dict[str, Any]]):
         self._schema_property_types = {
             prop["name"]: prop.get("type")
             for prop in schema
             if prop.get("name")
         }
         self._schema_properties = set(self._schema_property_types)
-        self._converter = SalesforceConverter(instance_url=instance_url, include_non_schema_fields_in_content=include_non_schema_fields_in_content)
+        self._converter = SalesforceConverter(instance_url=instance_url)
         self._supported_objects = set(self._converter.object_names)
 
     @property

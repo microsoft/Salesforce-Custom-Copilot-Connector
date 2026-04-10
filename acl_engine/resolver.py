@@ -70,7 +70,7 @@ def _load_parent_map(parent_map: dict[str, tuple[str, str]] | None = None) -> di
     """
     if parent_map is not None:
         return dict(parent_map)
-    from connector.settings import build_parent_map
+    from Salesforce.settings import build_parent_map
     return build_parent_map()
 
 

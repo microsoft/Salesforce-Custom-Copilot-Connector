@@ -7,8 +7,8 @@ import asyncio
 import logging
 import os
 
-from connector.graph import GraphApiError, GraphClient
-from connector.identity_sync import (
+from Graph.graph import GraphApiError, GraphClient
+from Salesforce.identity_sync import (
     AsyncSalesforceClient,
     ClientHelperForIdentitySync,
     EntityShareBase,
@@ -18,9 +18,9 @@ from connector.identity_sync import (
     User,
     UserOrGroupType,
 )
-from connector.item_converter import SalesforceObjectHandler
-from connector.salesforce import get_salesforce_access_token
-from connector.settings import AppConfig
+from Item.item_converter import SalesforceObjectHandler
+from Salesforce.salesforce import get_salesforce_access_token
+from Salesforce.settings import AppConfig
 
 
 USER_ID_PREFIX = "005"

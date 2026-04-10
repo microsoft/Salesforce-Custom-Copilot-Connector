@@ -1,23 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from urllib.parse import quote
+import json
 import logging
 import os
 
-from connector.acl import AclResolver as LegacyAclResolver
-from connector.graph import GraphApiError, GraphClient
-from connector.item_upload_log import (
-    initialize_item_request_debug_log,
-    initialize_item_upload_log,
-    record_item_put_request,
-    record_uploaded_item,
-)
-from connector.salesforce import get_all_items_from_api
-from connector.settings import AppConfig
-from connector.transform import SalesforceItemTransformer
+from Graph.acl import AclResolver as LegacyAclResolver
+from Graph.graph import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
+from Salesforce.salesforce import get_all_items_from_api
+from Salesforce.settings import AppConfig
+from Salesforce.transform import SalesforceItemTransformer
 
 logger = logging.getLogger("salesforce_connector")
 
@@ -28,13 +23,12 @@ _sample_items_logged_by_type = set()
 def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
     item_id = item["id"]
     payload = {key: value for key, value in item.items() if key != "id"}
-    url = f"/external/connections/{config.connector.id}/items/{quote(item_id, safe='')}"
+    url = f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items/{quote(item_id, safe='')}"
 
     # Log sample item request/response for first item of each object type
     object_type = item.get("properties", {}).get("ObjectName")
     if object_type and object_type not in _sample_items_logged_by_type:
         _sample_items_logged_by_type.add(object_type)
-        import json
         logger.info("\n" + "=" * 80)
         logger.info("SAMPLE ITEM REQUEST: %s (ID: %s)", object_type, item_id)
         logger.info("=" * 80)
@@ -42,7 +36,6 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
         logger.info("\nRequest Payload:")
         logger.info(json.dumps(payload, indent=2))
     else:
-        import json
         logger.info("\n" + "=" * 80)
         logger.info("ITEM REQUEST: %s", item_id)
         logger.info("=" * 80)
@@ -51,28 +44,11 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
     
     logger.info("PUT %s", url)
 
-    record_item_put_request(
-        config,
-        item_id=item_id,
-        object_type=object_type,
-        url=payload.get("properties", {}).get("url"),
-        graph_path=url,
-        request_payload=payload,
-    )
-
     try:
         response = client.put(url, json_body=payload, headers={"content-type": "application/json"})
-        record_uploaded_item(
-            config,
-            item_id=item_id,
-            object_type=object_type,
-            graph_path=url,
-            url=payload.get("properties", {}).get("url"),
-        )
         
         # Log response for sample items
         if object_type and object_type in _sample_items_logged_by_type and len(_sample_items_logged_by_type) <= 6:
-            import json
             logger.info("\nResponse:")
             logger.info(json.dumps(response if response else {"status": "success"}, indent=2))
             logger.info("=" * 80 + "\n")
@@ -84,7 +60,7 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
 
 
 def delete_content(config: AppConfig, client: GraphClient, item_id: str) -> None:
-    url = f"/external/connections/{config.connector.id}/items/{quote(item_id, safe='')}"
+    url = f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items/{quote(item_id, safe='')}"
     logger.info("DELETE %s", url)
 
     try:
@@ -122,7 +98,7 @@ async def _resolve_acl_new_engine(
     """
     from acl_engine import AclResolver as NewAclResolver, PrincipalMapper
     from acl_engine.sf_client import SalesforceClient
-    from connector.salesforce import get_salesforce_access_token
+    from Salesforce.salesforce import get_salesforce_access_token
 
     sf_client = SalesforceClient(
         instance_url=config.connector.salesforce.instance_url,
@@ -186,8 +162,6 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         since: Timestamp for incremental sync (None for full sync)
     """
     logger.info("Starting ingestion process...")
-    initialize_item_request_debug_log(config)
-    initialize_item_upload_log(config)
     
     if since:
         logger.info("Incremental sync from: %s", since.isoformat())
@@ -213,7 +187,6 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             logger.warning("\n" + "!" * 70)
             logger.warning("DEBUG object type %s not found in results.", DEBUG_OBJECT_TYPE)
             # Count objects by type
-            from collections import Counter
             object_counts = Counter(item.get("objectType") for item in raw_items)
             logger.warning("Available object types in results:")
             for obj_type, count in object_counts.items():
@@ -254,7 +227,6 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     logger.info("=" * 70 + "\n")
 
     # Log each raw item from Salesforce API
-    import json
     for idx, raw_item in enumerate(raw_items, 1):
         logger.info("\n" + "-" * 70)
         logger.info("SALESFORCE ITEM %d/%d", idx, len(raw_items))
@@ -268,7 +240,6 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     transformer = SalesforceItemTransformer(
         config.connector.salesforce.instance_url,
         config.connector.schema,
-        include_non_schema_fields_in_content=config.include_non_schema_fields_in_content,
     )
 
     records_by_object_type: dict[str, list[dict]] = defaultdict(list)

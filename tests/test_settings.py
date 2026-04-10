@@ -56,5 +56,3 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path: Path
     )
 
     config = settings.load_config()
-
-    assert config.include_non_schema_fields_in_content is True

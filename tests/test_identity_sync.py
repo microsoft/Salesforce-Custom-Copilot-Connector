@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from connector.identity_sync import (
+from Salesforce.identity_sync import (
     EntityShareBase,
     IdentitySyncQueries,
     SalesforceIdentitySOQLResponseProcessor,

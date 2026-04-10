@@ -1,0 +1,181 @@
+{
+  "connectionId": "SFCustomConnectorFun0410Test1",
+  "createdAtUtc": "2026-04-10T12:45:34.647213Z",
+  "items": [
+    {
+      "itemId": "001dN00000qALBkQAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qALBkQAO",
+      "loggedAtUtc": "2026-04-10T12:46:03.159911Z"
+    },
+    {
+      "itemId": "001dN00000qALBlQAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qALBlQAO",
+      "loggedAtUtc": "2026-04-10T12:46:09.042239Z"
+    },
+    {
+      "itemId": "001dN00000qALBmQAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qALBmQAO",
+      "loggedAtUtc": "2026-04-10T12:46:12.910226Z"
+    },
+    {
+      "itemId": "001dN00000qAQD3QAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qAQD3QAO",
+      "loggedAtUtc": "2026-04-10T12:46:14.694292Z"
+    },
+    {
+      "itemId": "001dN00000qAQD4QAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qAQD4QAO",
+      "loggedAtUtc": "2026-04-10T12:46:20.036201Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0PUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0PUAV",
+      "loggedAtUtc": "2026-04-10T12:46:24.278957Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0QUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0QUAV",
+      "loggedAtUtc": "2026-04-10T12:46:29.370012Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0RUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0RUAV",
+      "loggedAtUtc": "2026-04-10T12:46:34.055719Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0SUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0SUAV",
+      "loggedAtUtc": "2026-04-10T12:46:39.806139Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0TUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0TUAV",
+      "loggedAtUtc": "2026-04-10T12:46:43.373827Z"
+    },
+    {
+      "itemId": "003dN00000LiCpOQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiCpOQAV",
+      "loggedAtUtc": "2026-04-10T12:46:45.988260Z"
+    },
+    {
+      "itemId": "003dN00000LiCpPQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiCpPQAV",
+      "loggedAtUtc": "2026-04-10T12:46:54.545079Z"
+    },
+    {
+      "itemId": "003dN00000LiHvXQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiHvXQAV",
+      "loggedAtUtc": "2026-04-10T12:46:55.962098Z"
+    },
+    {
+      "itemId": "003dN00000LiHvYQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiHvYQAV",
+      "loggedAtUtc": "2026-04-10T12:47:17.285461Z"
+    },
+    {
+      "itemId": "003dN00000LiHvZQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiHvZQAV",
+      "loggedAtUtc": "2026-04-10T12:47:18.236512Z"
+    },
+    {
+      "itemId": "006dN00000CD3qoQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qoQAD",
+      "loggedAtUtc": "2026-04-10T12:47:23.983226Z"
+    },
+    {
+      "itemId": "006dN00000CD3qpQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qpQAD",
+      "loggedAtUtc": "2026-04-10T12:47:30.086746Z"
+    },
+    {
+      "itemId": "006dN00000CD3qqQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qqQAD",
+      "loggedAtUtc": "2026-04-10T12:47:50.292651Z"
+    },
+    {
+      "itemId": "006dN00000CD3qrQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qrQAD",
+      "loggedAtUtc": "2026-04-10T12:47:51.152365Z"
+    },
+    {
+      "itemId": "006dN00000CD3qsQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qsQAD",
+      "loggedAtUtc": "2026-04-10T12:47:55.571636Z"
+    },
+    {
+      "itemId": "500dN00000M3oZwQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZwQAJ",
+      "loggedAtUtc": "2026-04-10T12:47:56.199789Z"
+    },
+    {
+      "itemId": "500dN00000M3oZxQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZxQAJ",
+      "loggedAtUtc": "2026-04-10T12:47:57.546329Z"
+    },
+    {
+      "itemId": "500dN00000M3oZyQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZyQAJ",
+      "loggedAtUtc": "2026-04-10T12:48:01.539728Z"
+    },
+    {
+      "itemId": "500dN00000M3oZzQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZzQAJ",
+      "loggedAtUtc": "2026-04-10T12:48:05.324176Z"
+    },
+    {
+      "itemId": "500dN00000M3oa0QAB",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oa0QAB",
+      "loggedAtUtc": "2026-04-10T12:48:13.351853Z"
+    }
+  ]
+}

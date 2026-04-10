@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from urllib.parse import parse_qs, urlparse
 
-from connector.salesforce import (
+from Salesforce.salesforce import (
     SalesforceErrorInfo,
     SalesforceObjectConfig,
     _extract_unsupported_fields,

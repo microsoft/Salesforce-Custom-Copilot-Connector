@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from connector.settings import (
+from Salesforce.settings import (
     AppConfig, ConnectorSettings, SalesforceSettings, TuningSettings,
     load_graph_schema, load_schema_config, build_owd_field_map, build_parent_map,
 )

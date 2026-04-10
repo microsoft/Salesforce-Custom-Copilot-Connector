@@ -5,7 +5,7 @@ from typing import Any, Optional
 import json
 import logging
 
-from connector.item_models import Content, DeletedItem, SearchableItem
+from Item.item_models import Content, DeletedItem, SearchableItem
 
 
 logger = logging.getLogger("salesforce_connector")
@@ -64,7 +64,7 @@ def load_converter_config(path: Path | None = None) -> dict[str, Any]:
     if path is not None:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
-    from connector.settings import load_schema_config
+    from Salesforce.settings import load_schema_config
     return load_schema_config()
 
 
@@ -173,7 +173,6 @@ class SalesforceObjectHandler:
         sf_query_result: dict[str, Any],
         instance_url: str,
         schema_properties: set[str],
-        include_non_schema_fields_in_content: bool = True,
     ) -> list[dict[str, Any]]:
         records = sf_query_result.get("records", [])
         all_items: list[dict[str, Any]] = []
@@ -182,7 +181,6 @@ class SalesforceObjectHandler:
                 record,
                 instance_url,
                 schema_properties,
-                include_non_schema_fields_in_content,
             )
             if items:
                 all_items.extend(items)
@@ -193,7 +191,6 @@ class SalesforceObjectHandler:
         record: dict[str, Any],
         instance_url: str,
         schema_properties: set[str],
-        include_non_schema_fields_in_content: bool = True,
     ) -> list[dict[str, Any]] | None:
         record_id = record.get("Id")
         if not record_id:
@@ -204,7 +201,7 @@ class SalesforceObjectHandler:
             if key in self._child_handler_map and isinstance(value, dict):
                 child_handler = self._child_handler_map[key]
                 child_items.extend(
-                    child_handler.construct_ingestion_items(value, instance_url, schema_properties, include_non_schema_fields_in_content)
+                    child_handler.construct_ingestion_items(value, instance_url, schema_properties)
                 )
 
         if record.get("IsDeleted") is True:
@@ -216,7 +213,6 @@ class SalesforceObjectHandler:
             instance_url,
             item.properties,
             schema_properties,
-            include_non_schema_fields_in_content,
         )
         return child_items + [item.to_dict()]
 
@@ -226,7 +222,6 @@ class SalesforceObjectHandler:
         instance_url: str,
         props: dict[str, Any],
         schema_properties: set[str],
-        include_non_schema_fields_in_content: bool = True,
     ) -> Content:
         props["ObjectName"] = self.object_name
         props["Url"] = f"{instance_url}/{record['Id']}"
@@ -302,34 +297,33 @@ class SalesforceObjectHandler:
         if content.parsed_data:
             content_parts.append(content.parsed_data)
 
-        if include_non_schema_fields_in_content:
-            for field_key, field_value in record.items():
-                if field_key in {"attributes", "Id"}:
-                    continue
+        for field_key, field_value in record.items():
+            if field_key in {"attributes", "Id"}:
+                continue
 
-                field_in_schema = False
-                if field_key in self.selected_fields:
-                    property_name = self.selected_fields[field_key]
-                    if property_name in schema_properties:
-                        field_in_schema = True
-                elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
-                    property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
-                    if property_name in schema_properties:
-                        field_in_schema = True
+            field_in_schema = False
+            if field_key in self.selected_fields:
+                property_name = self.selected_fields[field_key]
+                if property_name in schema_properties:
+                    field_in_schema = True
+            elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
+                property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
+                if property_name in schema_properties:
+                    field_in_schema = True
 
-                if field_in_schema or field_value is None:
-                    continue
+            if field_in_schema or field_value is None:
+                continue
 
-                if isinstance(field_value, dict):
-                    for sub_key, sub_value in field_value.items():
-                        if (
-                            sub_key != "attributes"
-                            and sub_value is not None
-                            and not isinstance(sub_value, (dict, list))
-                        ):
-                            content_parts.append(f"{field_key}.{sub_key}: {sub_value}")
-                elif not isinstance(field_value, list):
-                    content_parts.append(f"{field_key}: {field_value}")
+            if isinstance(field_value, dict):
+                for sub_key, sub_value in field_value.items():
+                    if (
+                        sub_key != "attributes"
+                        and sub_value is not None
+                        and not isinstance(sub_value, (dict, list))
+                    ):
+                        content_parts.append(f"{field_key}.{sub_key}: {sub_value}")
+            elif not isinstance(field_value, list):
+                content_parts.append(f"{field_key}: {field_value}")
 
         if content_parts:
             content.parsed_data = ", ".join(content_parts)
@@ -496,10 +490,8 @@ class SalesforceConverter:
         config: dict[str, Any] | None = None,
         schema_properties: set[str] | None = None,
         icon_url: str = "",
-        include_non_schema_fields_in_content: bool = True,
     ):
         self._instance_url = instance_url
-        self._include_non_schema_fields_in_content = include_non_schema_fields_in_content
         effective_config = config if config is not None else load_converter_config()
         self._handlers = build_handlers_from_config(effective_config, icon_url=icon_url)
         self._schema_properties = schema_properties if schema_properties is not None else _build_schema_properties(self._handlers)
@@ -536,7 +528,6 @@ class SalesforceConverter:
             sf_query_result,
             self._instance_url,
             self._schema_properties,
-            self._include_non_schema_fields_in_content,
         )
 
     @staticmethod

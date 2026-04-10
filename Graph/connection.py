@@ -6,10 +6,10 @@ import time
 
 from azure.core.exceptions import ClientAuthenticationError
 
-from connector.graph import GraphApiError, GraphClient
-from connector.schema import schema_exists
-from connector.settings import AppConfig
-from connector.utils import delay
+from Graph.graph import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
+from Graph.schema import schema_exists
+from Salesforce.settings import AppConfig
+from Salesforce.utils import delay
 
 
 logger = logging.getLogger("salesforce_connector")
@@ -19,7 +19,7 @@ _consent_requested = False
 def create_connection(config: AppConfig, client: GraphClient) -> None:
     logger.info("Creating connection %s.", config.connector.id)
     client.post(
-        "/external/connections",
+        EXTERNAL_CONNECTIONS_PATH,
         json_body={
             "id": config.connector.id,
             "name": config.connector.name,
@@ -31,7 +31,7 @@ def create_connection(config: AppConfig, client: GraphClient) -> None:
 
 
 def get_connection(config: AppConfig, client: GraphClient) -> dict:
-    payload = client.get(f"/external/connections/{config.connector.id}")
+    payload = client.get(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}")
     return payload if isinstance(payload, dict) else {}
 
 
@@ -51,9 +51,9 @@ def set_search_settings(config: AppConfig, client: GraphClient) -> None:
             ]
         }
     }
-    logger.info("PATCH /external/connections/%s", config.connector.id)
+    logger.info("PATCH %s/%s", EXTERNAL_CONNECTIONS_PATH, config.connector.id)
     client.patch(
-        f"/external/connections/{config.connector.id}",
+        f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}",
         json_body=payload,
         headers={"content-type": "application/json"},
     )
@@ -113,12 +113,12 @@ def is_connection_ready(config: AppConfig, client: GraphClient) -> bool:
 
 def clear_connection_items(config: AppConfig, client: GraphClient) -> int:
     deleted_count = 0
-    for item in client.paginate(f"/external/connections/{config.connector.id}/items"):
+    for item in client.paginate(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items"):
         item_id = item.get("id")
         if not item_id:
             continue
         logger.info("Deleting item %s from connection %s", item_id, config.connector.id)
-        client.delete(f"/external/connections/{config.connector.id}/items/{quote(item_id, safe='')}")
+        client.delete(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items/{quote(item_id, safe='')}")
         deleted_count += 1
     return deleted_count
 
@@ -129,7 +129,7 @@ def delete_connection(config: AppConfig, client: GraphClient, initial_timestamp:
             connection = get_connection(config, client)
             if connection:
                 logger.info("Deleting connection %s", config.connector.id)
-                client.delete(f"/external/connections/{config.connector.id}")
+                client.delete(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}")
                 logger.info("Connection %s was deleted", config.connector.id)
                 return True
             return False

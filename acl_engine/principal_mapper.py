@@ -235,7 +235,7 @@ class PrincipalMapper:
 
         Returns the GUID string, or None if not found.
         """
-        from connector.graph import GraphApiError  # imported here to avoid circular dep
+        from Graph.graph import GraphApiError  # imported here to avoid circular dep
 
         # Attempt 1 – direct lookup by UPN / object ID
         direct_path = f"/users/{quote(identifier, safe='')}?$select=id"

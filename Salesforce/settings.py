@@ -11,14 +11,13 @@ from dotenv import load_dotenv
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = REPO_ROOT
-_CONFIG_DIR = PROJECT_ROOT / "config"
+_CONFIG_DIR = REPO_ROOT / "config"
 
 LOCAL_ENV_FILES = (
     REPO_ROOT / "env" / ".env.local",
     REPO_ROOT / "env" / ".env.local.user",
-    PROJECT_ROOT / ".env.local",
-    PROJECT_ROOT / ".env.local.user",
+    REPO_ROOT / ".env.local",
+    REPO_ROOT / ".env.local.user",
 )
 
 DISALLOWED_CONNECTOR_PREFIXES = (
@@ -110,6 +109,7 @@ class ConnectorSettings:
 
 @dataclass(frozen=True)
 class TuningSettings:
+    graph_api_version: str
     graph_max_retries: int
     graph_retry_backoff_base: int
     connection_timeout_seconds: int
@@ -129,7 +129,6 @@ class AppConfig:
     schema_config: dict[str, Any]
     owd_field_map: dict[str, str]
     parent_map: dict[str, tuple[str, str]]
-    include_non_schema_fields_in_content: bool = True  # Flight: include non-schema fields in item content
 
 
 def _alias_env(target: str, source: str) -> None:
@@ -176,9 +175,6 @@ def load_config() -> AppConfig:
 
     connector_id = _require_env("CONNECTOR_ID")
     validate_connector_id(connector_id)
-    
-    # Flight: include non-schema fields in item content (default: true for backward compat)
-    include_non_schema_fields_in_content = os.getenv("INCLUDE_NON_SCHEMA_FIELDS_IN_CONTENT", "true").lower() in ("true", "1", "yes")
 
     cfg = load_schema_config()
 
@@ -194,11 +190,11 @@ def load_config() -> AppConfig:
     return AppConfig(
         client_id=_require_env("AZURE_CLIENT_ID"),
         repo_root=REPO_ROOT,
-        include_non_schema_fields_in_content=include_non_schema_fields_in_content,
         schema_config=cfg,
         owd_field_map=build_owd_field_map(cfg),
         parent_map=build_parent_map(cfg),
         tuning=TuningSettings(
+            graph_api_version=os.getenv("GRAPH_API_VERSION", "v1.0"),
             graph_max_retries=_require_int_env("GRAPH_MAX_RETRIES"),
             graph_retry_backoff_base=_require_int_env("GRAPH_RETRY_BACKOFF_BASE"),
             connection_timeout_seconds=_require_int_env("CONNECTION_TIMEOUT_SECONDS"),

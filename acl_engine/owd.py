@@ -57,7 +57,7 @@ def _load_owd_field_map(owd_field_map: dict[str, str] | None = None) -> dict[str
     if owd_field_map is not None:
         return dict(owd_field_map)
     try:
-        from connector.settings import build_owd_field_map
+        from Salesforce.settings import build_owd_field_map
         mapping = build_owd_field_map()
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("[OWD] Cannot load schema.json: %s", exc)

@@ -8,8 +8,8 @@ import asyncio
 import logging
 import os
 
-from connector.settings import build_owd_field_map, load_schema_config
-from connector.item_converter import load_converter_config
+from Salesforce.settings import build_owd_field_map, load_schema_config
+from Item.item_converter import load_converter_config
 
 
 logger = logging.getLogger("salesforce_connector")

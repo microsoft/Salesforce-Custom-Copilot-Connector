@@ -9,7 +9,9 @@ import requests
 
 
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
-GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
+GRAPH_BASE_URL = "https://graph.microsoft.com"
+GRAPH_DEFAULT_API_VERSION = "v1.0"
+EXTERNAL_CONNECTIONS_PATH = "/external/connections"
 
 # Transient HTTP status codes that should be retried
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -44,9 +46,16 @@ class GraphApiError(RuntimeError):
 
 
 class GraphClient:
-    def __init__(self, delay_seconds: int = 60, max_retries: int = 4, retry_backoff_base: int = 2):
+    def __init__(
+        self,
+        api_version: str = GRAPH_DEFAULT_API_VERSION,
+        delay_seconds: int = 60,
+        max_retries: int = 4,
+        retry_backoff_base: int = 2,
+    ):
         self._credential = DefaultAzureCredential()
         self._session = requests.Session()
+        self._base_url = f"{GRAPH_BASE_URL}/{api_version}"
         self._delay_seconds = delay_seconds
         self._max_retries = max_retries
         self._retry_backoff_base = retry_backoff_base
@@ -174,11 +183,10 @@ class GraphClient:
             base_headers.update(headers)
         return base_headers
 
-    @staticmethod
-    def _normalize_url(path_or_url: str) -> str:
+    def _normalize_url(self, path_or_url: str) -> str:
         if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
             return path_or_url
-        return f"{GRAPH_BASE_URL}{path_or_url}"
+        return f"{self._base_url}{path_or_url}"
 
     @staticmethod
     def _parse_response(response: requests.Response) -> Any:

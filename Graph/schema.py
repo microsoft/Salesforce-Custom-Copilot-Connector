@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from connector.graph import GraphApiError, GraphClient
-from connector.settings import AppConfig
-from connector.utils import delay
+from Graph.graph import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
+from Salesforce.settings import AppConfig
+from Salesforce.utils import delay
 
 
 logger = logging.getLogger("salesforce_connector")
@@ -16,7 +16,7 @@ def create_schema(config: AppConfig, client: GraphClient) -> None:
         config.connector.id,
     )
     client.patch(
-        f"/external/connections/{config.connector.id}/schema",
+        f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/schema",
         json_body={
             "baseType": "microsoft.graph.externalItem",
             "properties": config.connector.schema,
@@ -27,7 +27,7 @@ def create_schema(config: AppConfig, client: GraphClient) -> None:
 
 
 def get_schema(config: AppConfig, client: GraphClient) -> dict:
-    payload = client.get(f"/external/connections/{config.connector.id}/schema")
+    payload = client.get(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/schema")
     return payload if isinstance(payload, dict) else {}
 
 

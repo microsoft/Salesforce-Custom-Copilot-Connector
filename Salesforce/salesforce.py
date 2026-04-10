@@ -9,10 +9,10 @@ import re
 
 import requests
 
-from connector.identity_sync import SalesforceConstants
-from connector.item_converter import METADATA_COLUMNS, load_converter_config
-from connector.settings import AppConfig
-from connector.utils import to_iso_z
+from Salesforce.identity_sync import SalesforceConstants
+from Item.item_converter import METADATA_COLUMNS, load_converter_config
+from Salesforce.settings import AppConfig
+from Salesforce.utils import to_iso_z
 
 
 logger = logging.getLogger("salesforce_connector")

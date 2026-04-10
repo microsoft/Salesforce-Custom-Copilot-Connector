@@ -1,0 +1,1205 @@
+{
+  "connectionId": "SFCustomConnectorFun0410Test1",
+  "createdAtUtc": "2026-04-10T12:45:34.645516Z",
+  "requests": [
+    {
+      "itemId": "001dN00000qALBkQAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qALBkQAO",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBkQAO",
+          "ObjectName": "Account",
+          "IconUrl": "",
+          "Id": "001dN00000qALBkQAO",
+          "BillingAddress": "10 Main Rd., New York, NY - 31349, USA",
+          "Industry": "Manufacturing",
+          "ShippingAddress": "10 Main Rd., New York, NY - 31349, USA",
+          "Name": "Acme (Sample)",
+          "Phone": "1 (800) 667-6389",
+          "Type": "Prospect",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Account, url: https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBkQAO",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:45:57.114734Z"
+    },
+    {
+      "itemId": "001dN00000qALBlQAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qALBlQAO",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBlQAO",
+          "ObjectName": "Account",
+          "IconUrl": "",
+          "Id": "001dN00000qALBlQAO",
+          "BillingAddress": "150 Chestnut Street, Toronto, Ontario - L4B 1Y3, Canada",
+          "Industry": "Media",
+          "ShippingAddress": "150 Chestnut Street, Toronto, Ontario - L4B 1Y3, Canada",
+          "Name": "Global Media (Sample)",
+          "Description": "GBM is the worldwide leader in technology news and information on the Web and the producer of the longest-running and farthest-reaching television shows about technology. GBM's network of sites combines breakthrough interactive technology with engaging content and design and is consistently ranked as the Internet's leading content network in terms of both audience size and revenue, serving millions of users each day.",
+          "Phone": "1 (800) 667-6389",
+          "Type": "Prospect",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "GBM is the worldwide leader in technology news and information on the Web and the producer of the longest-running and farthest-reaching television shows about technology. GBM's network of sites combines breakthrough interactive technology with engaging content and design and is consistently ranked as the Internet's leading content network in terms of both audience size and revenue, serving millions of users each day., IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Account, url: https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBlQAO",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:03.183320Z"
+    },
+    {
+      "itemId": "001dN00000qALBmQAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qALBmQAO",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBmQAO",
+          "ObjectName": "Account",
+          "IconUrl": "",
+          "Id": "001dN00000qALBmQAO",
+          "BillingAddress": "One Market St\r\nSuite 300, San Francisco, CA - 94105, USA",
+          "Industry": "Technology",
+          "ShippingAddress": "One Market St\r\nSuite 300, San Francisco, CA - 94105, USA",
+          "Website": "http://www.salesforce.com",
+          "Name": "salesforce.com (Sample)",
+          "Description": "Salesforce.com is the enterprise cloud computing leader. Our social and mobile cloud technologies\u2014including our flagship sales and CRM applications\u2014help companies connect with customers, partners, and employees in entirely new ways.",
+          "Phone": "1 (800) 667-6389",
+          "Type": "Customer",
+          "LastModifiedDate": "2026-03-30T10:45:49.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Salesforce.com is the enterprise cloud computing leader. Our social and mobile cloud technologies\u2014including our flagship sales and CRM applications\u2014help companies connect with customers, partners, and employees in entirely new ways., IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Account, url: https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBmQAO",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:09.064966Z"
+    },
+    {
+      "itemId": "001dN00000qAQD3QAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qAQD3QAO",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD3QAO",
+          "ObjectName": "Account",
+          "IconUrl": "",
+          "Id": "001dN00000qAQD3QAO",
+          "BillingAddress": "51327 George Stream Apt. 398, Port Kristie, Ontario - 98801, Canada",
+          "Industry": "Manufacturing",
+          "ShippingAddress": "280 Tate Fort, Mayland, Iowa - 48986, India",
+          "Website": "http://johnson-murray.net/",
+          "Name": "Cole, Stewart and Bowers",
+          "Description": "Sample account for Salesforce data load",
+          "Phone": "(492)320-0640x1873",
+          "Type": "Partner",
+          "LastModifiedDate": "2026-03-30T10:49:16.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T06:01:29.000+0000",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Sample account for Salesforce data load, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Account, url: https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD3QAO",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:12.933043Z"
+    },
+    {
+      "itemId": "001dN00000qAQD4QAO",
+      "objectType": "Account",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/001dN00000qAQD4QAO",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD4QAO",
+          "ObjectName": "Account",
+          "IconUrl": "",
+          "Id": "001dN00000qAQD4QAO",
+          "BillingAddress": "061 Smith Estate, Hollystad, Ontario - 8740, Canada",
+          "Industry": "Healthcare",
+          "ShippingAddress": "233 Scott Dam, Normanland, Ohio - 64092, India",
+          "Website": "http://www.carroll.com/",
+          "Name": "Webb-Adams",
+          "Description": "Sample account for Salesforce data load",
+          "Phone": "(577)274-3896x3684",
+          "Type": "Prospect",
+          "LastModifiedDate": "2026-03-30T10:49:47.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T06:01:29.000+0000",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Sample account for Salesforce data load, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Account, url: https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD4QAO",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:14.718491Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0PUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0PUAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0PUAV",
+          "ObjectName": "Lead",
+          "IconUrl": "",
+          "Id": "00QdN00000DdE0PUAV",
+          "Name": "John Steele (Sample)",
+          "Phone": "1 (800) 667-6389",
+          "Email": "info@salesforce.com",
+          "Title": "Senior VP",
+          "MobilePhone": "1 (800) 667-6389",
+          "Address": "11 Farm Avenue, Hartford, Connecticut - 6156, United States",
+          "Company": "BigLife Inc.",
+          "IsConverted": false,
+          "LeadStatus": "Working",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/None",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Lead, url: https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0PUAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:20.061079Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0QUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0QUAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0QUAV",
+          "ObjectName": "Lead",
+          "IconUrl": "",
+          "Id": "00QdN00000DdE0QUAV",
+          "Name": "Maria Gardner (Sample)",
+          "Phone": "1 (800) 667-6389",
+          "Email": "info@salesforce.com",
+          "Title": "Exec VP",
+          "MobilePhone": "1 (800) 667-6389",
+          "Address": "1 Boston Rd, Marlborough, Massachusetts - 01752, United States",
+          "Company": "3C Systems",
+          "IsConverted": false,
+          "LeadStatus": "New",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/None",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Lead, url: https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0QUAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:24.303414Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0RUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0RUAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0RUAV",
+          "ObjectName": "Lead",
+          "IconUrl": "",
+          "Id": "00QdN00000DdE0RUAV",
+          "Name": "Sarah Loehr (Sample)",
+          "Phone": "1 (800) 667-6389",
+          "Email": "info@salesforce.com",
+          "Title": "System Administrator",
+          "MobilePhone": "1 (800) 667-6389",
+          "Address": "One Jones Avenue, New York, New York - 10010, United States",
+          "Company": "MedLife, Inc.",
+          "IsConverted": false,
+          "LeadStatus": "Nurturing",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/None",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Lead, url: https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0RUAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:29.394045Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0SUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0SUAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0SUAV",
+          "ObjectName": "Lead",
+          "IconUrl": "",
+          "Id": "00QdN00000DdE0SUAV",
+          "Name": "Andy Smith (Sample)",
+          "Phone": "1 (800) 667-6389",
+          "Email": "info@salesforce.com",
+          "Title": "Vice President",
+          "MobilePhone": "1 (800) 667-6389",
+          "Address": "1 Universal Building, Hartford, Connecticut - 06103, United States",
+          "Company": "Universal Technologies",
+          "IsConverted": false,
+          "LeadStatus": "New",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/None",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Lead, url: https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0SUAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:34.079423Z"
+    },
+    {
+      "itemId": "00QdN00000DdE0TUAV",
+      "objectType": "Lead",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/00QdN00000DdE0TUAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0TUAV",
+          "ObjectName": "Lead",
+          "IconUrl": "",
+          "Id": "00QdN00000DdE0TUAV",
+          "Name": "Amy Jordan (Sample)",
+          "Phone": "1 (800) 667-6389",
+          "Email": "info@salesforce.com",
+          "Title": "VP Purchasing",
+          "MobilePhone": "1 (800) 667-6389",
+          "Address": "1479 Grotton Gardens, Cartersville, Georgia - 30121, United States",
+          "Company": "Lee Enterprise, Inc",
+          "IsConverted": false,
+          "LeadStatus": "New",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/None",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Lead, url: https://fun-enterprise-1062.my.salesforce.com/00QdN00000DdE0TUAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:39.832106Z"
+    },
+    {
+      "itemId": "003dN00000LiCpOQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiCpOQAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/003dN00000LiCpOQAV",
+          "ObjectName": "Contact",
+          "IconUrl": "",
+          "Id": "003dN00000LiCpOQAV",
+          "Name": "Howard Jones (Sample)",
+          "Fax": "(212) 555-5555",
+          "Phone": "1 (800) 667-6389",
+          "AccountId": "001dN00000qALBkQAO",
+          "AccountName": "Acme (Sample)",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Email": "info@salesforce.com",
+          "Title": "Buyer",
+          "MailingAddress": "10 Main Rd., New York, NY - 31349, USA",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBkQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qALBkQAO, Account.Name: Acme (Sample), Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Contact, url: https://fun-enterprise-1062.my.salesforce.com/003dN00000LiCpOQAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:43.402280Z"
+    },
+    {
+      "itemId": "003dN00000LiCpPQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiCpPQAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/003dN00000LiCpPQAV",
+          "ObjectName": "Contact",
+          "IconUrl": "",
+          "Id": "003dN00000LiCpPQAV",
+          "Name": "Marc Benioff (Sample)",
+          "Fax": "(415) 901-7040",
+          "Phone": "1 (800) 667-6389",
+          "AccountId": "001dN00000qALBmQAO",
+          "AccountName": "salesforce.com (Sample)",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Email": "info@salesforce.com",
+          "Title": "Executive Officer",
+          "MailingAddress": "One Market St, \r\nSuite 300, San Francisco, CA - 94105, USA",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBmQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qALBmQAO, Account.Name: salesforce.com (Sample), Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Contact, url: https://fun-enterprise-1062.my.salesforce.com/003dN00000LiCpPQAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:46.011875Z"
+    },
+    {
+      "itemId": "003dN00000LiHvXQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiHvXQAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/003dN00000LiHvXQAV",
+          "ObjectName": "Contact",
+          "IconUrl": "",
+          "Id": "003dN00000LiHvXQAV",
+          "Name": "Ana Koch",
+          "Phone": "9098904060",
+          "AccountId": "001dN00000qAQD3QAO",
+          "AccountName": "Cole, Stewart and Bowers",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Email": "nbutler@example.org",
+          "Title": "Engineer",
+          "MobilePhone": "001-835-957-9286x823",
+          "Department": "Operations",
+          "MailingAddress": "63070 Tony Causeway, Port Laura, Nevada - 29774, India",
+          "LastModifiedDate": "2026-03-26T06:48:23.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T06:26:44.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD3QAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qAQD3QAO, Account.Name: Cole, Stewart and Bowers, Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Contact, url: https://fun-enterprise-1062.my.salesforce.com/003dN00000LiHvXQAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:54.568905Z"
+    },
+    {
+      "itemId": "003dN00000LiHvYQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiHvYQAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/003dN00000LiHvYQAV",
+          "ObjectName": "Contact",
+          "IconUrl": "",
+          "Id": "003dN00000LiHvYQAV",
+          "Name": "Patricia Simpson",
+          "Phone": "(745)688-9678",
+          "AccountId": "001dN00000qAQD4QAO",
+          "AccountName": "Webb-Adams",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Email": "ginapage@example.com",
+          "Title": "Consultant",
+          "MobilePhone": "2996231102",
+          "Department": "Finance",
+          "MailingAddress": "686 William Crossing, Smithhaven, Colorado - 78487, India",
+          "LastModifiedDate": "2026-03-26T06:48:23.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T06:26:44.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD4QAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qAQD4QAO, Account.Name: Webb-Adams, Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Contact, url: https://fun-enterprise-1062.my.salesforce.com/003dN00000LiHvYQAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:46:55.985693Z"
+    },
+    {
+      "itemId": "003dN00000LiHvZQAV",
+      "objectType": "Contact",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/003dN00000LiHvZQAV",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/003dN00000LiHvZQAV",
+          "ObjectName": "Contact",
+          "IconUrl": "",
+          "Id": "003dN00000LiHvZQAV",
+          "Name": "Ronald Mathis",
+          "Phone": "539-341-3176x61936",
+          "AccountId": "001dN00000qAQD5QAO",
+          "AccountName": "Hunt, Good and Hamilton",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Email": "johnsonchristopher@example.com",
+          "Title": "Director",
+          "MobilePhone": "(754)323-8523",
+          "Department": "IT",
+          "MailingAddress": "193 Barrett Street Suite 052, North Jorgeville, Maine - 21503, India",
+          "LastModifiedDate": "2026-03-26T06:48:23.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T06:26:44.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD5QAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qAQD5QAO, Account.Name: Hunt, Good and Hamilton, Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Contact, url: https://fun-enterprise-1062.my.salesforce.com/003dN00000LiHvZQAV",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "user",
+            "value": "bc58aa9c-8190-433f-b4aa-5dd154d82290"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:17.309439Z"
+    },
+    {
+      "itemId": "006dN00000CD3qoQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qoQAD",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qoQAD",
+          "ObjectName": "Opportunity",
+          "IconUrl": "",
+          "Id": "006dN00000CD3qoQAD",
+          "Name": "Acme - 1250 Widgets (Sample)",
+          "AccountId": "001dN00000qALBkQAO",
+          "AccountName": "Acme (Sample)",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Amount": 45000.0,
+          "StageName": "Qualification",
+          "CloseDate": "2026-03-28",
+          "Type": "Existing Business",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBkQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qALBkQAO, Account.Name: Acme (Sample), Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Opportunity, url: https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qoQAD",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:18.258921Z"
+    },
+    {
+      "itemId": "006dN00000CD3qpQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qpQAD",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qpQAD",
+          "ObjectName": "Opportunity",
+          "IconUrl": "",
+          "Id": "006dN00000CD3qpQAD",
+          "Name": "Global Media - 1750 Widgets (Sample)",
+          "AccountId": "001dN00000qALBlQAO",
+          "AccountName": "Global Media (Sample)",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Amount": 52500.0,
+          "StageName": "Qualification",
+          "CloseDate": "2026-04-01",
+          "Type": "Existing Business",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBlQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qALBlQAO, Account.Name: Global Media (Sample), Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Opportunity, url: https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qpQAD",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:24.008164Z"
+    },
+    {
+      "itemId": "006dN00000CD3qqQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qqQAD",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qqQAD",
+          "ObjectName": "Opportunity",
+          "IconUrl": "",
+          "Id": "006dN00000CD3qqQAD",
+          "Name": "Acme - 210 Widgets (Sample)",
+          "AccountId": "001dN00000qALBkQAO",
+          "AccountName": "Acme (Sample)",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Amount": 20000.0,
+          "StageName": "Closed Won",
+          "CloseDate": "2025-12-17",
+          "Type": "Existing Business",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBkQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qALBkQAO, Account.Name: Acme (Sample), Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Opportunity, url: https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qqQAD",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:30.111061Z"
+    },
+    {
+      "itemId": "006dN00000CD3qrQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qrQAD",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qrQAD",
+          "ObjectName": "Opportunity",
+          "IconUrl": "",
+          "Id": "006dN00000CD3qrQAD",
+          "Name": "salesforce.com - 210 Widgets (Sample)",
+          "AccountId": "001dN00000qALBmQAO",
+          "AccountName": "salesforce.com (Sample)",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Amount": 20000.0,
+          "StageName": "Negotiation",
+          "CloseDate": "2026-04-06",
+          "Type": "Existing Business",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBmQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Account.Id: 001dN00000qALBmQAO, Account.Name: salesforce.com (Sample), Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Opportunity, url: https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qrQAD",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:50.317291Z"
+    },
+    {
+      "itemId": "006dN00000CD3qsQAD",
+      "objectType": "Opportunity",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/006dN00000CD3qsQAD",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qsQAD",
+          "ObjectName": "Opportunity",
+          "IconUrl": "",
+          "Id": "006dN00000CD3qsQAD",
+          "Name": "Acme - 1,200 Widgets (Sample)",
+          "Description": "The deal is at  50% because they are at the sales process stage of evaluating our ROI justification.",
+          "AccountId": "001dN00000qALBkQAO",
+          "AccountName": "Acme (Sample)",
+          "AccountOwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "AccountOwner": "Sekhar Guntaka",
+          "Amount": 110000.0,
+          "StageName": "Needs Analysis",
+          "CloseDate": "2026-04-19",
+          "Type": "Existing Business",
+          "LastModifiedDate": "2026-03-26T05:13:06.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "CreatedDate": "2026-03-26T05:13:06.000+0000",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBkQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "The deal is at  50% because they are at the sales process stage of evaluating our ROI justification., Account.Id: 001dN00000qALBkQAO, Account.Name: Acme (Sample), Account.OwnerId: 005dN00000AXplzQAD, IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Opportunity, url: https://fun-enterprise-1062.my.salesforce.com/006dN00000CD3qsQAD",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:51.175116Z"
+    },
+    {
+      "itemId": "500dN00000M3oZwQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZwQAJ",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZwQAJ",
+          "ObjectName": "Case",
+          "IconUrl": "",
+          "Id": "500dN00000M3oZwQAJ",
+          "AccountId": "001dN00000qALBkQAO",
+          "CaseNumber": "00001012",
+          "Email": "info@salesforce.com",
+          "ContactPhone": "1 (800) 667-6389",
+          "CaseCreatedDate": "2026-03-26T07:05:12.000+0000",
+          "Description": "During list stock we finally environment property call real until whom half history.",
+          "IsClosed": false,
+          "Priority": "Medium",
+          "Status": "New",
+          "Subject": "Sample Case Subject 1",
+          "LastModifiedDate": "2026-03-30T08:31:32.000+0000",
+          "Owner": "Ritika LNU",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AZCJtQAP",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBkQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "During list stock we finally environment property call real until whom half history., IsDeleted: False, Owner.Name: Ritika LNU, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Case, url: https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZwQAJ",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "deny",
+            "type": "everyone",
+            "value": "385f0970-eb71-4dd9-8eba-bb684d32d3d9"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:55.595549Z"
+    },
+    {
+      "itemId": "500dN00000M3oZxQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZxQAJ",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZxQAJ",
+          "ObjectName": "Case",
+          "IconUrl": "",
+          "Id": "500dN00000M3oZxQAJ",
+          "AccountId": "001dN00000qALBmQAO",
+          "CaseNumber": "00001013",
+          "Email": "info@salesforce.com",
+          "ContactPhone": "1 (800) 667-6389",
+          "CaseCreatedDate": "2026-03-26T07:05:12.000+0000",
+          "Description": "Church body suggest many forget could agreement public call.",
+          "IsClosed": false,
+          "Priority": "Medium",
+          "Status": "New",
+          "Subject": "Sample Case Subject 2",
+          "LastModifiedDate": "2026-03-26T07:05:12.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qALBmQAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Church body suggest many forget could agreement public call., IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Case, url: https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZxQAJ",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "user",
+            "value": "bc58aa9c-8190-433f-b4aa-5dd154d82290"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:56.222430Z"
+    },
+    {
+      "itemId": "500dN00000M3oZyQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZyQAJ",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZyQAJ",
+          "ObjectName": "Case",
+          "IconUrl": "",
+          "Id": "500dN00000M3oZyQAJ",
+          "AccountId": "001dN00000qAQD3QAO",
+          "CaseNumber": "00001014",
+          "Email": "nbutler@example.org",
+          "ContactMobile": "001-835-957-9286x823",
+          "ContactPhone": "9098904060",
+          "CaseCreatedDate": "2026-03-26T07:05:12.000+0000",
+          "Description": "End scene establish figure care prepare every.",
+          "IsClosed": false,
+          "Priority": "Medium",
+          "Status": "New",
+          "Subject": "Sample Case Subject 3",
+          "LastModifiedDate": "2026-03-30T11:36:05.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD3QAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "End scene establish figure care prepare every., IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Case, url: https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZyQAJ",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "user",
+            "value": "bc58aa9c-8190-433f-b4aa-5dd154d82290"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:47:57.569777Z"
+    },
+    {
+      "itemId": "500dN00000M3oZzQAJ",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oZzQAJ",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZzQAJ",
+          "ObjectName": "Case",
+          "IconUrl": "",
+          "Id": "500dN00000M3oZzQAJ",
+          "AccountId": "001dN00000qAQD4QAO",
+          "CaseNumber": "00001015",
+          "Email": "ginapage@example.com",
+          "ContactMobile": "2996231102",
+          "ContactPhone": "(745)688-9678",
+          "CaseCreatedDate": "2026-03-26T07:05:12.000+0000",
+          "Description": "But far mother sometimes both high old ground Mrs work want quality.",
+          "IsClosed": false,
+          "Priority": "Medium",
+          "Status": "New",
+          "Subject": "Sample Case Subject 4",
+          "LastModifiedDate": "2026-03-26T07:05:12.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD4QAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "But far mother sometimes both high old ground Mrs work want quality., IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Case, url: https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oZzQAJ",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "user",
+            "value": "bc58aa9c-8190-433f-b4aa-5dd154d82290"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:48:01.563493Z"
+    },
+    {
+      "itemId": "500dN00000M3oa0QAB",
+      "objectType": "Case",
+      "url": null,
+      "graphPath": "/external/connections/SFCustomConnectorFun0410Test1/items/500dN00000M3oa0QAB",
+      "requestPayload": {
+        "properties": {
+          "Url": "https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oa0QAB",
+          "ObjectName": "Case",
+          "IconUrl": "",
+          "Id": "500dN00000M3oa0QAB",
+          "AccountId": "001dN00000qAQD5QAO",
+          "CaseNumber": "00001016",
+          "Email": "johnsonchristopher@example.com",
+          "ContactMobile": "(754)323-8523",
+          "ContactPhone": "539-341-3176x61936",
+          "CaseCreatedDate": "2026-03-26T07:05:12.000+0000",
+          "Description": "Affect own fear commercial herself simple television.",
+          "IsClosed": false,
+          "Priority": "Medium",
+          "Status": "New",
+          "Subject": "Sample Case Subject 5",
+          "LastModifiedDate": "2026-03-26T07:05:12.000+0000",
+          "Owner": "Sekhar Guntaka",
+          "OwnerUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "LastModifiedBy": "Sekhar Guntaka",
+          "CreatedByUrl": "https://fun-enterprise-1062.my.salesforce.com/005dN00000AXplzQAD",
+          "CreatedBy": "Sekhar Guntaka",
+          "AccountUrl": "https://fun-enterprise-1062.my.salesforce.com/001dN00000qAQD5QAO",
+          "Authors@odata.type": "Collection(String)",
+          "Authors": [
+            "Sekhar Guntaka"
+          ]
+        },
+        "content": {
+          "value": "Affect own fear commercial herself simple television., IsDeleted: False, Owner.Name: Sekhar Guntaka, LastModifiedBy.Name: Sekhar Guntaka, CreatedBy.Name: Sekhar Guntaka, objectType: Case, url: https://fun-enterprise-1062.my.salesforce.com/500dN00000M3oa0QAB",
+          "type": "text"
+        },
+        "acl": [
+          {
+            "accessType": "grant",
+            "type": "user",
+            "value": "bc58aa9c-8190-433f-b4aa-5dd154d82290"
+          }
+        ]
+      },
+      "loggedAtUtc": "2026-04-10T12:48:05.349336Z"
+    }
+  ]
+}
