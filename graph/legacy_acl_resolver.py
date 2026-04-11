@@ -1,3 +1,36 @@
+"""
+Legacy ACL resolver for Salesforce → Microsoft Graph external items.
+
+This module implements the *legacy* access-control-list resolution pipeline.
+For each Salesforce record it determines which Azure AD principals (users)
+should be granted access in the Microsoft Graph external connection, based on
+Salesforce's sharing model:
+
+* **Organisation-Wide Defaults (OWD)** — when an object's OWD is ``Public``,
+  all tenant users are granted access.  When it is ``Private`` or
+  ``ControlledByParent``, the resolver drills into record-level sharing.
+* **Record ownership** — the record owner always receives access.
+* **Role hierarchy** — users in roles above the owner's role inherit access.
+* **Sharing rules & manual shares** — ``EntityShare`` records are queried to
+  discover additional grantees (users and groups).
+* **Group expansion** — public groups and queues are recursively expanded to
+  their member users.
+* **Territory management** — if territories are in use, territory membership
+  is resolved and merged into the ACL.
+* **Parent-chain inheritance** — objects with ``ControlledByParent`` OWD
+  inherit their parent record's ACL (up to ``ACL_MAX_PARENT_DEPTH``).
+
+The newer ``acl_engine`` package is a modular rewrite of this logic.  Set
+``USE_NEW_ACL_ENGINE=true`` in the environment to use it instead.
+
+Classes
+-------
+AclResolver
+    Instantiated per ingestion run.  Call :meth:`resolve` with a dict of
+    ``{object_type: [records]}`` to receive a nested dict of
+    ``{object_type: {record_id: [acl_entry]}}`` ready for the Graph PUT payload.
+"""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -7,8 +40,8 @@ import asyncio
 import logging
 import os
 
-from Graph.graph import GraphApiError, GraphClient
-from Salesforce.identity_sync import (
+from graph.client import GraphApiError, GraphClient
+from salesforce.sharing_model import (
     AsyncSalesforceClient,
     ClientHelperForIdentitySync,
     EntityShareBase,
@@ -18,9 +51,9 @@ from Salesforce.identity_sync import (
     User,
     UserOrGroupType,
 )
-from Item.item_converter import SalesforceObjectHandler
-from Salesforce.salesforce import get_salesforce_access_token
-from Salesforce.settings import AppConfig
+from item.converter import SalesforceObjectHandler
+from salesforce.api_client import get_salesforce_access_token
+from salesforce.settings import AppConfig
 
 
 USER_ID_PREFIX = "005"

@@ -1,3 +1,39 @@
+"""
+Item ingestion pipeline — Salesforce → Graph external items.
+
+Orchestrates the full ingestion flow:
+
+1. **Fetch** — queries all Salesforce objects defined in ``config/schema.json``
+   via the Salesforce REST API (supports full and incremental sync).
+2. **ACL resolution** — for each record, resolves the Salesforce sharing model
+   (OWD, roles, groups, territories, sharing rules, parent chains) into
+   Microsoft Graph ACL entries.  Two engines are available:
+   * *Legacy* (``Graph.acl.AclResolver``) — default.
+   * *New* (``acl_engine``) — enabled by setting ``USE_NEW_ACL_ENGINE=true``.
+3. **Transform** — converts each Salesforce record + ACLs into a Graph
+   ``externalItem`` payload using ``SalesforceItemTransformer``.
+4. **Upsert / delete** — PUTs each item into the external connection (or
+   DELETEs it if the transformer marks it as ``deleted``).
+
+Debug modes
+-----------
+``DEBUG_ITEM_ID``
+    Set via the ``single-item`` command.  Restricts ingestion to a single
+    Salesforce record ID.
+``DEBUG_OBJECT_TYPE``
+    Set via the ``single-object`` command.  Restricts ingestion to one
+    Salesforce object type (e.g. ``Case``, ``Account``).
+
+Key functions
+-------------
+ingest_content(config, client, since)
+    Main entry point.  Called by every command that performs ingestion.
+load_content(config, client, item)
+    PUTs a single transformed item into the Graph external connection.
+delete_content(config, client, item_id)
+    DELETEs a single item from the Graph external connection.
+"""
+
 from __future__ import annotations
 
 import asyncio

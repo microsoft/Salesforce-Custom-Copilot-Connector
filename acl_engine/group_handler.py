@@ -46,7 +46,7 @@ from acl_engine.models import GroupRecord
 from acl_engine.role_handler import RoleHandler
 from acl_engine.territory_handler import TerritoryHandler
 from acl_engine.queue_handler import QueueHandler
-from acl_engine.sf_client import SalesforceClient
+from acl_engine.salesforce_client import SalesforceClient
 
 logger = logging.getLogger("salesforce_connector.acl_engine")
 

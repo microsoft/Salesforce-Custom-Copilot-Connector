@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import os
 
-from Item.item_converter import SalesforceConverter
+from item.converter import SalesforceConverter
 
 
 COLLECTION_SCHEMA_TO_ODATA_TYPE = {

@@ -27,7 +27,7 @@ import logging
 from typing import Any, Optional
 
 from acl_engine.models import OWDVisibility
-from acl_engine.sf_client import SalesforceClient
+from acl_engine.salesforce_client import SalesforceClient
 
 logger = logging.getLogger("salesforce_connector.acl_engine")
 
@@ -57,7 +57,7 @@ def _load_owd_field_map(owd_field_map: dict[str, str] | None = None) -> dict[str
     if owd_field_map is not None:
         return dict(owd_field_map)
     try:
-        from Salesforce.settings import build_owd_field_map
+        from salesforce.settings import build_owd_field_map
         mapping = build_owd_field_map()
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("[OWD] Cannot load schema.json: %s", exc)

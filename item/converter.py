@@ -1,3 +1,40 @@
+"""
+Salesforce → Graph external item conversion engine.
+
+Transforms raw Salesforce SOQL query results into Microsoft Graph
+``externalItem`` payloads.  The conversion is driven entirely by the
+schema defined in ``config/schema.json``.
+
+Key concepts
+------------
+* **SalesforceObjectHandler** — one per Salesforce object type (e.g. Account,
+  Case).  Reads ``selectedFields`` from the schema config to know which
+  Salesforce fields map to which Graph schema properties.  Handles nested
+  relationship objects (``Owner.Name``), address serialisation, type
+  coercion (bool / int / float / datetime), and parent-child hierarchies
+  (e.g. Account → Opportunity).
+
+* **SalesforceConverter** — high-level facade.  Instantiated once per
+  ingestion run.  Call ``convert(sf_query_result)`` to get a list of
+  ``externalItem`` dicts ready for the Graph PUT API.
+
+* **build_handlers_from_config(config)** — factory that creates the full
+  handler tree (parents + children) from ``config/schema.json``.
+
+Constants
+---------
+METADATA_COLUMNS
+    Standard Salesforce metadata fields (Id, OwnerId, CreatedDate, etc.)
+    that are always requested in SOQL queries regardless of the schema.
+
+METADATA_COLUMN_SCHEMA_MAPPING
+    Maps Salesforce metadata field names to their Graph schema property names.
+
+TYPE_CONVERTERS
+    Maps .NET type names (from Salesforce describe metadata) to Python type
+    tags used by ``_convert_value``.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -5,7 +42,7 @@ from typing import Any, Optional
 import json
 import logging
 
-from Item.item_models import Content, DeletedItem, SearchableItem
+from item.models import Content, DeletedItem, SearchableItem
 
 
 logger = logging.getLogger("salesforce_connector")
@@ -64,7 +101,7 @@ def load_converter_config(path: Path | None = None) -> dict[str, Any]:
     if path is not None:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
-    from Salesforce.settings import load_schema_config
+    from salesforce.settings import load_schema_config
     return load_schema_config()
 
 

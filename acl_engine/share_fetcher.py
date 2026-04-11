@@ -37,7 +37,7 @@ import logging
 from typing import Optional
 
 from acl_engine.models import ShareEntry
-from acl_engine.sf_client import SalesforceClient
+from acl_engine.salesforce_client import SalesforceClient
 
 logger = logging.getLogger("salesforce_connector.acl_engine")
 

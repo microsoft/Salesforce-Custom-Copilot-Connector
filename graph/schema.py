@@ -1,3 +1,27 @@
+"""
+Graph connector schema registration.
+
+Manages the external connection schema that defines which properties
+(fields) the connector exposes to Microsoft Search.  The schema is read
+from ``config/graph-schema.json`` at startup and registered via a PATCH
+to ``/external/connections/{id}/schema``.
+
+Key functions
+-------------
+ensure_schema(config, client)
+    Idempotently registers the schema.  If a schema already exists the call
+    is a no-op; if not, the function waits briefly and then creates it.
+    Retries on transient errors using the configured retry interval.
+
+schema_exists(config, client)
+    Returns ``True`` if the connection already has a registered schema.
+
+create_schema(config, client)
+    Issues the PATCH request to create / update the schema.  This is a
+    long-running Graph operation; ``GraphClient`` follows the ``Location``
+    header automatically.
+"""
+
 from __future__ import annotations
 
 import logging

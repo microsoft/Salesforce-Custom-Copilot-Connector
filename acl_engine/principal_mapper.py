@@ -41,7 +41,7 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from acl_engine.models import AclResult, PUBLIC_SENTINEL
-from acl_engine.sf_client import SalesforceClient
+from acl_engine.salesforce_client import SalesforceClient
 
 logger = logging.getLogger("salesforce_connector.acl_engine")
 
@@ -235,7 +235,7 @@ class PrincipalMapper:
 
         Returns the GUID string, or None if not found.
         """
-        from Graph.graph import GraphApiError  # imported here to avoid circular dep
+        from graph.client import GraphApiError  # imported here to avoid circular dep
 
         # Attempt 1 – direct lookup by UPN / object ID
         direct_path = f"/users/{quote(identifier, safe='')}?$select=id"

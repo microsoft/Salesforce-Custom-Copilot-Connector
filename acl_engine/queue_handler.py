@@ -43,7 +43,7 @@ import logging
 from collections import defaultdict
 
 from acl_engine.models import PUBLIC_SENTINEL
-from acl_engine.sf_client import SalesforceClient
+from acl_engine.salesforce_client import SalesforceClient
 from acl_engine.user_handler import USER_ID_PREFIX
 
 logger = logging.getLogger("salesforce_connector.acl_engine")

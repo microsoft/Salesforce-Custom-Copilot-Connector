@@ -1,3 +1,29 @@
+"""
+Data models for Microsoft Graph external items.
+
+These lightweight classes mirror the Graph ``externalItem`` JSON structure and
+provide a ``to_dict()`` method for serialisation.
+
+Classes
+-------
+Content
+    Wraps the ``parsedData`` text body that Microsoft Search indexes for
+    full-text queries.
+
+AccessControlEntry
+    A single ACL grant or deny entry (``accessType``, ``type``, ``value``).
+
+SearchableItem
+    A full external item: ID, properties dict, optional content, optional ACL
+    list, and a ``type`` of ``"searchable"``.  Converted to JSON via
+    ``to_dict()`` before being PUT to Graph.
+
+DeletedItem
+    Represents a Salesforce record whose ``IsDeleted`` flag is ``True``.
+    Converted to ``{"id": ..., "type": "deleted"}`` so the ingestion pipeline
+    issues a DELETE instead of a PUT.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Optional

@@ -47,7 +47,7 @@ Module layout
 """
 
 from acl_engine.resolver import AclResolver
-from acl_engine.sf_client import SalesforceClient
+from acl_engine.salesforce_client import SalesforceClient
 from acl_engine.models import AclResult, PUBLIC_SENTINEL
 from acl_engine.principal_mapper import PrincipalMapper
 

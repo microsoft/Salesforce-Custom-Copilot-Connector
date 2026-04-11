@@ -50,8 +50,8 @@ import os
 from typing import Optional
 
 from acl_engine.models import AclResult, PUBLIC_SENTINEL
-from acl_engine.owd import OWDFetcher
-from acl_engine.sf_client import SalesforceClient
+from acl_engine.org_wide_defaults import OWDFetcher
+from acl_engine.salesforce_client import SalesforceClient
 from acl_engine.share_fetcher import ShareFetcher
 from acl_engine.user_handler import UserHandler
 from acl_engine.group_handler import GroupHandler
@@ -70,7 +70,7 @@ def _load_parent_map(parent_map: dict[str, tuple[str, str]] | None = None) -> di
     """
     if parent_map is not None:
         return dict(parent_map)
-    from Salesforce.settings import build_parent_map
+    from salesforce.settings import build_parent_map
     return build_parent_map()
 
 

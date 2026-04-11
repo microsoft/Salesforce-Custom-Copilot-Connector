@@ -1,3 +1,37 @@
+"""
+Microsoft Graph API client with retry and pagination support.
+
+This module provides :class:`GraphClient`, a thin wrapper around the Microsoft
+Graph REST API that handles:
+
+* **Authentication** — acquires tokens via ``DefaultAzureCredential`` (supports
+  Azure CLI, managed identity, environment variables, etc.).
+* **Retry with exponential back-off** — automatically retries on transient HTTP
+  errors (429, 500, 502, 503, 504) up to a configurable number of attempts.
+* **Long-running operations** — follows ``Location`` headers returned by
+  asynchronous Graph operations (e.g. schema provisioning) and polls until the
+  operation completes.
+* **Pagination** — the :meth:`GraphClient.paginate` iterator transparently
+  follows ``@odata.nextLink`` across paged result sets.
+
+Constants
+---------
+GRAPH_BASE_URL : str
+    ``https://graph.microsoft.com``
+EXTERNAL_CONNECTIONS_PATH : str
+    ``/external/connections`` — base path for the External Connectors API.
+
+Classes
+-------
+GraphApiError
+    Raised when the Graph API returns a non-success status that is not retryable
+    (or retries have been exhausted).  Carries ``status_code``, ``code``, and
+    the raw ``body``.
+GraphClient
+    Stateful HTTP client.  Instantiate once per command and reuse for all Graph
+    calls within that run.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Iterator

@@ -1,3 +1,30 @@
+"""
+External connection lifecycle management.
+
+Functions in this module create, verify, configure, and tear down Microsoft
+Graph external connections used by the Salesforce CRM connector.
+
+Key functions
+-------------
+ensure_connection(config, client, initial_timestamp)
+    Idempotently creates the external connection.  If the connection already
+    exists it is a no-op; if not, it is created.  Retries on auth errors
+    (prompting the operator to grant admin consent) until the configured
+    timeout elapses.
+
+is_connection_ready(config, client)
+    Returns ``True`` when the connection state is ``ready`` **and** a schema
+    has been registered.
+
+set_search_settings(config, client)
+    PATCHes the connection's ``searchSettings`` with the adaptive card
+    result template defined in ``config/template.json``.  Skipped if search
+    settings are already present.
+
+delete_connection / clear_connection_items
+    Destructive helpers used during development and reset workflows.
+"""
+
 from __future__ import annotations
 
 from urllib.parse import quote
