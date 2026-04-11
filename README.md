@@ -265,7 +265,6 @@ Set these in `env/.env.local` to adjust behaviour:
 | `SALESFORCE_QUERY_LIMIT` | 10 | Max records per SOQL page (increase for production) |
 | `SALESFORCE_BATCH_SIZE` | 100 | Batch size for ingestion |
 | `ACL_MAX_PARENT_DEPTH` | 5 | Max recursion depth for ControlledByParent ACLs |
-| `USE_MOCK_DATA` | false | Use mock data instead of live Salesforce (for testing) |
 | `USE_NEW_ACL_ENGINE` | false | Use the new ACL engine instead of legacy |
 
 ---
