@@ -33,10 +33,10 @@ import time
 
 from azure.core.exceptions import ClientAuthenticationError
 
-from Graph.graph import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
-from Graph.schema import schema_exists
-from Salesforce.settings import AppConfig
-from Salesforce.utils import delay
+from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
+from graph.schema import schema_exists
+from salesforce.settings import AppConfig
+from salesforce.utils import delay
 
 
 logger = logging.getLogger("salesforce_connector")
@@ -95,16 +95,20 @@ def connection_exists(config: AppConfig, client: GraphClient) -> bool:
         return False
 
 
-def ensure_connection(config: AppConfig, client: GraphClient, initial_timestamp: float) -> bool:
+def ensure_connection(config: AppConfig, client: GraphClient, initial_timestamp: float) -> str | None:
+    """Ensure external connection exists. Returns 'created', 'existing', or None on failure."""
+    progress = logging.getLogger("progress")
     while time.monotonic() - initial_timestamp <= config.tuning.connection_timeout_seconds:
         try:
             get_connection(config, client)
             logger.info("Connection %s already exists", config.connector.id)
-            return True
+            progress.info("  Connection '%s' verified (existing)", config.connector.id)
+            return "existing"
         except Exception as error:  # pragma: no cover - runtime error fan-in
             if isinstance(error, GraphApiError) and error.status_code == 404:
                 create_connection(config, client)
-                return True
+                progress.info("  Connection '%s' created", config.connector.id)
+                return "created"
 
             if _is_auth_error(error):
                 _request_admin_consent_once(config)
@@ -112,10 +116,10 @@ def ensure_connection(config: AppConfig, client: GraphClient, initial_timestamp:
                 continue
 
             logger.exception("Failed to ensure connection %s", config.connector.id)
-            return False
+            return None
 
     logger.error("Could not create connection %s in under 10 minutes", config.connector.id)
-    return False
+    return None
 
 
 def is_connection_ready(config: AppConfig, client: GraphClient) -> bool:
