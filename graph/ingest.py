@@ -38,17 +38,32 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from urllib.parse import quote
 import json
 import logging
 import os
 
-from Graph.acl import AclResolver as LegacyAclResolver
-from Graph.graph import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
-from Salesforce.salesforce import get_all_items_from_api
-from Salesforce.settings import AppConfig
-from Salesforce.transform import SalesforceItemTransformer
+from graph.legacy_acl_resolver import AclResolver as LegacyAclResolver
+from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
+from salesforce.api_client import get_all_items_from_api
+from salesforce.settings import AppConfig
+from salesforce.item_transformer import SalesforceItemTransformer
+
+
+@dataclass
+class IngestionStats:
+    """Tracks ingestion outcomes for summary reporting."""
+    total_fetched: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    deleted_count: int = 0
+    skipped_count: int = 0
+    failed_ids: list[str] = field(default_factory=list)
+    object_type_counts: dict[str, int] = field(default_factory=dict)
+    acl_engine: str = "LEGACY"
+    acl_fallback_used: bool = False
 
 logger = logging.getLogger("salesforce_connector")
 
@@ -134,7 +149,7 @@ async def _resolve_acl_new_engine(
     """
     from acl_engine import AclResolver as NewAclResolver, PrincipalMapper
     from acl_engine.sf_client import SalesforceClient
-    from Salesforce.salesforce import get_salesforce_access_token
+    from salesforce.api_client import get_salesforce_access_token
 
     sf_client = SalesforceClient(
         instance_url=config.connector.salesforce.instance_url,
@@ -188,7 +203,7 @@ def _public_acl_entry() -> list[dict[str, str]]:
     return [{"accessType": "grant", "type": "everyone", "value": os.getenv("AZURE_TENANT_ID") or "everyone"}]
 
 
-def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None) -> None:
+def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None) -> IngestionStats:
     """
     Ingest content from Salesforce.
 
@@ -196,7 +211,12 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         config: Application configuration
         client: Graph API client
         since: Timestamp for incremental sync (None for full sync)
+
+    Returns:
+        IngestionStats with success/fail/delete counts and failed item IDs.
     """
+    stats = IngestionStats()
+    progress = logging.getLogger("progress")
     logger.info("Starting ingestion process...")
     
     if since:
@@ -207,7 +227,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     raw_items = list(get_all_items_from_api(config, since))
     if not raw_items:
         logger.info("No items returned from Salesforce")
-        return
+        return stats
 
     # FILTER FOR SPECIFIC OBJECT TYPE (DEBUG MODE)
     DEBUG_OBJECT_TYPE = os.getenv("DEBUG_OBJECT_TYPE")
@@ -230,7 +250,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             logger.warning("!" * 70 + "\n")
             # Don't process any items if the specific object type wasn't found
             logger.error("Stopping ingestion - specified object type not found")
-            return
+            return stats
 
     # FILTER FOR SPECIFIC ITEM (DEBUG MODE)
     DEBUG_ITEM_ID = os.getenv("DEBUG_ITEM_ID")
@@ -253,7 +273,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             logger.warning("!" * 70 + "\n")
             # Don't process any items if the specific item wasn't found
             logger.error("Stopping ingestion - specified item not found")
-            return
+            return stats
 
     # Log Salesforce API response (real data flow only)
     logger.info("\n" + "=" * 70)
@@ -261,6 +281,10 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     logger.info("=" * 70)
     logger.info("Total records retrieved: %d", len(raw_items))
     logger.info("=" * 70 + "\n")
+
+    stats.total_fetched = len(raw_items)
+    stats.object_type_counts = dict(Counter(item.get("objectType") for item in raw_items))
+    progress.info("  Fetched %d records from Salesforce", len(raw_items))
 
     # Log each raw item from Salesforce API
     for idx, raw_item in enumerate(raw_items, 1):
@@ -290,10 +314,12 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         _USE_NEW_ACL_ENGINE: bool = (
             os.getenv("USE_NEW_ACL_ENGINE", "false").lower() in ("true", "1", "yes")
         )
+        stats.acl_engine = "NEW (acl_engine)" if _USE_NEW_ACL_ENGINE else "LEGACY"
+        progress.info("  Resolving ACLs for %d object type(s)...", len(records_by_object_type))
         logger.info(
             "Starting ACL resolution for %d object type(s) using %s engine",
             len(records_by_object_type),
-            "NEW (acl_engine)" if _USE_NEW_ACL_ENGINE else "LEGACY (connector.acl)",
+            stats.acl_engine,
         )
         if _USE_NEW_ACL_ENGINE:
             acl_map_by_object = asyncio.run(
@@ -309,9 +335,11 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             "ACL resolution completed. Resolved ACLs for %d object type(s)",
             len(acl_map_by_object),
         )
+        progress.info("  ACL resolution complete")
     except Exception as error:  # pragma: no cover - runtime error fan-in
         logger.exception("❌ CRITICAL: Failed to resolve ACLs, falling back to public ACLs: %s", error)
         logger.error("⚠️ ALL ITEMS WILL HAVE PUBLIC ACCESS (everyone) DUE TO ACL FAILURE")
+        stats.acl_fallback_used = True
 
     ingested_count = 0
     for item in raw_items:
@@ -330,14 +358,30 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         for transformed_item in transformed_items:
             ingested_count += 1
 
-            if ingested_count % 10 == 0:
+            if ingested_count % 25 == 0:
+                progress.info("  Ingested %d / %d items...", ingested_count, stats.total_fetched)
+            elif ingested_count % 10 == 0:
                 logger.info("Ingested %s items so far...", ingested_count)
 
             if transformed_item.get("type") == "deleted":
-                delete_content(config, client, transformed_item["id"])
+                try:
+                    delete_content(config, client, transformed_item["id"])
+                    stats.deleted_count += 1
+                except Exception as e:
+                    stats.failed_count += 1
+                    stats.failed_ids.append(transformed_item["id"])
+                    logger.error("Failed to delete item %s: %s", transformed_item["id"], e)
                 continue
 
-            load_content(config, client, transformed_item)
+            try:
+                load_content(config, client, transformed_item)
+                stats.success_count += 1
+            except Exception as e:
+                stats.failed_count += 1
+                stats.failed_ids.append(transformed_item["id"])
+                logger.error("Failed to ingest item %s: %s", transformed_item["id"], e)
 
+    progress.info("  Ingestion complete: %d succeeded, %d failed, %d deleted", stats.success_count, stats.failed_count, stats.deleted_count)
     logger.info("Ingestion complete. Total items ingested: %s", ingested_count)
+    return stats
 

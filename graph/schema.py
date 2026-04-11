@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import logging
 
-from Graph.graph import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
-from Salesforce.settings import AppConfig
-from Salesforce.utils import delay
+from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
+from salesforce.settings import AppConfig
+from salesforce.utils import delay
 
 
 logger = logging.getLogger("salesforce_connector")

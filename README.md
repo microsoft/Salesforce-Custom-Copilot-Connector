@@ -4,7 +4,7 @@ A Python-based connector that syncs Salesforce CRM data into **Microsoft Search*
 
 ---
 
-## Features
+## Features+
 
 - **Multi-object sync** — Accounts, Contacts, Leads, Opportunities, Cases, and custom objects (e.g. `Customer_Project__c`)
 - **Fine-grained ACL resolution** — Respects Salesforce Org-Wide Defaults, role hierarchies, sharing rules, territories, queues, and public groups
