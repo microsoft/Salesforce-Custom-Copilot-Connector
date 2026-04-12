@@ -55,6 +55,7 @@ logger = logging.getLogger("salesforce_connector")
 
 class GraphApiError(RuntimeError):
     def __init__(self, status_code: int, message: str, *, code: str | None = None, body: Any = None):
+        """Initialize with HTTP status code, message, optional error code and response body."""
         super().__init__(message)
         self.status_code = status_code
         self.code = code
@@ -62,6 +63,7 @@ class GraphApiError(RuntimeError):
 
     @classmethod
     def from_response(cls, response: requests.Response) -> "GraphApiError":
+        """Create a GraphApiError from an HTTP response, extracting error details from JSON body."""
         code = None
         body: Any = response.text
         message = response.text or response.reason
@@ -87,6 +89,7 @@ class GraphClient:
         max_retries: int = 4,
         retry_backoff_base: int = 2,
     ):
+        """Initialize the Graph client with authentication, retry, and polling settings."""
         self._credential = DefaultAzureCredential()
         self._session = requests.Session()
         self._base_url = f"{GRAPH_BASE_URL}/{api_version}"
@@ -95,6 +98,7 @@ class GraphClient:
         self._retry_backoff_base = retry_backoff_base
 
     def get(self, path_or_url: str, *, headers: dict[str, str] | None = None) -> Any:
+        """Send a GET request to the Graph API."""
         return self.request("GET", path_or_url, headers=headers)
 
     def post(
@@ -104,6 +108,7 @@ class GraphClient:
         json_body: Any | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
+        """Send a POST request to the Graph API."""
         return self.request("POST", path_or_url, json_body=json_body, headers=headers)
 
     def patch(
@@ -113,6 +118,7 @@ class GraphClient:
         json_body: Any | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
+        """Send a PATCH request to the Graph API."""
         return self.request("PATCH", path_or_url, json_body=json_body, headers=headers)
 
     def put(
@@ -122,12 +128,15 @@ class GraphClient:
         json_body: Any | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
+        """Send a PUT request to the Graph API."""
         return self.request("PUT", path_or_url, json_body=json_body, headers=headers)
 
     def delete(self, path_or_url: str, *, headers: dict[str, str] | None = None) -> Any:
+        """Send a DELETE request to the Graph API."""
         return self.request("DELETE", path_or_url, headers=headers)
 
     def paginate(self, path_or_url: str) -> Iterator[dict[str, Any]]:
+        """Iterate over all pages of a Graph API collection, yielding each item dict."""
         next_url: str | None = path_or_url
         while next_url:
             payload = self.get(next_url)
@@ -146,6 +155,20 @@ class GraphClient:
         json_body: Any | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
+        """Execute an HTTP request with retry, long-running operation polling, and error handling.
+
+        Args:
+            method: HTTP method (GET, POST, PATCH, PUT, DELETE).
+            path_or_url: Relative path or absolute URL.
+            json_body: Optional JSON-serializable request body.
+            headers: Optional extra headers merged with auth headers.
+
+        Returns:
+            Parsed response body (dict, str, or empty dict for no-content responses).
+
+        Raises:
+            GraphApiError: On non-retryable errors or after retries are exhausted.
+        """
         url = self._normalize_url(path_or_url)
         request_headers = self._get_headers(headers)
         attempt = 0
@@ -208,6 +231,7 @@ class GraphClient:
             return payload
 
     def _get_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
+        """Build request headers with a fresh Bearer token, merged with any extra headers."""
         token = self._credential.get_token(GRAPH_SCOPE).token
         base_headers = {
             "Authorization": f"Bearer {token}",
@@ -218,12 +242,14 @@ class GraphClient:
         return base_headers
 
     def _normalize_url(self, path_or_url: str) -> str:
+        """Convert a relative path to a full Graph API URL, passing absolute URLs through."""
         if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
             return path_or_url
         return f"{self._base_url}{path_or_url}"
 
     @staticmethod
     def _parse_response(response: requests.Response) -> Any:
+        """Parse the HTTP response body as JSON, falling back to plain text."""
         if not response.content:
             return {}
 

@@ -90,6 +90,7 @@ class SalesforceClient:
     # ── Sync helpers (run in a thread so the event loop is never blocked) ──────
 
     def _sync_query(self, soql: str, tooling: bool) -> dict[str, Any]:
+        """Execute a single SOQL query and return the raw JSON response dict."""
         endpoint = "tooling/query" if tooling else "query"
         url = f"{self._base_url}/services/data/v{self._api_version}/{endpoint}"
         response = requests.get(
@@ -128,6 +129,7 @@ class SalesforceClient:
         return records
 
     def _sync_describe(self, sobject_name: str) -> dict[str, Any]:
+        """Fetch the full describe metadata for *sobject_name* via the REST API."""
         url = f"{self._base_url}/services/data/v{self._api_version}/sobjects/{sobject_name}/describe"
         response = requests.get(url, headers=self._headers, timeout=_TIMEOUT_SECS)
         if not response.ok:

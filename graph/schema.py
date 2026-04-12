@@ -35,6 +35,7 @@ logger = logging.getLogger("salesforce_connector")
 
 
 def create_schema(config: AppConfig, client: GraphClient) -> None:
+    """Register the external connection schema via a PATCH request (long-running operation)."""
     logger.info(
         "Creating schema for connection %s. This should take under 10 minutes...",
         config.connector.id,
@@ -51,11 +52,13 @@ def create_schema(config: AppConfig, client: GraphClient) -> None:
 
 
 def get_schema(config: AppConfig, client: GraphClient) -> dict:
+    """Retrieve the current schema for the external connection."""
     payload = client.get(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/schema")
     return payload if isinstance(payload, dict) else {}
 
 
 def schema_exists(config: AppConfig, client: GraphClient) -> bool:
+    """Return True if a schema is registered for the external connection."""
     try:
         get_schema(config, client)
         return True
@@ -65,6 +68,7 @@ def schema_exists(config: AppConfig, client: GraphClient) -> bool:
 
 
 def ensure_schema(config: AppConfig, client: GraphClient) -> None:
+    """Idempotently register the schema, creating it if not found."""
     while True:
         try:
             get_schema(config, client)

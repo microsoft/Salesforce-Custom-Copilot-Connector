@@ -168,6 +168,22 @@ class AclResolver:
         record_id: str,
         depth: int,
     ) -> AclResult:
+        """
+        Recursive core of the ACL pipeline.
+
+        Evaluates the OWD for *object_type* and routes to the appropriate path:
+        public grant, ControlledByParent recursion, or private ACL resolution.
+
+        Parameters
+        ----------
+        object_type : Salesforce object API name (e.g. "Account").
+        record_id   : 18-char Salesforce record Id.
+        depth       : Current recursion depth (guards ControlledByParent chains).
+
+        Returns
+        -------
+        AclResult with is_public / user_ids populated.
+        """
         result = AclResult(object_type=object_type, record_id=record_id)
 
         # ── Step 2: Fetch OWD and decide path ─────────────────────────────────

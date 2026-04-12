@@ -67,6 +67,7 @@ class AclResolver:
         handlers: dict[str, SalesforceObjectHandler],
         graph_client: GraphClient | None = None,
     ):
+        """Initialize the ACL resolver with config, object handlers, and optional Graph client for GUID lookups."""
         self._config = config
         self._handlers = handlers
         self._graph_client = graph_client
@@ -92,6 +93,7 @@ class AclResolver:
         self,
         records_by_object_type: dict[str, list[dict[str, Any]]],
     ) -> dict[str, dict[str, list[dict[str, str]]]]:
+        """Resolve ACLs for all records. Returns ``{object_type: {record_id: [acl_entry]}}``."""
         if not records_by_object_type:
             return {}
         return asyncio.run(self._resolve_async(records_by_object_type))
@@ -100,6 +102,7 @@ class AclResolver:
         self,
         records_by_object_type: dict[str, list[dict[str, Any]]],
     ) -> dict[str, dict[str, list[dict[str, str]]]]:
+        """Async implementation that resolves ACLs per object type using OWD visibility."""
         logger.info("\n" + "=" * 80)
         logger.info("ACL RESOLUTION START")
         logger.info("=" * 80)
@@ -143,6 +146,7 @@ class AclResolver:
         visibility_map: dict[str, EntityVisibility],
         acl_maps: dict[str, dict[str, list[dict[str, str]]]],
     ) -> dict[str, list[dict[str, str]]]:
+        """Build the ACL map for one object type based on its OWD visibility setting."""
         visibility = visibility_map.get(object_name, EntityVisibility.PUBLIC_READ_ONLY)
 
         logger.info("Visibility for %s: %s", object_name, visibility)
@@ -164,6 +168,7 @@ class AclResolver:
         records: list[dict[str, Any]],
         acl_maps: dict[str, dict[str, list[dict[str, str]]]],
     ) -> dict[str, list[dict[str, str]]]:
+        """Build ACLs for objects with ControlledByParent visibility by inheriting from parent records."""
         handler = self._handlers.get(object_name)
         parent_object_name = handler.parent_object_name if handler else None
         if not parent_object_name or handler is None:
@@ -191,6 +196,7 @@ class AclResolver:
         object_name: str,
         records: list[dict[str, Any]],
     ) -> dict[str, list[dict[str, str]]]:
+        """Build ACLs for private-visibility objects using ownership, shares, roles, and territories."""
         if object_name not in self._handlers:
             logger.info("    No handler for %s - defaulting to public ACL", object_name)
             return {record["Id"]: self._public_acl() for record in records if record.get("Id")}
@@ -296,6 +302,7 @@ class AclResolver:
         object_name: str,
         record_ids: list[str],
     ) -> dict[str, list[EntityShareBase]]:
+        """Fetch sharing records from Salesforce, grouped by record ID."""
         filter_condition = self._build_in_filter("Id", record_ids)
         records_with_shares = await self._helper.get_records_with_shares(
             object_name,
@@ -311,6 +318,7 @@ class AclResolver:
         return shares_by_record
 
     async def _expand_groups(self, group_ids: set[str]) -> tuple[set[str], bool]:
+        """Expand a set of group IDs into individual user IDs, detecting 'everyone' groups."""
         user_ids: set[str] = set()
         includes_everyone = False
         
@@ -321,6 +329,7 @@ class AclResolver:
         return user_ids, includes_everyone
 
     async def _resolve_group(self, group_id: str) -> tuple[set[str], bool]:
+        """Recursively resolve a Salesforce group to its member user IDs with caching."""
         if group_id in self._group_cache:
             return self._group_cache[group_id]
 
@@ -378,6 +387,7 @@ class AclResolver:
         return self._group_cache[group_id]
 
     async def _resolve_role_users(self, role_id: str, include_descendants: bool) -> set[str]:
+        """Return user IDs assigned to a role, optionally including descendant roles."""
         role_ids = {role_id}
         if include_descendants:
             role_ids.update(await self._get_descendant_role_ids(role_id))
@@ -389,6 +399,7 @@ class AclResolver:
         return {user.Id for user in users if user.Id}
 
     async def _resolve_manager_users(self, manager_id: str, include_descendants: bool) -> set[str]:
+        """Return user IDs in a manager's reporting chain, optionally including all subordinates."""
         users = await self._get_users_and_managers()
         reports_by_manager: dict[str, set[str]] = defaultdict(set)
         for user in users:
@@ -407,6 +418,7 @@ class AclResolver:
         return resolved
 
     async def _get_descendant_role_ids(self, role_id: str) -> set[str]:
+        """Return all descendant role IDs below the given role in the hierarchy."""
         if self._role_children_cache is None:
             roles = await self._helper.get_user_role_hierarchy_from_salesforce(fetch_all=True)
             children_by_parent: dict[str, set[str]] = defaultdict(set)
@@ -583,6 +595,7 @@ class AclResolver:
 
     @staticmethod
     def _get_owner_role_id(record: dict[str, Any]) -> str | None:
+        """Extract the owner's UserRole ID from a Salesforce record, if present."""
         owner = record.get("Owner")
         if isinstance(owner, dict):
             user_role = owner.get("UserRole")
@@ -591,11 +604,13 @@ class AclResolver:
         return None
 
     async def _get_users_and_managers(self) -> list[User]:
+        """Fetch and cache all Salesforce users with their manager relationships."""
         if self._users_and_managers is None:
             self._users_and_managers = await self._helper.get_users_and_managers()
         return self._users_and_managers
 
     async def _get_frozen_users(self) -> set[str]:
+        """Fetch and cache the set of frozen Salesforce user IDs."""
         if self._frozen_users is None:
             self._frozen_users = {
                 user_login.UserId
@@ -609,6 +624,7 @@ class AclResolver:
         users_by_id: dict[str, User],
         user_ids: set[str],
     ) -> list[dict[str, str]]:
+        """Convert a set of Salesforce user IDs into deduplicated Graph ACL grant entries."""
         acl_entries: list[dict[str, str]] = []
         seen_values: set[str] = set()
 
@@ -640,12 +656,14 @@ class AclResolver:
 
     @staticmethod
     def _get_user_principal(user: User) -> str | None:
+        """Return the first non-empty identifier from FederationIdentifier, UserName, or Email."""
         for candidate in (user.FederationIdentifier, user.UserName, user.Email):
             if candidate:
                 return candidate.strip()
         return None
 
     def _resolve_user_guid(self, user: User) -> str | None:
+        """Resolve a Salesforce user to a Microsoft Graph user GUID, trying all identity fields."""
         resolved = self._resolve_principal_guid(user.FederationIdentifier)
         if resolved:
             return resolved
@@ -661,6 +679,7 @@ class AclResolver:
         return None
 
     def _resolve_principal_guid(self, identifier: str | None) -> str | None:
+        """Resolve an identifier (UPN, email, or GUID) to a Microsoft Graph user ID with caching."""
         if not identifier:
             return None
 
@@ -689,6 +708,7 @@ class AclResolver:
         return graph_id
 
     def _lookup_graph_user_id(self, identifier: str) -> str | None:
+        """Look up a user's Graph ID by direct path or filter query on UPN/mail."""
         direct_path = f"/users/{quote(identifier, safe='')}?$select=id"
         try:
             payload = self._graph_client.get(direct_path)
@@ -722,6 +742,7 @@ class AclResolver:
 
     @staticmethod
     def _looks_like_guid(value: str) -> bool:
+        """Return True if the value matches the 8-4-4-4-12 hex GUID format."""
         cleaned = value.strip()
         parts = cleaned.split("-")
         if len(parts) != 5:
@@ -735,6 +756,7 @@ class AclResolver:
         return True
 
     def _public_acl(self) -> list[dict[str, str]]:
+        """Return an ACL list granting access to everyone in the tenant."""
         return [
             {
                 "accessType": "grant",
@@ -744,6 +766,7 @@ class AclResolver:
         ]
 
     def _deny_all_acl(self) -> list[dict[str, str]]:
+        """Return an ACL list denying access to everyone (used when no users are resolved)."""
         return [
             {
                 "accessType": "deny",
@@ -753,12 +776,14 @@ class AclResolver:
         ]
 
     def _sort_object_names(self, object_names: Any) -> list[str]:
+        """Sort object names so parent objects are processed before their dependents."""
         ordered_names = [str(name) for name in object_names]
         object_name_set = set(ordered_names)
         dependency_depths: dict[str, int] = {}
         visiting: set[str] = set()
 
         def _dependency_depth(name: str) -> int:
+            """Compute the parent-chain depth for topological sorting."""
             if name in dependency_depths:
                 return dependency_depths[name]
 
@@ -782,11 +807,13 @@ class AclResolver:
 
     @staticmethod
     def _build_in_filter(field_name: str, values: list[str]) -> str:
+        """Build a SOQL IN filter clause from a list of values."""
         quoted_values = ", ".join(f"'{value}'" for value in sorted(set(values)) if value)
         return f"{field_name} in ({quoted_values})" if quoted_values else ""
 
     @staticmethod
     def _is_public_visibility(visibility: EntityVisibility | str) -> bool:
+        """Return True if the OWD visibility grants public read access."""
         value = visibility.value if isinstance(visibility, EntityVisibility) else str(visibility)
         return value in {
             EntityVisibility.PUBLIC_READ_ONLY.value,
@@ -797,5 +824,6 @@ class AclResolver:
 
     @staticmethod
     def _is_controlled_by_parent(visibility: EntityVisibility | str) -> bool:
+        """Return True if the OWD visibility is ControlledByParent."""
         value = visibility.value if isinstance(visibility, EntityVisibility) else str(visibility)
         return value == EntityVisibility.CONTROLLED_BY_PARENT.value

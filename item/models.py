@@ -31,19 +31,23 @@ from typing import Any, Optional
 
 class Content:
     def __init__(self, parsed_data: str = ""):
+        """Initialise with optional parsed text body."""
         self.parsed_data = parsed_data
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialise to a Graph-compatible dict."""
         return {"parsedData": self.parsed_data}
 
 
 class AccessControlEntry:
     def __init__(self, access_type: str, principal_type: str, value: str):
+        """Initialise an ACL entry with access type, principal type, and value."""
         self.access_type = access_type
         self.principal_type = principal_type
         self.value = value
 
     def to_dict(self) -> dict[str, str]:
+        """Serialise to a Graph-compatible dict."""
         return {
             "accessType": self.access_type,
             "type": self.principal_type,
@@ -53,6 +57,7 @@ class AccessControlEntry:
 
 class SearchableItem:
     def __init__(self, item_id: str):
+        """Initialise a searchable item with the given Salesforce record ID."""
         self.id = item_id
         self.should_hash_id = False
         self.properties: dict[str, Any] = {}
@@ -61,6 +66,7 @@ class SearchableItem:
         self.item_type = "searchable"
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialise to a Graph-compatible external-item dict."""
         result: dict[str, Any] = {
             "id": self.id,
             "properties": dict(self.properties),
@@ -76,8 +82,10 @@ class SearchableItem:
 
 class DeletedItem:
     def __init__(self, item_id: str):
+        """Initialise a deleted-item marker with the given record ID."""
         self.id = item_id
         self.item_type = "deleted"
 
     def to_dict(self) -> dict[str, str]:
+        """Serialise to a dict for the Graph DELETE pathway."""
         return {"id": self.id, "type": self.item_type}

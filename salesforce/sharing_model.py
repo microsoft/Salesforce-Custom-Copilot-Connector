@@ -177,6 +177,7 @@ T = TypeVar("T", bound=IdentityResponseBase)
 
 class SalesforceIdentitySOQLResponseProcessor:
     def get(self, response: dict[str, Any], model_class: type[T]) -> list[T]:
+        """Parse a Salesforce SOQL response into a list of *model_class* dataclass instances."""
         records = response.get("records", [])
         if not records:
             return []
@@ -192,6 +193,7 @@ class SalesforceIdentitySOQLResponseProcessor:
         return results
 
     def _parse_record(self, record: dict[str, Any], model_class: type[T]) -> T | None:
+        """Dispatch *record* to the appropriate model-specific parser."""
         if not record:
             return None
 
@@ -209,6 +211,7 @@ class SalesforceIdentitySOQLResponseProcessor:
         return model_class(**self._filter_fields(clean_record, model_class))
 
     def _parse_user(self, record: dict[str, Any]) -> User:
+        """Parse a raw Salesforce record dict into a ``User`` dataclass."""
         user_data = self._filter_fields(record, User)
         if "Username" in record and "UserName" not in user_data:
             user_data["UserName"] = record["Username"]
@@ -222,6 +225,7 @@ class SalesforceIdentitySOQLResponseProcessor:
         return User(**user_data)
 
     def _parse_entity_share(self, record: dict[str, Any]) -> EntityShareBase:
+        """Parse a raw Salesforce record dict into an ``EntityShareBase`` dataclass."""
         share_data = self._filter_fields(record, EntityShareBase)
         share_data.setdefault("Id", "")
         if "UserOrGroup" in record and isinstance(record["UserOrGroup"], dict):
@@ -232,12 +236,14 @@ class SalesforceIdentitySOQLResponseProcessor:
         return EntityShareBase(**share_data)
 
     def _parse_object_record(self, record: dict[str, Any]) -> ObjectRecord:
+        """Parse a raw Salesforce record dict into an ``ObjectRecord`` dataclass."""
         object_data = self._filter_fields(record, ObjectRecord)
         if "Shares" in record:
             object_data["Shares"] = record["Shares"]
         return ObjectRecord(**object_data)
 
     def _parse_organization(self, record: dict[str, Any]) -> Organization:
+        """Parse a raw Salesforce record dict into an ``Organization`` dataclass with visibility enums."""
         org_data = self._filter_fields(record, Organization)
         for key in (
             "DefaultAccountAccess",
@@ -258,6 +264,7 @@ class SalesforceIdentitySOQLResponseProcessor:
 
     @staticmethod
     def _filter_fields(record: dict[str, Any], model_class: type[Any]) -> dict[str, Any]:
+        """Return only the keys from *record* that are valid fields of *model_class*."""
         if not hasattr(model_class, "__dataclass_fields__"):
             return record
         valid_fields = set(model_class.__dataclass_fields__.keys())
@@ -329,16 +336,20 @@ class SalesforceConstants:
 
 class AsyncSalesforceClient:
     def __init__(self, instance_url: str, api_version: str):
+        """Initialize with a Salesforce *instance_url* and *api_version*."""
         self.instance_url = instance_url.rstrip("/")
         self.api_version = api_version
 
     async def query(self, soql: str, access_token: str) -> dict[str, Any]:
+        """Execute a SOQL query against the ``/query`` endpoint."""
         return await asyncio.to_thread(self._execute_query, soql, access_token, False)
 
     async def query_all(self, soql: str, access_token: str) -> dict[str, Any]:
+        """Execute a SOQL query against the ``/queryAll`` endpoint (includes deleted/archived)."""
         return await asyncio.to_thread(self._execute_query, soql, access_token, True)
 
     def _execute_query(self, soql: str, access_token: str, use_query_all: bool) -> dict[str, Any]:
+        """Send a synchronous SOQL request and return the JSON response."""
         import requests  # Import here to avoid requiring it when just using enums
         
         endpoint = "queryAll" if use_query_all else "query"
@@ -361,12 +372,14 @@ class AsyncSalesforceClient:
 
 class ClientHelperForIdentitySync:
     def __init__(self, salesforce_client: AsyncSalesforceClient, instance_url: str, access_token: str):
+        """Initialize with a Salesforce async client, instance URL, and access token."""
         self.salesforce_client = salesforce_client
         self.instance_url = instance_url
         self.access_token = access_token
         self.response_processor = SalesforceIdentitySOQLResponseProcessor()
 
     async def get_org_wide_defaults_from_salesforce(self) -> Organization:
+        """Fetch the Organization record and return it with normalized visibility values."""
         response = await self._execute_query(IdentitySyncQueries.OrgWideDefaultQuery)
         organizations = self.response_processor.get(response, Organization)
         if not organizations:
@@ -383,6 +396,7 @@ class ClientHelperForIdentitySync:
         return organization
 
     async def get_org_wide_defaults_map(self) -> dict[str, EntityVisibility]:
+        """Return a mapping of object names to their org-wide default visibility."""
         organization = await self.get_org_wide_defaults_from_salesforce()
         return {
             obj_name: getattr(organization, obj_cfg["owdField"], EntityVisibility.PUBLIC_READ_WRITE)
@@ -398,6 +412,7 @@ class ClientHelperForIdentitySync:
         filter_condition: str = "",
         direction: RecordEnumerationDirection = RecordEnumerationDirection.ASCENDING,
     ) -> list[ObjectRecord]:
+        """Fetch records of *object_name* that have associated share entries."""
         order = "asc" if direction == RecordEnumerationDirection.ASCENDING else "desc"
         if filter_condition:
             soql = IdentitySyncQueries.AllSharesFromRecords.format(
@@ -429,6 +444,7 @@ class ClientHelperForIdentitySync:
         checkpoint: Optional[SfIdentityCheckpointState] = None,
         fetch_all: bool = True,
     ) -> list[GroupMember]:
+        """Fetch Salesforce GroupMember records with optional filtering and pagination."""
         soql = IdentitySyncQueries.GroupMembersQueryFormat
         if filter_condition:
             soql = IdentitySyncQueries.GroupMembersQueryFormat.format(f" WHERE {filter_condition}{{0}}")
@@ -449,6 +465,7 @@ class ClientHelperForIdentitySync:
         checkpoint: Optional[SfIdentityCheckpointState] = None,
         fetch_all: bool = True,
     ) -> list[Group]:
+        """Fetch Group records with their Type and RelatedId fields."""
         soql = IdentitySyncQueries.GroupTypeAndRelatedIdQuery
         if filter_condition:
             soql = IdentitySyncQueries.GroupTypeAndRelatedIdQuery.format(
@@ -472,6 +489,7 @@ class ClientHelperForIdentitySync:
         checkpoint: Optional[SfIdentityCheckpointState] = None,
         fetch_all: bool = True,
     ) -> list[User]:
+        """Fetch active users with read permissions on *object_name*, including permission set details."""
         soql = IdentitySyncQueries.UsersQueryForContentIngestionFormat.format(object_name, "{0}")
         if filter_conditions:
             soql = IdentitySyncQueries.UsersQueryForContentIngestionFormat.format(
@@ -503,6 +521,11 @@ class ClientHelperForIdentitySync:
         entity_visibility: EntityVisibility,
         frozen_users: set[str],
     ) -> tuple[dict[str, dict[str, User]], dict[str, Group]]:
+        """Fetch authorized users (and groups when visibility is ``NONE``) for ACL resolution.
+
+        Returns:
+            A tuple of (per-object user dicts, group dict).
+        """
         authorized_users_for_sf_objects = {salesforce_object_handler.object_name: {}}
         for child in getattr(salesforce_object_handler, "child_handlers", []):
             authorized_users_for_sf_objects[child.object_name] = {}
@@ -561,6 +584,7 @@ class ClientHelperForIdentitySync:
         checkpoint: Optional[SfIdentityCheckpointState] = None,
         fetch_all: bool = True,
     ) -> list[User]:
+        """Fetch User records from Salesforce with optional filtering and limit."""
         limit_clause = f" Limit {limit}" if limit > 0 else ""
         filter_clause = f" AND {filter_conditions}{{0}}" if filter_conditions else "{0}"
         soql = IdentitySyncQueries.UsersQueryFormat.format(filter_clause, limit_clause)
@@ -573,6 +597,7 @@ class ClientHelperForIdentitySync:
         )
 
     async def get_frozen_users(self) -> list[UserLogin]:
+        """Fetch all frozen user login records from Salesforce."""
         return await self._get_records_using_last_id(
             IdentitySyncQueries.UserLoginQuery,
             True,
@@ -586,6 +611,7 @@ class ClientHelperForIdentitySync:
         checkpoint: Optional[SfIdentityCheckpointState] = None,
         fetch_all: bool = True,
     ) -> list[UserRole]:
+        """Fetch the UserRole hierarchy from Salesforce."""
         return await self._get_records_using_last_id(
             IdentitySyncQueries.UserRoleQuery,
             fetch_all,
@@ -595,6 +621,7 @@ class ClientHelperForIdentitySync:
         )
 
     async def get_users_and_managers(self) -> list[User]:
+        """Fetch all users with their ManagerId fields."""
         return await self._get_records_using_last_id(
             IdentitySyncQueries.UserAndMangerQuery,
             True,
@@ -653,7 +680,9 @@ class ClientHelperForIdentitySync:
         use_query_all: bool = False,
         direction: RecordEnumerationDirection = RecordEnumerationDirection.ASCENDING,
     ) -> list[T]:
+        """Paginate through Salesforce records using ``Id``-based keyset pagination."""
         def processor(current_set, records, last_id, results):
+            """Process a page of results and return the next pagination cursor."""
             if last_id and current_set and last_id == current_set[0].Id:
                 current_set.pop(0)
             results.extend(current_set)
@@ -685,6 +714,7 @@ class ClientHelperForIdentitySync:
         use_query_all: bool = False,
         direction: RecordEnumerationDirection = RecordEnumerationDirection.ASCENDING,
     ) -> list[T]:
+        """Paginate through Salesforce records using a custom field for keyset pagination."""
         last_id = checkpoint.LastRecordId if checkpoint else ""
         if checkpoint:
             checkpoint.NextUrl = ""
@@ -723,7 +753,9 @@ class ClientHelperForIdentitySync:
         return results
 
     async def _execute_query(self, soql: str) -> dict[str, Any]:
+        """Execute a SOQL query via the Salesforce client."""
         return await self.salesforce_client.query(soql, self.access_token)
 
     async def _execute_query_all(self, soql: str) -> dict[str, Any]:
+        """Execute a SOQL queryAll via the Salesforce client."""
         return await self.salesforce_client.query_all(soql, self.access_token)

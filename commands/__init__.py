@@ -135,6 +135,7 @@ def write_summary(summary_file, log_file, stats, connection_status, connector_id
 # ---------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build and return the CLI argument parser for run.py."""
     parser = argparse.ArgumentParser(
         prog="run.py",
         description="Salesforce CRM Custom Connector - Unified CLI",

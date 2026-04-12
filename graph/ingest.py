@@ -72,6 +72,7 @@ _sample_items_logged_by_type = set()
 
 
 def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
+    """PUT a single transformed item into the Graph external connection."""
     item_id = item["id"]
     payload = {key: value for key, value in item.items() if key != "id"}
     url = f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items/{quote(item_id, safe='')}"
@@ -111,6 +112,7 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
 
 
 def delete_content(config: AppConfig, client: GraphClient, item_id: str) -> None:
+    """DELETE a single item from the Graph external connection."""
     url = f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items/{quote(item_id, safe='')}"
     logger.info("DELETE %s", url)
 
@@ -200,6 +202,7 @@ async def _resolve_acl_new_engine(
 
 
 def _public_acl_entry() -> list[dict[str, str]]:
+    """Return a public ACL entry granting access to everyone in the tenant."""
     return [{"accessType": "grant", "type": "everyone", "value": os.getenv("AZURE_TENANT_ID") or "everyone"}]
 
 

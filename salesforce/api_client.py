@@ -42,6 +42,7 @@ class SalesforceErrorInfo:
 
 
 def _dedupe_fields(fields: list[str]) -> tuple[str, ...]:
+    """Return *fields* as an order-preserving tuple with duplicates and blanks removed."""
     seen: set[str] = set()
     ordered: list[str] = []
     for field in fields:
@@ -53,6 +54,7 @@ def _dedupe_fields(fields: list[str]) -> tuple[str, ...]:
 
 
 def _build_object_configs() -> tuple[SalesforceObjectConfig, ...]:
+    """Build a ``SalesforceObjectConfig`` for each object defined in the converter config."""
     converter_config = load_converter_config()
     converter_objects = {
         object_config["objectName"]: object_config
@@ -87,6 +89,7 @@ OBJECT_CONFIGS = _build_object_configs()
 
 
 def get_salesforce_access_token(config: AppConfig) -> str:
+    """Authenticate with Salesforce using client-credentials and return an access token."""
     token_url = f"{config.connector.salesforce.instance_url}/services/oauth2/token"
     logger.info("Authenticating with Salesforce at %s", token_url)
 
@@ -116,6 +119,7 @@ def get_salesforce_access_token(config: AppConfig) -> str:
 
 
 def get_all_items_from_api(config: AppConfig, since: datetime | None = None) -> Iterator[dict[str, Any]]:
+    """Yield all Salesforce records across configured objects, optionally filtered by *since*."""
     access_token = get_salesforce_access_token(config)
 
     for object_config in OBJECT_CONFIGS:
@@ -131,6 +135,7 @@ def fetch_salesforce_records(
     object_config: SalesforceObjectConfig,
     since: datetime | None = None,
 ) -> Iterator[dict[str, Any]]:
+    """Fetch records for a single Salesforce object, retrying on unsupported-field errors."""
     base_url = config.connector.salesforce.instance_url
     api_version = config.connector.salesforce.api_version
     headers = {
@@ -185,10 +190,12 @@ def fetch_salesforce_records(
 
 
 def _build_query_url(base_url: str, api_version: str, soql: str) -> str:
+    """Construct a full Salesforce REST API query URL from the given SOQL."""
     return f"{base_url}/services/data/{api_version}/query?{urlencode({'q': soql})}"
 
 
 def _format_salesforce_fetch_error(object_type: str, response: requests.Response) -> str:
+    """Format a human-readable error message for a failed Salesforce fetch."""
     return (
         "Failed to fetch "
         f"{object_type} from Salesforce: {response.status_code} {response.reason} - {response.text}"
@@ -196,6 +203,7 @@ def _format_salesforce_fetch_error(object_type: str, response: requests.Response
 
 
 def _extract_salesforce_error_info(response: requests.Response) -> SalesforceErrorInfo:
+    """Extract a structured ``SalesforceErrorInfo`` from an error response."""
     try:
         payload = response.json()
     except ValueError:
@@ -222,6 +230,7 @@ def _build_retry_object_config(
     object_config: SalesforceObjectConfig,
     error_info: SalesforceErrorInfo,
 ) -> tuple[SalesforceObjectConfig | None, tuple[str, ...]]:
+    """Return a new config with unsupported fields removed, or ``(None, ())`` if retry is not possible."""
     unsupported_fields = _extract_unsupported_fields(object_config.fields, error_info)
     if not unsupported_fields:
         return None, ()
@@ -237,6 +246,7 @@ def _extract_unsupported_fields(
     fields: tuple[str, ...],
     error_info: SalesforceErrorInfo,
 ) -> tuple[str, ...]:
+    """Identify field names flagged as invalid or using an unsupported relationship in *error_info*."""
     if error_info.error_code != "INVALID_FIELD" or not error_info.message:
         return ()
 
@@ -258,6 +268,7 @@ def _extract_unsupported_fields(
 
 
 def _match_exact_or_prefixed_fields(fields: tuple[str, ...], candidate: str) -> tuple[str, ...]:
+    """Return fields matching *candidate* exactly or starting with ``candidate.`` (case-insensitive)."""
     candidate_lower = candidate.lower()
     exact_matches = tuple(field for field in fields if field.lower() == candidate_lower)
     if exact_matches:
@@ -268,6 +279,7 @@ def _match_exact_or_prefixed_fields(fields: tuple[str, ...], candidate: str) -> 
 
 
 def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | None, query_limit: int = 10) -> str:
+    """Build a SOQL SELECT string for *object_config*, with optional *since* and *query_limit* clauses."""
     soql = f"SELECT {', '.join(object_config.fields)} FROM {object_config.object_type}"
     where_clauses: list[str] = []
     if object_config.filter_condition:

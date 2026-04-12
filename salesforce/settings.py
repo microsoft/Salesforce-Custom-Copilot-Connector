@@ -52,6 +52,7 @@ class SalesforceSettings:
 # ── JSON config loaders (cached for the process lifetime) ─────────────────
 
 def _load_config_json(filename: str) -> dict[str, Any]:
+    """Load and parse a JSON file from the ``config/`` directory."""
     with (_CONFIG_DIR / filename).open("r", encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -132,11 +133,13 @@ class AppConfig:
 
 
 def _alias_env(target: str, source: str) -> None:
+    """Copy env var *source* into *target* if *target* is unset and *source* exists."""
     if not os.getenv(target) and os.getenv(source):
         os.environ[target] = os.environ[source]
 
 
 def load_local_environment() -> None:
+    """Load ``.env.local`` files and set up environment variable aliases."""
     for env_file in LOCAL_ENV_FILES:
         if env_file.exists():
             load_dotenv(env_file, override=True)
@@ -151,6 +154,7 @@ def load_local_environment() -> None:
 
 
 def _require_env(name: str) -> str:
+    """Return the value of env var *name*, raising ``ValueError`` if missing."""
     value = os.getenv(name)
     if value:
         return value
@@ -158,6 +162,7 @@ def _require_env(name: str) -> str:
 
 
 def validate_connector_id(connector_id: str) -> None:
+    """Validate that *connector_id* meets length, character, and prefix requirements."""
     if not connector_id:
         raise ValueError("Connector ID is required.")
     if len(connector_id) < 3 or len(connector_id) > 32:
@@ -171,6 +176,7 @@ def validate_connector_id(connector_id: str) -> None:
 
 
 def load_config() -> AppConfig:
+    """Load environment variables and JSON configs, returning a fully populated ``AppConfig``."""
     load_local_environment()
 
     connector_id = _require_env("CONNECTOR_ID")
@@ -179,6 +185,7 @@ def load_config() -> AppConfig:
     cfg = load_schema_config()
 
     def _require_int_env(name: str) -> int:
+        """Return env var *name* as an int, raising ``ValueError`` if missing or non-integer."""
         value = os.getenv(name)
         if not value:
             raise ValueError(f"Invalid configuration: Missing {name}")

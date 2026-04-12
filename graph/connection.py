@@ -44,6 +44,7 @@ _consent_requested = False
 
 
 def create_connection(config: AppConfig, client: GraphClient) -> None:
+    """Create a new external connection in Microsoft Graph."""
     logger.info("Creating connection %s.", config.connector.id)
     client.post(
         EXTERNAL_CONNECTIONS_PATH,
@@ -58,11 +59,13 @@ def create_connection(config: AppConfig, client: GraphClient) -> None:
 
 
 def get_connection(config: AppConfig, client: GraphClient) -> dict:
+    """Retrieve the external connection metadata from Microsoft Graph."""
     payload = client.get(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}")
     return payload if isinstance(payload, dict) else {}
 
 
 def set_search_settings(config: AppConfig, client: GraphClient) -> None:
+    """Patch the connection's search settings with the adaptive card result template."""
     connection = get_connection(config, client)
     if connection.get("searchSettings"):
         return
@@ -87,6 +90,7 @@ def set_search_settings(config: AppConfig, client: GraphClient) -> None:
 
 
 def connection_exists(config: AppConfig, client: GraphClient) -> bool:
+    """Return True if the external connection exists, False otherwise."""
     try:
         get_connection(config, client)
         return True
@@ -123,6 +127,7 @@ def ensure_connection(config: AppConfig, client: GraphClient, initial_timestamp:
 
 
 def is_connection_ready(config: AppConfig, client: GraphClient) -> bool:
+    """Return True if the connection state is 'ready' and a schema is registered."""
     try:
         connection = get_connection(config, client)
         connection_state = connection.get("state")
@@ -143,6 +148,7 @@ def is_connection_ready(config: AppConfig, client: GraphClient) -> bool:
 
 
 def clear_connection_items(config: AppConfig, client: GraphClient) -> int:
+    """Delete all items from the external connection. Returns the number of items deleted."""
     deleted_count = 0
     for item in client.paginate(f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items"):
         item_id = item.get("id")
@@ -155,6 +161,7 @@ def clear_connection_items(config: AppConfig, client: GraphClient) -> int:
 
 
 def delete_connection(config: AppConfig, client: GraphClient, initial_timestamp: float) -> bool:
+    """Delete the external connection, retrying on auth errors until timeout. Returns True on success."""
     while time.monotonic() - initial_timestamp <= config.tuning.connection_timeout_seconds:
         try:
             connection = get_connection(config, client)
@@ -182,6 +189,7 @@ def delete_connection(config: AppConfig, client: GraphClient, initial_timestamp:
 
 
 def _request_admin_consent_once(config: AppConfig) -> None:
+    """Log a one-time warning with the Entra admin consent URL."""
     global _consent_requested
 
     if _consent_requested:
@@ -197,6 +205,7 @@ def _request_admin_consent_once(config: AppConfig) -> None:
 
 
 def _is_auth_error(error: Exception) -> bool:
+    """Return True if the error indicates an authentication or authorization failure."""
     if isinstance(error, ClientAuthenticationError):
         return True
 

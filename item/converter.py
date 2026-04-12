@@ -98,6 +98,7 @@ TYPE_CONVERTERS: dict[str, str] = {
 
 
 def load_converter_config(path: Path | None = None) -> dict[str, Any]:
+    """Load the schema config from *path* or fall back to the default settings."""
     if path is not None:
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
@@ -106,6 +107,7 @@ def load_converter_config(path: Path | None = None) -> dict[str, Any]:
 
 
 def _resolve_type(assembly_qualified_name: str) -> Optional[str]:
+    """Map a .NET assembly-qualified type name to a Python type tag."""
     if not assembly_qualified_name:
         return None
     dotnet_type = assembly_qualified_name.split(",")[0].strip()
@@ -113,6 +115,7 @@ def _resolve_type(assembly_qualified_name: str) -> Optional[str]:
 
 
 def _convert_value(value: Any, type_tag: str) -> Any:
+    """Coerce *value* to the Python type indicated by *type_tag*."""
     if value is None:
         return None
     if type_tag == "bool":
@@ -135,6 +138,7 @@ class SalesforceObjectHandler:
         icon_url: str = "",
         child_handlers: Optional[list["SalesforceObjectHandler"]] = None,
     ):
+        """Initialise a handler from a single object entry in the schema config."""
         self.object_name: str = sf_object_config["objectName"]
         self.selected_fields: dict[str, str] = dict(sf_object_config["selectedFields"])
         self.parent_object_name: Optional[str] = sf_object_config.get("parentObjectName")
@@ -168,6 +172,7 @@ class SalesforceObjectHandler:
         self.parent_record_lookup_paths: tuple[str, ...] = self._build_parent_record_lookup_paths()
 
     def get_parent_record_id(self, record: dict[str, Any]) -> str | None:
+        """Return the parent record ID from *record*, or ``None`` if not found."""
         for field_path in self.parent_record_lookup_paths:
             value = self._get_record_value(record, field_path)
             if value:
@@ -175,6 +180,7 @@ class SalesforceObjectHandler:
         return None
 
     def _build_parent_record_lookup_paths(self) -> tuple[str, ...]:
+        """Build an ordered tuple of field paths used to locate the parent record ID."""
         if not self.parent_object_name:
             return ()
 
@@ -193,6 +199,7 @@ class SalesforceObjectHandler:
 
     @staticmethod
     def _get_record_value(record: dict[str, Any], field_path: str) -> Any:
+        """Retrieve a value from *record* using a dot-separated *field_path*."""
         if field_path in record:
             return record.get(field_path)
 
@@ -211,6 +218,7 @@ class SalesforceObjectHandler:
         instance_url: str,
         schema_properties: set[str],
     ) -> list[dict[str, Any]]:
+        """Convert a Salesforce query result into a list of Graph external-item dicts."""
         records = sf_query_result.get("records", [])
         all_items: list[dict[str, Any]] = []
         for record in records:
@@ -229,6 +237,7 @@ class SalesforceObjectHandler:
         instance_url: str,
         schema_properties: set[str],
     ) -> list[dict[str, Any]] | None:
+        """Build ingestion items for a single record and its inline child records."""
         record_id = record.get("Id")
         if not record_id:
             return None
@@ -260,6 +269,12 @@ class SalesforceObjectHandler:
         props: dict[str, Any],
         schema_properties: set[str],
     ) -> Content:
+        """Populate *props* from the Salesforce *record* and return a ``Content`` object.
+
+        Maps selected fields and metadata columns to their Graph schema
+        property names, performs type coercion, and collects remaining fields
+        into the full-text content body.
+        """
         props["ObjectName"] = self.object_name
         props["Url"] = f"{instance_url}/{record['Id']}"
         if "IconUrl" in schema_properties:
@@ -375,6 +390,7 @@ class SalesforceObjectHandler:
         property_name: str,
         instance_url: str,
     ) -> None:
+        """Add a single scalar or address field to *props* with type coercion."""
         value = record.get(field_key)
 
         if isinstance(value, dict) and "street" in value and len(value) > 1:
@@ -412,6 +428,7 @@ class SalesforceObjectHandler:
         schema_mapping: dict[str, str],
         instance_url: str = "",
     ) -> None:
+        """Extract sub-fields from a nested relationship object into *props*."""
         parent_object = record.get(field_key)
         if not isinstance(parent_object, dict):
             return
@@ -449,6 +466,7 @@ class SalesforceObjectHandler:
 
     @staticmethod
     def _serialize_address_object(token: dict[str, Any]) -> str:
+        """Serialise a Salesforce compound address dict into a single string."""
         parts: list[str] = []
         try:
             if token.get("street"):
@@ -471,6 +489,7 @@ class SalesforceObjectHandler:
         props: dict[str, Any],
         schema_properties: set[str],
     ) -> list[str] | None:
+        """Return a deduplicated list of author names from CreatedBy/LastModifiedBy."""
         if AUTHORS_SOURCE_PROPERTY not in schema_properties:
             return None
 
@@ -490,6 +509,11 @@ def build_handlers_from_config(
     config: dict[str, Any],
     icon_url: str = "",
 ) -> dict[str, SalesforceObjectHandler]:
+    """Create ``SalesforceObjectHandler`` instances from the schema config.
+
+    Parent handlers are created first, then child handlers are attached to
+    their respective parents.  Returns a dict keyed by object name.
+    """
     handlers: dict[str, SalesforceObjectHandler] = {}
     children: list[dict[str, Any]] = []
 
@@ -512,6 +536,7 @@ def build_handlers_from_config(
 
 
 def _build_schema_properties(handlers: dict[str, SalesforceObjectHandler]) -> set[str]:
+    """Collect the full set of Graph schema property names from all handlers."""
     props: set[str] = {"ObjectName", "Url", "IconUrl", "AccountUrl"}
     props.update(METADATA_COLUMN_SCHEMA_MAPPING.values())
     props.update({AUTHORS_SOURCE_PROPERTY, SYSTEM_CREATED_BY_USER_ID, SYSTEM_MODIFIED_BY_USER_ID})
@@ -528,6 +553,7 @@ class SalesforceConverter:
         schema_properties: set[str] | None = None,
         icon_url: str = "",
     ):
+        """Initialise the converter with a Salesforce instance URL and schema config."""
         self._instance_url = instance_url
         effective_config = config if config is not None else load_converter_config()
         self._handlers = build_handlers_from_config(effective_config, icon_url=icon_url)
@@ -535,10 +561,12 @@ class SalesforceConverter:
 
     @property
     def object_names(self) -> list[str]:
+        """List all registered Salesforce object names."""
         return list(self._handlers.keys())
 
     @property
     def parent_object_names(self) -> list[str]:
+        """List object names that are top-level parents (not children)."""
         return [
             object_name
             for object_name, handler in self._handlers.items()
@@ -547,9 +575,11 @@ class SalesforceConverter:
 
     @property
     def schema_properties(self) -> set[str]:
+        """Return a copy of the Graph schema property names."""
         return set(self._schema_properties)
 
     def get_handler(self, object_name: str) -> SalesforceObjectHandler | None:
+        """Return the handler for *object_name*, or ``None`` if not registered."""
         return self._handlers.get(object_name)
 
     def convert(
@@ -557,6 +587,11 @@ class SalesforceConverter:
         sf_query_result: dict[str, Any],
         object_name: str | None = None,
     ) -> list[dict[str, Any]]:
+        """Convert a Salesforce query result into Graph external-item dicts.
+
+        If *object_name* is ``None`` it is inferred from the first record's
+        ``attributes.type``.
+        """
         effective_object_name = object_name or self._infer_object_name(sf_query_result)
         handler = self._handlers.get(effective_object_name)
         if handler is None:
@@ -569,6 +604,7 @@ class SalesforceConverter:
 
     @staticmethod
     def _infer_object_name(sf_query_result: dict[str, Any]) -> str:
+        """Infer the Salesforce object name from the first record's attributes."""
         records = sf_query_result.get("records", [])
         if not records:
             raise ValueError("Cannot infer object_name from an empty records list")
