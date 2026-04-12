@@ -11,7 +11,7 @@ from graph.ingest import IngestionStats
 
 @pytest.fixture
 def mock_args():
-    return argparse.Namespace(verbose=False)
+    return argparse.Namespace(verbose=False, continuous=False, hours=12)
 
 
 @pytest.fixture
@@ -58,3 +58,27 @@ def test_ingest_with_failures(mock_args, _ingest_patches):
     from commands.ingest import cmd_ingest
     result = cmd_ingest(mock_args)
     assert result is False
+
+
+def test_clamp_hours_minimum():
+    from commands.ingest import _clamp_hours
+    assert _clamp_hours(5) == 12
+
+
+def test_clamp_hours_maximum():
+    from commands.ingest import _clamp_hours
+    assert _clamp_hours(200) == 168
+
+
+def test_clamp_hours_within_range():
+    from commands.ingest import _clamp_hours
+    assert _clamp_hours(24) == 24
+
+
+def test_non_continuous_runs_once(mock_args, _ingest_patches):
+    """Without --continuous, cmd_ingest returns after one run."""
+    from commands.ingest import cmd_ingest
+    mock_args.continuous = False
+    result = cmd_ingest(mock_args)
+    assert result is True
+    assert _ingest_patches["ingest_content"].call_count == 1

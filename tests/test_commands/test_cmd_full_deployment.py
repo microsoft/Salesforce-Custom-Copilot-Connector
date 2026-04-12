@@ -11,7 +11,7 @@ from graph.ingest import IngestionStats
 
 @pytest.fixture
 def mock_args():
-    return argparse.Namespace(verbose=False)
+    return argparse.Namespace(verbose=False, continuous=False, hours=12)
 
 
 @pytest.fixture
@@ -73,3 +73,27 @@ def test_setup_logging_is_called(mock_args, _deployment_patches):
     from commands.deploy import cmd_full_deployment
     cmd_full_deployment(mock_args)
     _deployment_patches["setup_logging"].assert_called_once()
+
+
+def test_clamp_hours_minimum():
+    from commands.deploy import _clamp_hours
+    assert _clamp_hours(5) == 12
+
+
+def test_clamp_hours_maximum():
+    from commands.deploy import _clamp_hours
+    assert _clamp_hours(200) == 168
+
+
+def test_clamp_hours_within_range():
+    from commands.deploy import _clamp_hours
+    assert _clamp_hours(24) == 24
+
+
+def test_non_continuous_runs_once(mock_args, _deployment_patches):
+    """Without --continuous, cmd_full_deployment returns after one run."""
+    from commands.deploy import cmd_full_deployment
+    mock_args.continuous = False
+    result = cmd_full_deployment(mock_args)
+    assert result is True
+    assert _deployment_patches["ingest_content"].call_count == 1

@@ -26,8 +26,13 @@ from graph.ingest import ingest_content, IngestionStats
 from salesforce.settings import load_config
 
 
-def cmd_ingest(args) -> bool:
-    """Ingest items only — connection & schema must already exist."""
+def _clamp_hours(hours: int) -> int:
+    """Clamp hours to the valid range [12, 168]."""
+    return max(12, min(168, hours))
+
+
+def _run_ingest(args) -> bool:
+    """Execute a single ingestion run. Returns True on success."""
     from commands import setup_logging, write_summary
 
     log_file, summary_file = setup_logging("ingestion", verbose=getattr(args, "verbose", False))
@@ -90,3 +95,30 @@ def cmd_ingest(args) -> bool:
                      elapsed, "INGESTION (CRASHED)")
         logging.getLogger("ingestion_only").exception("❌ Fatal error during ingestion: %s", e)
         return False
+
+
+def cmd_ingest(args) -> bool:
+    """Ingest items only — connection & schema must already exist.
+
+    When ``--continuous`` is passed, ingestion repeats on a fixed schedule.
+    """
+    success = _run_ingest(args)
+
+    continuous = getattr(args, "continuous", False)
+    if not continuous:
+        return success
+
+    from commands import reset_logging
+
+    hours = _clamp_hours(getattr(args, "hours", 12))
+    interval_seconds = hours * 3600
+    progress = logging.getLogger("progress")
+    progress.info("\n🔁 Continuous mode enabled — re-ingesting every %d hour(s). Press Ctrl+C to stop.\n", hours)
+
+    while True:
+        progress.info("⏳ Next ingestion in %d hour(s)...", hours)
+        time.sleep(interval_seconds)
+
+        reset_logging()
+        progress.info("🔄 Starting scheduled re-ingestion...")
+        _run_ingest(args)

@@ -18,7 +18,6 @@ Usage::
 
 Returns ``True`` on success, ``False`` on failure (exit code 1).
 """
-
 import logging
 import time
 
@@ -29,8 +28,13 @@ from graph.schema import ensure_schema
 from salesforce.settings import load_config
 
 
-def cmd_full_deployment(args) -> bool:
-    """Deploy connection → schema → ingest items with ACLs."""
+def _clamp_hours(hours: int) -> int:
+    """Clamp hours to the valid range [12, 168]."""
+    return max(12, min(168, hours))
+
+
+def _run_full_deployment(args) -> bool:
+    """Execute a single full-deployment run. Returns True on success."""
     from commands import setup_logging, write_summary
 
     log_file, summary_file = setup_logging("deployment", verbose=getattr(args, "verbose", False))
@@ -123,3 +127,31 @@ def cmd_full_deployment(args) -> bool:
                      elapsed, "FULL DEPLOYMENT (CRASHED)")
         logging.getLogger("deployment").exception("❌ Fatal error during deployment: %s", e)
         return False
+
+
+def cmd_full_deployment(args) -> bool:
+    """Deploy connection → schema → ingest items with ACLs.
+
+    When ``--continuous`` is passed, the first iteration performs the full
+    deployment and subsequent iterations re-ingest on a fixed schedule.
+    """
+    success = _run_full_deployment(args)
+
+    continuous = getattr(args, "continuous", False)
+    if not continuous:
+        return success
+
+    from commands import reset_logging
+
+    hours = _clamp_hours(getattr(args, "hours", 12))
+    interval_seconds = hours * 3600
+    progress = logging.getLogger("progress")
+    progress.info("\n🔁 Continuous mode enabled — re-ingesting every %d hour(s). Press Ctrl+C to stop.\n", hours)
+
+    while True:
+        progress.info("⏳ Next ingestion in %d hour(s)...", hours)
+        time.sleep(interval_seconds)
+
+        reset_logging()
+        progress.info("🔄 Starting scheduled re-ingestion...")
+        _run_full_deployment(args)

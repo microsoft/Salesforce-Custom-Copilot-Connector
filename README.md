@@ -175,14 +175,20 @@ python run.py full-deployment
 # Full deployment with detailed console output
 python run.py full-deployment --verbose
 
+# Full deployment with continuous re-ingestion every 24 hours
+python run.py full-deployment --continuous --hours 24
+
 # Re-ingest items only (connection & schema must already exist)
 python run.py ingest
 
+# Continuous re-ingestion every 12 hours
+python run.py ingest --continuous --hours 12
+
 # Debug: ingest a single record by Salesforce ID
-python run.py single-item 500f6000008iCNYAA2
+python run.py ingest-item --id 500f6000008iCNYAA2
 
 # Debug: ingest all records of one object type
-python run.py single-object Case
+python run.py ingest-object --type Case
 ```
 
 ### Console Output
@@ -304,6 +310,10 @@ Records soft-deleted in Salesforce (still in the Recycle Bin) are detected via `
 ### All Records Buffered in Memory
 
 `graph/ingest.py` loads all converted items into a list before processing. For very large orgs this can exhaust available memory.
+
+### Debug Commands Fetch All Objects Before Filtering
+
+The `single-object` and `single-item` commands query **all** object types from Salesforce and then filter to the requested type/ID in memory. This means you will see query warnings and retries for unrelated objects (e.g. Account, Lead, Contact) even when you only asked for `Case`. The filtering should be pushed upstream into `get_all_items_from_api` before using this in production so that only the requested object type is queried from Salesforce.
 
 ### Salesforce Objects Are Statically Configured
 

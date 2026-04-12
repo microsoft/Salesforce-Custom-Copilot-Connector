@@ -9,8 +9,8 @@ Modules
 guide          Print the interactive setup and usage guide.
 deploy         Full end-to-end deployment (connection → schema → ingestion).
 ingest         Re-ingest items into an existing connection.
-single_item    Ingest one Salesforce record by its ID (debugging helper).
-single_object  Ingest all records of a specific Salesforce object type.
+ingest_item    Ingest a single Salesforce record by its ID.
+ingest_object  Ingest all records of a specific Salesforce object type.
 
 Shared utilities
 ----------------
@@ -38,8 +38,8 @@ from pathlib import Path
 from .guide import cmd_guide
 from .deploy import cmd_full_deployment
 from .ingest import cmd_ingest
-from .single_item import cmd_single_item
-from .single_object import cmd_single_object
+from .ingest_item import cmd_ingest_item
+from .ingest_object import cmd_ingest_object
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +130,20 @@ def write_summary(summary_file, log_file, stats, connection_status, connector_id
     progress.info(summary_text)
 
 
+def reset_logging() -> None:
+    """Remove all handlers from the root and progress loggers.
+
+    Must be called before ``setup_logging`` when running multiple ingestion
+    iterations in the same process (e.g. ``--continuous`` mode) so that each
+    iteration writes to a fresh log file without duplicating output.
+    """
+    for logger_name in (None, "progress"):
+        lgr = logging.getLogger(logger_name)
+        for handler in lgr.handlers[:]:
+            handler.close()
+            lgr.removeHandler(handler)
+
+
 # ---------------------------------------------------------------------------
 # CLI parser
 # ---------------------------------------------------------------------------
@@ -145,10 +159,11 @@ def build_parser() -> argparse.ArgumentParser:
             "  python run.py guide\n"
             "  python run.py full-deployment\n"
             "  python run.py full-deployment --verbose\n"
+            "  python run.py full-deployment --continuous --hours 24\n"
             "  python run.py ingest\n"
-            "  python run.py single-item 500f6000008iCNYAA2\n"
-            "  python run.py single-object Case\n"
-            "  python run.py single-object Account\n"
+            "  python run.py ingest --continuous --hours 12\n"
+            "  python run.py ingest-item --id 500f6000008iCNYAA2\n"
+            "  python run.py ingest-object --type Case\n"
         ),
     )
 
@@ -169,34 +184,65 @@ def build_parser() -> argparse.ArgumentParser:
     ).set_defaults(func=cmd_guide)
 
     # full-deployment
-    subparsers.add_parser(
+    p_deploy = subparsers.add_parser(
         "full-deployment",
         help="Deploy connection → schema → ingest items with ACLs",
-    ).set_defaults(func=cmd_full_deployment)
+    )
+    p_deploy.add_argument(
+        "--continuous",
+        action="store_true",
+        default=False,
+        help="Keep running and re-ingest every --hours hours instead of exiting.",
+    )
+    p_deploy.add_argument(
+        "--hours",
+        type=int,
+        default=12,
+        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
+    )
+    p_deploy.set_defaults(func=cmd_full_deployment)
 
     # ingest
-    subparsers.add_parser(
+    p_ingest = subparsers.add_parser(
         "ingest",
         help="Ingest items only (connection & schema must already exist)",
-    ).set_defaults(func=cmd_ingest)
-
-    # single-item
-    p_item = subparsers.add_parser(
-        "single-item",
-        help="Ingest a single Salesforce record by ID",
     )
-    p_item.add_argument("item_id", help="Salesforce record ID (e.g. 500f6000008iCNYAA2)")
-    p_item.set_defaults(func=cmd_single_item)
+    p_ingest.add_argument(
+        "--continuous",
+        action="store_true",
+        default=False,
+        help="Keep running and re-ingest every --hours hours instead of exiting.",
+    )
+    p_ingest.add_argument(
+        "--hours",
+        type=int,
+        default=12,
+        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
+    )
+    p_ingest.set_defaults(func=cmd_ingest)
 
-    # single-object
+    # ingest-item
+    p_item = subparsers.add_parser(
+        "ingest-item",
+        help="Ingest a single Salesforce record by its ID",
+    )
+    p_item.add_argument(
+        "--id",
+        required=True,
+        help="Salesforce record ID (e.g. 500f6000008iCNYAA2)",
+    )
+    p_item.set_defaults(func=cmd_ingest_item)
+
+    # ingest-object
     p_obj = subparsers.add_parser(
-        "single-object",
+        "ingest-object",
         help="Ingest all records of a specific Salesforce object type",
     )
     p_obj.add_argument(
-        "object_type",
-        help="Salesforce object type (e.g. Case, Account, Opportunity, Customer_Project__c)",
+        "--type",
+        required=True,
+        help="Salesforce object type (e.g. Case, Account, Opportunity)",
     )
-    p_obj.set_defaults(func=cmd_single_object)
+    p_obj.set_defaults(func=cmd_ingest_object)
 
     return parser

@@ -108,6 +108,7 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
         logger.error("Failed to load %s: %s", item_id, error)
         if error.body:
             logger.error("Graph response: %s", error.body)
+        raise
 
 
 def delete_content(config: AppConfig, client: GraphClient, item_id: str) -> None:

@@ -10,22 +10,28 @@ Commands:
     guide                    Show the complete setup and usage guide
     full-deployment          Deploy connection → schema → ingest items with ACLs
     ingest                   Ingest items only (connection & schema must already exist)
-    single-item <item_id>    Ingest a single Salesforce record by ID
-    single-object <type>     Ingest all records of a specific Salesforce object type
+    ingest-item              Ingest a single Salesforce record by its ID
+    ingest-object            Ingest all records of a specific Salesforce object type
 
 Global options:
     --verbose                Print all log levels (INFO, WARNING, ERROR) to console.
                              Without this flag only WARNING and ERROR are shown on
                              console; the log file always captures everything.
 
+Continuous mode (full-deployment and ingest only):
+    --continuous             Keep running and re-ingest on a schedule instead of exiting.
+    --hours <int>            Re-ingestion interval in hours (min 12, max 168). Default: 12.
+
 Examples:
     python run.py guide
     python run.py full-deployment
     python run.py full-deployment --verbose
+    python run.py full-deployment --continuous --hours 24
     python run.py ingest
-    python run.py single-item 500f6000008iCNYAA2
-    python run.py single-object Case
-    python run.py single-object Account
+    python run.py ingest --continuous --hours 12
+    python run.py ingest-item --id 500f6000008iCNYAA2
+    python run.py ingest-object --type Case
+    python run.py ingest-object --type Account
 """
 
 import sys
