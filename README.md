@@ -266,6 +266,7 @@ Set these in `env/.env.local` to adjust behaviour:
 | `SALESFORCE_BATCH_SIZE` | 100 | Batch size for ingestion |
 | `ACL_MAX_PARENT_DEPTH` | 5 | Max recursion depth for ControlledByParent ACLs |
 | `USE_NEW_ACL_ENGINE` | false | Use the new ACL engine instead of legacy |
+| `OWD_OVERRIDES` | *(empty)* | Force OWD values for testing, JSON object e.g. `{"Account":"Private"}` |
 
 ---
 
