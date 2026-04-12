@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
+from salesforce.settings import (
+    load_local_environment, load_config, validate_connector_id,
+    LOCAL_ENV_FILES,
+)
+import salesforce.settings as settings
 
-from connector import settings
 
-
-def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path: Path) -> None:
+def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path) -> None:
     example_env = tmp_path / ".env.local.example"
     local_env = tmp_path / ".env.local"
 
@@ -22,6 +24,14 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path: Path
                 "SALESFORCE_API_VERSION=v48.0",
                 "SALESFORCE_CLIENT_ID=test-salesforce-client-id",
                 "SECRET_SALESFORCE_CLIENT_SECRET=test-salesforce-client-secret",
+                "GRAPH_MAX_RETRIES=4",
+                "GRAPH_RETRY_BACKOFF_BASE=2",
+                "CONNECTION_TIMEOUT_SECONDS=600",
+                "CONNECTION_RETRY_INTERVAL_SECONDS=15",
+                "SCHEMA_RETRY_INTERVAL_SECONDS=15",
+                "SALESFORCE_QUERY_LIMIT=10",
+                "SALESFORCE_BATCH_SIZE=100",
+                "ACL_MAX_PARENT_DEPTH=5",
             ]
         )
         + "\n",
@@ -36,11 +46,21 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path: Path
         "AAD_APP_TENANT_ID",
         "AZURE_CLIENT_ID",
         "AZURE_TENANT_ID",
+        "AZURE_CLIENT_SECRET",
         "SALESFORCE_INSTANCE_URL",
         "SALESFORCE_API_VERSION",
         "SALESFORCE_CLIENT_ID",
         "SECRET_SALESFORCE_CLIENT_SECRET",
         "SALESFORCE_CLIENT_SECRET",
+        "GRAPH_MAX_RETRIES",
+        "GRAPH_RETRY_BACKOFF_BASE",
+        "CONNECTION_TIMEOUT_SECONDS",
+        "CONNECTION_RETRY_INTERVAL_SECONDS",
+        "SCHEMA_RETRY_INTERVAL_SECONDS",
+        "SALESFORCE_QUERY_LIMIT",
+        "SALESFORCE_BATCH_SIZE",
+        "ACL_MAX_PARENT_DEPTH",
+        "GRAPH_API_VERSION",
     ):
         monkeypatch.delenv(name, raising=False)
 

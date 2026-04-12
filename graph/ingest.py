@@ -150,7 +150,7 @@ async def _resolve_acl_new_engine(
     AclResolver so the rest of ingest_content is unchanged.
     """
     from acl_engine import AclResolver as NewAclResolver, PrincipalMapper
-    from acl_engine.sf_client import SalesforceClient
+    from acl_engine.salesforce_client import SalesforceClient
     from salesforce.api_client import get_salesforce_access_token
 
     sf_client = SalesforceClient(

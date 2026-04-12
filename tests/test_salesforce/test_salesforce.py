@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from urllib.parse import parse_qs, urlparse
 
-from Salesforce.salesforce import (
+from salesforce.api_client import (
     SalesforceErrorInfo,
     SalesforceObjectConfig,
     _extract_unsupported_fields,
@@ -73,7 +73,7 @@ def test_fetch_salesforce_records_retries_without_invalid_field(monkeypatch, tes
         queries.append(url)
         return next(responses)
 
-    monkeypatch.setattr("connector.salesforce.requests.get", fake_get)
+    monkeypatch.setattr("salesforce.api_client.requests.get", fake_get)
 
     records = list(fetch_salesforce_records(test_config, "token", object_config))
 
