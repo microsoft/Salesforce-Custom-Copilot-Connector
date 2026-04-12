@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -44,9 +43,6 @@ from acl_engine.models import AclResult, PUBLIC_SENTINEL
 from acl_engine.salesforce_client import SalesforceClient
 
 logger = logging.getLogger("salesforce_connector.acl_engine")
-
-# Maximum IDs per SOQL IN clause
-_BATCH_SIZE = int(os.getenv("SALESFORCE_BATCH_SIZE", "100"))
 
 
 class PrincipalMapper:
@@ -61,18 +57,20 @@ class PrincipalMapper:
                    When None, FederationIdentifier / UserName / Email are used
                    directly as ACL values (works when UPN == SF identifier).
     tenant_id    : Azure tenant ID used in "everyone" ACL entries.
-                   Defaults to the AZURE_TENANT_ID env var, or "everyone".
+    batch_size   : Maximum IDs per SOQL IN clause (from config).
     """
 
     def __init__(
         self,
         sf_client: SalesforceClient,
         graph_client: Any = None,
-        tenant_id: Optional[str] = None,
+        tenant_id: str = "everyone",
+        batch_size: int = 100,
     ) -> None:
         self._sf = sf_client
         self._graph_client = graph_client
-        self._tenant_id = tenant_id or os.getenv("AZURE_TENANT_ID") or "everyone"
+        self._tenant_id = tenant_id
+        self._batch_size = batch_size
         # identifier (FedId/UPN/email) → resolved AAD GUID or None
         self._principal_cache: dict[str, Optional[str]] = {}
 
@@ -152,7 +150,7 @@ class PrincipalMapper:
         """
         id_list = sorted(user_ids)
         batches = [
-            id_list[i: i + _BATCH_SIZE] for i in range(0, len(id_list), _BATCH_SIZE)
+            id_list[i: i + self._batch_size] for i in range(0, len(id_list), self._batch_size)
         ]
 
         all_details: dict[str, dict[str, Any]] = {}

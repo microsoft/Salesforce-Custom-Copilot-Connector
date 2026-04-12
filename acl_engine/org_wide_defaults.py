@@ -89,12 +89,15 @@ class OWDFetcher:
         self,
         sf_client: SalesforceClient,
         owd_field_map: dict[str, str] | None = None,
+        owd_overrides: dict[str, str] | None = None,
     ) -> None:
         self._sf = sf_client
         # {objectName → owdField}  e.g. {"Account": "DefaultAccountAccess"}
         self._owd_field_map: dict[str, str] = _load_owd_field_map(owd_field_map)
         # Populated on the first get_owd call; {objectName → owd_value}
         self._org_owd_cache: Optional[dict[str, str]] = None
+        # Optional overrides from config (e.g. {"Account": "Private"})
+        self._owd_overrides: dict[str, str] = owd_overrides or {}
 
     # ── Main fetch ────────────────────────────────────────────────────────────
 
@@ -129,21 +132,17 @@ class OWDFetcher:
         owd = (self._org_owd_cache or {}).get(object_type, OWDVisibility.PRIVATE.value)
         logger.info("[OWD] %s (Organization.%s) → %s", object_type, owd_field, owd)
 
-        # ── TEMP DEBUG OVERRIDE ───────────────────────────────────────────────
-        # Force Account OWD to Private so the private ACL path is exercised.
-        # Remove this block once private ACL testing is complete.
-        _OWD_OVERRIDES: dict[str, str] = {
-            "Account": OWDVisibility.PRIVATE.value,
-        }
-        if object_type in _OWD_OVERRIDES:
+        # ── OWD OVERRIDE (from OWD_OVERRIDES config) ─────────────────────────
+        if object_type in self._owd_overrides:
             logger.warning(
-                "[OWD] ⚠️  TEMP OVERRIDE: %s OWD forced from '%s' → '%s' for private ACL testing",
-                object_type, owd, _OWD_OVERRIDES[object_type],
+                "[OWD] ⚠️  OWD OVERRIDE: %s OWD forced from '%s' → '%s' (via OWD_OVERRIDES config)",
+                object_type, owd, self._owd_overrides[object_type],
             )
-            owd = _OWD_OVERRIDES[object_type]
-        # ── END TEMP DEBUG OVERRIDE ───────────────────────────────────────────
+            owd = self._owd_overrides[object_type]
+        # ── END OWD OVERRIDE ──────────────────────────────────────────────────
 
         return owd
+
 
     # ── Organization query (primes the in-memory cache) ───────────────────────
 

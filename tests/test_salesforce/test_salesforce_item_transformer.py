@@ -71,16 +71,16 @@ def test_acl_included_when_provided(mock_converter_cls, schema):
 
 @patch("salesforce.item_transformer.SalesforceConverter")
 def test_fallback_acl_used_when_none(mock_converter_cls, schema, monkeypatch):
-    monkeypatch.setenv("AZURE_TENANT_ID", "test-tenant")
     mock_converter = mock_converter_cls.return_value
     mock_converter.object_names = ["Account"]
     mock_converter.get_handler.return_value = None
     mock_converter.convert.return_value = [
         {"id": "001", "properties": {"Url": "https://sf.com/001"}, "content": {}}
     ]
-    t = SalesforceItemTransformer("https://test.my.salesforce.com", schema)
+    t = SalesforceItemTransformer("https://test.my.salesforce.com", schema, tenant_id="test-tenant")
     result = t.transform_record({"Id": "001", "objectType": "Account", "url": "https://sf.com/001"}, acl=None)
     assert result[0]["acl"][0]["type"] == "everyone"
+    assert result[0]["acl"][0]["value"] == "test-tenant"
 
 
 @patch("salesforce.item_transformer.SalesforceConverter")

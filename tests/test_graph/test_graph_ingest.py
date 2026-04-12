@@ -1,6 +1,7 @@
 """Tests for the graph.ingest ingestion pipeline."""
 from __future__ import annotations
 
+from dataclasses import replace
 from unittest.mock import MagicMock, patch, call
 from urllib.parse import quote
 
@@ -134,7 +135,7 @@ def test_ingest_acl_failure_falls_back_to_public(mock_transformer_cls, mock_acl_
 @patch("graph.ingest.LegacyAclResolver")
 @patch("graph.ingest.SalesforceItemTransformer")
 def test_ingest_filters_by_debug_item_id(mock_transformer_cls, mock_acl_cls, mock_api, test_config, mock_client, monkeypatch):
-    monkeypatch.setenv("DEBUG_ITEM_ID", "005")
+    cfg = replace(test_config, debug_item_id="005")
     raw = [
         {"Id": "005", "objectType": "Case", "url": "https://sf.com/005"},
         {"Id": "006", "objectType": "Case", "url": "https://sf.com/006"},
@@ -148,7 +149,7 @@ def test_ingest_filters_by_debug_item_id(mock_transformer_cls, mock_acl_cls, moc
     mock_transformer_inst.handlers = {}
     mock_transformer_cls.return_value = mock_transformer_inst
 
-    stats = ingest_content(test_config, mock_client)
+    stats = ingest_content(cfg, mock_client)
     assert stats.total_fetched == 1
 
 
@@ -156,8 +157,7 @@ def test_ingest_filters_by_debug_item_id(mock_transformer_cls, mock_acl_cls, moc
 @patch("graph.ingest.LegacyAclResolver")
 @patch("graph.ingest.SalesforceItemTransformer")
 def test_ingest_filters_by_debug_object_type(mock_transformer_cls, mock_acl_cls, mock_api, test_config, mock_client, monkeypatch):
-    monkeypatch.setenv("DEBUG_OBJECT_TYPE", "Account")
-    monkeypatch.delenv("DEBUG_ITEM_ID", raising=False)
+    cfg = replace(test_config, debug_object_type="Account")
     raw = [
         {"Id": "007", "objectType": "Account", "url": "https://sf.com/007"},
         {"Id": "008", "objectType": "Case", "url": "https://sf.com/008"},
@@ -171,5 +171,5 @@ def test_ingest_filters_by_debug_object_type(mock_transformer_cls, mock_acl_cls,
     mock_transformer_inst.handlers = {}
     mock_transformer_cls.return_value = mock_transformer_inst
 
-    stats = ingest_content(test_config, mock_client)
+    stats = ingest_content(cfg, mock_client)
     assert stats.total_fetched == 1

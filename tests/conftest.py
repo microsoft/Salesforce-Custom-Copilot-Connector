@@ -27,10 +27,15 @@ def test_config() -> AppConfig:
     schema = load_schema_config()
     return AppConfig(
         client_id="00000000-0000-0000-0000-000000000000",
+        tenant_id=TENANT_ID,
         repo_root=PROJECT_ROOT,
         schema_config=schema,
         owd_field_map=build_owd_field_map(schema),
         parent_map=build_parent_map(schema),
+        owd_overrides={},
+        use_new_acl_engine=False,
+        debug_object_type=None,
+        debug_item_id=None,
         tuning=TuningSettings(
             graph_api_version="v1.0",
             graph_max_retries=4,

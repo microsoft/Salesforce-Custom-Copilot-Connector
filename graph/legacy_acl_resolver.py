@@ -38,7 +38,6 @@ from typing import Any
 from urllib.parse import quote
 import asyncio
 import logging
-import os
 
 from graph.client import GraphApiError, GraphClient
 from salesforce.sharing_model import (
@@ -71,7 +70,7 @@ class AclResolver:
         self._config = config
         self._handlers = handlers
         self._graph_client = graph_client
-        self._tenant_id = os.getenv("AZURE_TENANT_ID") or "everyone"
+        self._tenant_id = config.tenant_id
         self._helper = ClientHelperForIdentitySync(
             AsyncSalesforceClient(
                 config.connector.salesforce.instance_url,
@@ -79,6 +78,7 @@ class AclResolver:
             ),
             config.connector.salesforce.instance_url,
             get_salesforce_access_token(config),
+            batch_size=config.tuning.salesforce_batch_size,
         )
         self._group_cache: dict[str, tuple[set[str], bool]] = {}
         self._principal_id_cache: dict[str, str | None] = {}

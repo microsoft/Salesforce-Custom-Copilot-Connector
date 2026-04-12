@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Optional
 
 from acl_engine.models import AclResult, PUBLIC_SENTINEL
@@ -76,7 +75,7 @@ def _load_parent_map(parent_map: dict[str, tuple[str, str]] | None = None) -> di
 
 # Maximum depth when following ControlledByParent chains to prevent runaway
 # recursion on misconfigured orgs or circular references.
-_MAX_PARENT_DEPTH = int(os.getenv("ACL_MAX_PARENT_DEPTH", "5"))
+_DEFAULT_MAX_PARENT_DEPTH = 5
 
 
 class AclResolver:
@@ -118,14 +117,17 @@ class AclResolver:
         sf_client: SalesforceClient,
         owd_field_map: dict[str, str] | None = None,
         parent_map: dict[str, tuple[str, str]] | None = None,
+        owd_overrides: dict[str, str] | None = None,
+        max_parent_depth: int = _DEFAULT_MAX_PARENT_DEPTH,
     ) -> None:
         self._sf = sf_client
-        self._owd_fetcher = OWDFetcher(sf_client, owd_field_map=owd_field_map)
+        self._owd_fetcher = OWDFetcher(sf_client, owd_field_map=owd_field_map, owd_overrides=owd_overrides)
         self._share_fetcher = ShareFetcher(sf_client)
         self._user_handler = UserHandler(sf_client)
         self._group_handler = GroupHandler(sf_client)
         # {objectName: (parentFieldName, parentObjectName)} – loaded once from schema.json
         self._parent_map: dict[str, tuple[str, str]] = _load_parent_map(parent_map)
+        self._max_parent_depth = max_parent_depth
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -303,11 +305,11 @@ class AclResolver:
           original record if the chain is too deep.
         * Missing parent info – fall back gracefully.
         """
-        if depth >= _MAX_PARENT_DEPTH:
+        if depth >= self._max_parent_depth:
             logger.warning(
                 "[AclResolver] Max parent depth (%d) reached for %s/%s; "
                 "falling back to private ACL on this record",
-                _MAX_PARENT_DEPTH,
+                self._max_parent_depth,
                 object_type,
                 record_id,
             )

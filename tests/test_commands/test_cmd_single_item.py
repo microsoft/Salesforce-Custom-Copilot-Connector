@@ -39,11 +39,12 @@ def _single_item_patches(test_config):
         p.stop()
 
 
-def test_sets_debug_item_id_env(mock_args, _single_item_patches, monkeypatch):
-    monkeypatch.delenv("DEBUG_ITEM_ID", raising=False)
+def test_sets_debug_item_id_on_config(mock_args, _single_item_patches, monkeypatch):
     from commands.single_item import cmd_single_item
     cmd_single_item(mock_args)
-    assert os.environ.get("DEBUG_ITEM_ID") == "500abc123"
+    call_args = _single_item_patches["ingest_content"].call_args
+    config_used = call_args[0][0]
+    assert config_used.debug_item_id == "500abc123"
 
 
 def test_calls_ingest_content(mock_args, _single_item_patches):
@@ -60,7 +61,8 @@ def test_connection_not_ready_returns_early(mock_args, _single_item_patches):
 
 
 def test_item_id_passed_through(mock_args, _single_item_patches, monkeypatch):
-    monkeypatch.delenv("DEBUG_ITEM_ID", raising=False)
     from commands.single_item import cmd_single_item
     cmd_single_item(mock_args)
-    assert os.environ["DEBUG_ITEM_ID"] == "500abc123"
+    call_args = _single_item_patches["ingest_content"].call_args
+    config_used = call_args[0][0]
+    assert config_used.debug_item_id == "500abc123"

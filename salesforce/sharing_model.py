@@ -6,7 +6,6 @@ from typing import Any, Callable, Optional, TypeVar
 from urllib.parse import urlencode
 import asyncio
 import logging
-import os
 
 from salesforce.settings import build_owd_field_map, load_schema_config
 from item.converter import load_converter_config
@@ -330,8 +329,6 @@ class SalesforceConstants:
     OBJECTS: dict[str, dict] = {obj["objectName"]: obj for obj in _schema.get("objectList", [])}
     # Object names in the order defined in schema.json
     ORDERED_OBJECT_NAMES: list[str] = [obj["objectName"] for obj in _schema.get("objectList", [])]
-    # Maximum number of IDs to include in a nested SOQL IN clause
-    MAX_FILTER_IDS_IN_NESTED_QUERY: int = int(os.getenv("SALESFORCE_BATCH_SIZE", "100"))
 
 
 class AsyncSalesforceClient:
@@ -371,11 +368,12 @@ class AsyncSalesforceClient:
 
 
 class ClientHelperForIdentitySync:
-    def __init__(self, salesforce_client: AsyncSalesforceClient, instance_url: str, access_token: str):
+    def __init__(self, salesforce_client: AsyncSalesforceClient, instance_url: str, access_token: str, batch_size: int = 100):
         """Initialize with a Salesforce async client, instance URL, and access token."""
         self.salesforce_client = salesforce_client
         self.instance_url = instance_url
         self.access_token = access_token
+        self.batch_size = batch_size
         self.response_processor = SalesforceIdentitySOQLResponseProcessor()
 
     async def get_org_wide_defaults_from_salesforce(self) -> Organization:
@@ -531,7 +529,7 @@ class ClientHelperForIdentitySync:
             authorized_users_for_sf_objects[child.object_name] = {}
 
         distinct_users = list(set(user_ids))
-        batch_size = SalesforceConstants.MAX_FILTER_IDS_IN_NESTED_QUERY
+        batch_size = self.batch_size
         user_batches = [
             distinct_users[index : index + batch_size]
             for index in range(0, len(distinct_users), batch_size)

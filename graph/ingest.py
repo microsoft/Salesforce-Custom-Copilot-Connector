@@ -43,7 +43,6 @@ from datetime import datetime
 from urllib.parse import quote
 import json
 import logging
-import os
 
 from graph.legacy_acl_resolver import AclResolver as LegacyAclResolver
 from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
@@ -162,10 +161,14 @@ async def _resolve_acl_new_engine(
         sf_client,
         owd_field_map=config.owd_field_map,
         parent_map=config.parent_map,
+        owd_overrides=config.owd_overrides,
+        max_parent_depth=config.tuning.acl_max_parent_depth,
     )
     mapper = PrincipalMapper(
         sf_client=sf_client,
         graph_client=graph_client,
+        tenant_id=config.tenant_id,
+        batch_size=config.tuning.salesforce_batch_size,
     )
 
     acl_map_by_object: dict[str, dict[str, list[dict[str, str]]]] = {}
@@ -189,7 +192,7 @@ async def _resolve_acl_new_engine(
                     "[NewACL] resolve_async failed for %s/%s: %s – using public ACL",
                     object_type, record_id, acl_result,
                 )
-                object_acl[record_id] = _public_acl_entry()
+                object_acl[record_id] = _public_acl_entry(config.tenant_id)
                 continue
 
             acl_entries = await mapper.to_acl_entries(acl_result)
@@ -201,9 +204,9 @@ async def _resolve_acl_new_engine(
     return acl_map_by_object
 
 
-def _public_acl_entry() -> list[dict[str, str]]:
+def _public_acl_entry(tenant_id: str) -> list[dict[str, str]]:
     """Return a public ACL entry granting access to everyone in the tenant."""
-    return [{"accessType": "grant", "type": "everyone", "value": os.getenv("AZURE_TENANT_ID") or "everyone"}]
+    return [{"accessType": "grant", "type": "everyone", "value": tenant_id}]
 
 
 def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None) -> IngestionStats:
@@ -233,7 +236,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         return stats
 
     # FILTER FOR SPECIFIC OBJECT TYPE (DEBUG MODE)
-    DEBUG_OBJECT_TYPE = os.getenv("DEBUG_OBJECT_TYPE")
+    DEBUG_OBJECT_TYPE = config.debug_object_type
     if DEBUG_OBJECT_TYPE:
         logger.info("DEBUG MODE: Looking for object type: %s", DEBUG_OBJECT_TYPE)
         filtered_items = [item for item in raw_items if item.get("objectType") == DEBUG_OBJECT_TYPE]
@@ -256,7 +259,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             return stats
 
     # FILTER FOR SPECIFIC ITEM (DEBUG MODE)
-    DEBUG_ITEM_ID = os.getenv("DEBUG_ITEM_ID")
+    DEBUG_ITEM_ID = config.debug_item_id
     if DEBUG_ITEM_ID:
         logger.info("DEBUG MODE: Looking for item ID: %s", DEBUG_ITEM_ID)
         filtered_items = [item for item in raw_items if item.get("Id") == DEBUG_ITEM_ID]
@@ -303,6 +306,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     transformer = SalesforceItemTransformer(
         config.connector.salesforce.instance_url,
         config.connector.schema,
+        tenant_id=config.tenant_id,
     )
 
     records_by_object_type: dict[str, list[dict]] = defaultdict(list)
@@ -313,10 +317,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
 
     acl_map_by_object: dict[str, dict[str, list[dict[str, str]]]] = {}
     try:
-        # Read the flag here (lazily) so dotenv values from load_local_environment() are visible
-        _USE_NEW_ACL_ENGINE: bool = (
-            os.getenv("USE_NEW_ACL_ENGINE", "false").lower() in ("true", "1", "yes")
-        )
+        _USE_NEW_ACL_ENGINE: bool = config.use_new_acl_engine
         stats.acl_engine = "NEW (acl_engine)" if _USE_NEW_ACL_ENGINE else "LEGACY"
         progress.info("  Resolving ACLs for %d object type(s)...", len(records_by_object_type))
         logger.info(

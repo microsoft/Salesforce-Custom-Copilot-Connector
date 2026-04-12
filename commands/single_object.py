@@ -14,8 +14,8 @@ Usage::
 """
 
 import logging
-import os
 import time
+from dataclasses import replace
 
 from graph.connection import is_connection_ready
 from graph.client import GraphClient
@@ -47,7 +47,7 @@ def cmd_single_object(args) -> None:
         logger.info("  Connector ID: %s", config.connector.id)
         logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
 
-        os.environ["DEBUG_OBJECT_TYPE"] = object_type
+        config = replace(config, debug_object_type=object_type)
         logger.info("  Debug Object Type: %s", object_type)
 
         logger.info("\n" + "=" * 70)

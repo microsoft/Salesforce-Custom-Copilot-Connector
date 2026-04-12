@@ -124,12 +124,17 @@ class TuningSettings:
 @dataclass(frozen=True)
 class AppConfig:
     client_id: str
+    tenant_id: str
     connector: ConnectorSettings
     repo_root: Path
     tuning: TuningSettings
     schema_config: dict[str, Any]
     owd_field_map: dict[str, str]
     parent_map: dict[str, tuple[str, str]]
+    owd_overrides: dict[str, str]
+    use_new_acl_engine: bool
+    debug_object_type: str | None
+    debug_item_id: str | None
 
 
 def _alias_env(target: str, source: str) -> None:
@@ -194,12 +199,27 @@ def load_config() -> AppConfig:
         except ValueError:
             raise ValueError(f"Invalid configuration: {name} must be an integer, got '{value}'")
 
+    owd_overrides: dict[str, str] = {}
+    raw_owd_overrides = os.getenv("OWD_OVERRIDES", "").strip()
+    if raw_owd_overrides:
+        try:
+            parsed = json.loads(raw_owd_overrides)
+            if isinstance(parsed, dict):
+                owd_overrides = {str(k): str(v) for k, v in parsed.items()}
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return AppConfig(
         client_id=_require_env("AZURE_CLIENT_ID"),
+        tenant_id=_require_env("AZURE_TENANT_ID"),
         repo_root=REPO_ROOT,
         schema_config=cfg,
         owd_field_map=build_owd_field_map(cfg),
         parent_map=build_parent_map(cfg),
+        owd_overrides=owd_overrides,
+        use_new_acl_engine=os.getenv("USE_NEW_ACL_ENGINE", "false").lower() in ("true", "1", "yes"),
+        debug_object_type=os.getenv("DEBUG_OBJECT_TYPE") or None,
+        debug_item_id=os.getenv("DEBUG_ITEM_ID") or None,
         tuning=TuningSettings(
             graph_api_version=os.getenv("GRAPH_API_VERSION", "v1.0"),
             graph_max_retries=_require_int_env("GRAPH_MAX_RETRIES"),

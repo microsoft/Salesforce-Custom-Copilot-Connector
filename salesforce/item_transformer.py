@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-import os
 
 from item.converter import SalesforceConverter
 
@@ -14,20 +13,21 @@ COLLECTION_SCHEMA_TO_ODATA_TYPE = {
     "DateTimeCollection": "DateTime",
 }
 
-def _fallback_acl() -> list[dict[str, str]]:
+def _fallback_acl(tenant_id: str) -> list[dict[str, str]]:
     """Return a default ACL granting access to everyone in the tenant."""
     return [
         {
             "accessType": "grant",
             "type": "everyone",
-            "value": os.getenv("AZURE_TENANT_ID") or "everyone",
+            "value": tenant_id,
         }
     ]
 
 
 class SalesforceItemTransformer:
-    def __init__(self, instance_url: str, schema: list[dict[str, Any]]):
+    def __init__(self, instance_url: str, schema: list[dict[str, Any]], tenant_id: str = "everyone"):
         """Initialize the transformer with a Salesforce *instance_url* and Graph connector *schema*."""
+        self._tenant_id = tenant_id
         self._schema_property_types = {
             prop["name"]: prop.get("type")
             for prop in schema
@@ -95,7 +95,7 @@ class SalesforceItemTransformer:
                 "value": content_value or "",
                 "type": "text",
             },
-            "acl": acl or _fallback_acl(),
+            "acl": acl or _fallback_acl(self._tenant_id),
         }
 
     def _normalize_schema_value(self, live_key: str, value: Any) -> Any:

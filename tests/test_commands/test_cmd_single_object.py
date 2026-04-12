@@ -39,11 +39,12 @@ def _single_object_patches(test_config):
         p.stop()
 
 
-def test_sets_debug_object_type_env(mock_args, _single_object_patches, monkeypatch):
-    monkeypatch.delenv("DEBUG_OBJECT_TYPE", raising=False)
+def test_sets_debug_object_type_on_config(mock_args, _single_object_patches, monkeypatch):
     from commands.single_object import cmd_single_object
     cmd_single_object(mock_args)
-    assert os.environ.get("DEBUG_OBJECT_TYPE") == "Case"
+    call_args = _single_object_patches["ingest_content"].call_args
+    config_used = call_args[0][0]
+    assert config_used.debug_object_type == "Case"
 
 
 def test_calls_ingest_content(mock_args, _single_object_patches):
