@@ -382,7 +382,7 @@ The SOQL infrastructure already exists — you just need a state store and a sma
 
 ### 2. Add Scheduling
 
-**Azure Functions (recommended):**
+**Azure Functions:**
 - Create a `function_app.py` with a `TimerTrigger` that imports and calls the existing command functions.
 - Store env vars in Function App Settings (reference Key Vault for secrets).
 - Use a cron expression like `0 0 */6 * * *` (every 6 hours).
