@@ -4,7 +4,7 @@ A Python-based connector that syncs Salesforce CRM data into **Microsoft Search*
 
 ---
 
-## Features+
+## Features
 
 - **Multi-object sync** — Accounts, Contacts, Leads, Opportunities, Cases, and custom objects (e.g. `Customer_Project__c`)
 - **Fine-grained ACL resolution** — Respects Salesforce Org-Wide Defaults, role hierarchies, sharing rules, territories, queues, and public groups
@@ -131,19 +131,52 @@ cp env/.env.local.example env/.env.local
 Edit `env/.env.local` with your values:
 
 ```ini
-# Connector identity
-CONNECTOR_ID=salesforce-crm
-CONNECTOR_NAME=Salesforce CRM
-CONNECTOR_DESCRIPTION=Salesforce CRM data for Microsoft Search
+# Local environment configuration
 
-# Salesforce
+# Built-in environment variables
+TEAMSFX_ENV=local
+APP_NAME_SUFFIX=local
+CONNECTOR_ID=your_connector_id
+CONNECTOR_NAME=your_connector_name
+CONNECTOR_DESCRIPTION=your_connection_description
+
+# Salesforce Configuration
 SALESFORCE_INSTANCE_URL=https://your-org.my.salesforce.com/
 SALESFORCE_API_VERSION=v60.0
-SALESFORCE_CLIENT_ID=<your_connected_app_consumer_key>
+SALESFORCE_CLIENT_ID=your_salesforce_client_id/consumer_key
+# Set SECRET_SALESFORCE_CLIENT_SECRET in env/.env.local.user
 
-# Azure AD / Entra
-AAD_APP_CLIENT_ID=<your_entra_app_client_id>
-AAD_APP_TENANT_ID=<your_entra_tenant_id>
+# Azure AD App Configuration
+AAD_APP_CLIENT_ID=your_entra_app_client_id
+AAD_APP_OBJECT_ID=your_entra_app_object_id
+AAD_APP_TENANT_ID=your_entra_tenant_id
+AAD_APP_OAUTH_AUTHORITY=https://login.microsoftonline.com/your_entra_tenant_id
+AAD_APP_OAUTH_AUTHORITY_HOST=https://login.microsoftonline.com
+# Set SECRET_AAD_APP_CLIENT_SECRET in env/.env.local.user
+
+# Graph API settings
+GRAPH_API_VERSION=v1.0/beta
+GRAPH_MAX_RETRIES=4
+GRAPH_RETRY_BACKOFF_BASE=2
+
+# Connection provisioning timeout and retry interval (seconds)
+CONNECTION_TIMEOUT_SECONDS=600
+CONNECTION_RETRY_INTERVAL_SECONDS=15
+
+# Schema provisioning retry interval (seconds)
+SCHEMA_RETRY_INTERVAL_SECONDS=15
+
+# Salesforce SOQL query page size
+SALESFORCE_QUERY_LIMIT=10
+
+# Max IDs in a single SOQL IN clause
+SALESFORCE_BATCH_SIZE=100
+
+# Max depth when following ControlledByParent ACL chains
+ACL_MAX_PARENT_DEPTH=5
+
+# Set to true to use the new ACL engine instead of the legacy resolver
+USE_NEW_ACL_ENGINE=false
 ```
 
 Create `env/.env.local.user` for secrets:
@@ -263,6 +296,7 @@ Set these in `env/.env.local` to adjust behaviour:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `GRAPH_API_VERSION` | v1.0 | Microsoft Graph API version |
 | `GRAPH_MAX_RETRIES` | 4 | Max retries for Graph API calls |
 | `GRAPH_RETRY_BACKOFF_BASE` | 2 | Exponential backoff base (seconds) |
 | `CONNECTION_TIMEOUT_SECONDS` | 600 | Max wait time for connection creation |

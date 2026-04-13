@@ -27,7 +27,7 @@ def cmd_ingest_object(args) -> None:
     object_type: str = args.type
     label = f"INGEST OBJECT ({object_type})"
 
-    log_file, summary_file = setup_logging("ingest_object", verbose=getattr(args, "verbose", False))
+    log_file, summary_file = setup_logging(f"ingest_object_{object_type}", verbose=getattr(args, "verbose", False))
     logger = logging.getLogger("ingest_object")
     progress = logging.getLogger("progress")
     start_time = time.monotonic()
