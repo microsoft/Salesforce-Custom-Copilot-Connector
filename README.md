@@ -155,7 +155,7 @@ AAD_APP_OAUTH_AUTHORITY_HOST=https://login.microsoftonline.com
 # Set SECRET_AAD_APP_CLIENT_SECRET in env/.env.local.user
 
 # Graph API settings
-GRAPH_API_VERSION=v1.0/beta
+GRAPH_API_VERSION=v1.0 or beta
 GRAPH_MAX_RETRIES=4
 GRAPH_RETRY_BACKOFF_BASE=2
 
