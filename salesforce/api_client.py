@@ -10,6 +10,8 @@ import re
 import threading
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from salesforce.sharing_model import SalesforceConstants
 from item.converter import METADATA_COLUMNS, load_converter_config
@@ -18,6 +20,25 @@ from salesforce.utils import to_iso_z
 
 
 logger = logging.getLogger("salesforce_connector")
+
+
+def _build_sf_session() -> requests.Session:
+    """Create a ``requests.Session`` with connection pooling and retry for Salesforce API calls.
+
+    Reusing a session avoids repeated TCP + TLS handshakes — this alone can
+    cut per-request latency by 50-80 ms on typical Salesforce endpoints.
+    """
+    session = requests.Session()
+    retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
+    adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+# Module-level pooled session — shared across all Salesforce fetch threads.
+# Thread-safe: urllib3 connection pools are internally locked.
+_sf_session = _build_sf_session()
 
 INVALID_FIELD_NAME_PATTERNS = (
     re.compile(r"No such column '([^']+)' on entity", re.IGNORECASE),
@@ -121,7 +142,7 @@ def get_object_counts(
             soql += f" WHERE {' AND '.join(where_clauses)}"
         url = _build_query_url(base_url, api_version, soql)
         try:
-            resp = requests.get(url, headers=headers, timeout=30)
+            resp = _sf_session.get(url, headers=headers, timeout=30)
             if resp.ok:
                 counts[obj_cfg.object_type] = resp.json().get("totalSize", 0)
                 logger.info("COUNT %s: %d records", obj_cfg.object_type, counts[obj_cfg.object_type])
@@ -135,7 +156,7 @@ def get_salesforce_access_token(config: AppConfig) -> str:
     token_url = f"{config.connector.salesforce.instance_url}/services/oauth2/token"
     logger.info("Authenticating with Salesforce at %s", token_url)
 
-    response = requests.post(
+    response = _sf_session.post(
         token_url,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data={
@@ -277,7 +298,7 @@ def fetch_salesforce_records(
         retry_requested = False
 
         while next_url:
-            response = requests.get(next_url, headers=headers, timeout=60)
+            response = _sf_session.get(next_url, headers=headers, timeout=60)
             if not response.ok:
                 error_info = _extract_salesforce_error_info(response)
                 retry_config, removed_fields = _build_retry_object_config(active_config, error_info)

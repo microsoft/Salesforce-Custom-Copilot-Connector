@@ -7,6 +7,9 @@ from urllib.parse import urlencode
 import asyncio
 import logging
 
+import requests
+import requests.adapters
+
 from salesforce.settings import build_owd_field_map, load_schema_config
 from item.converter import load_converter_config
 
@@ -336,6 +339,12 @@ class AsyncSalesforceClient:
         """Initialize with a Salesforce *instance_url* and *api_version*."""
         self.instance_url = instance_url.rstrip("/")
         self.api_version = api_version
+        # Pooled session — reused across all SOQL queries to avoid repeated
+        # TCP + TLS handshakes.  Thread-safe (urllib3 pools are locked internally).
+        self._session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     async def query(self, soql: str, access_token: str) -> dict[str, Any]:
         """Execute a SOQL query against the ``/query`` endpoint."""
@@ -347,15 +356,15 @@ class AsyncSalesforceClient:
 
     def _execute_query(self, soql: str, access_token: str, use_query_all: bool) -> dict[str, Any]:
         """Send a synchronous SOQL request and return the JSON response."""
-        import requests  # Import here to avoid requiring it when just using enums
-        
+        import requests as _requests  # local alias to avoid shadowing the module
+
         endpoint = "queryAll" if use_query_all else "query"
         query_url = (
             f"{self.instance_url}/services/data/{self.api_version}/{endpoint}?"
             f"{urlencode({'q': soql})}"
         )
 
-        response = requests.get(
+        response = self._session.get(
             query_url,
             headers={
                 "accept": "application/json",
@@ -521,11 +530,17 @@ class ClientHelperForIdentitySync:
     ) -> tuple[dict[str, dict[str, User]], dict[str, Group]]:
         """Fetch authorized users (and groups when visibility is ``NONE``) for ACL resolution.
 
+        User batches are fetched **concurrently** via ``asyncio.gather`` to
+        reduce wall-clock time when there are many batches.
+
         Returns:
             A tuple of (per-object user dicts, group dict).
         """
-        authorized_users_for_sf_objects = {salesforce_object_handler.object_name: {}}
-        for child in getattr(salesforce_object_handler, "child_handlers", []):
+        authorized_users_for_sf_objects: dict[str, dict[str, User]] = {
+            salesforce_object_handler.object_name: {}
+        }
+        child_handlers = getattr(salesforce_object_handler, "child_handlers", [])
+        for child in child_handlers:
             authorized_users_for_sf_objects[child.object_name] = {}
 
         distinct_users = list(set(user_ids))
@@ -535,27 +550,35 @@ class ClientHelperForIdentitySync:
             for index in range(0, len(distinct_users), batch_size)
         ]
 
-        for user_batch in user_batches:
-            if not user_batch:
-                continue
-            quoted_user_ids = ", ".join("'" + user_id + "'" for user_id in user_batch)
+        # ── Fetch user batches concurrently ───────────────────────────────
+        async def _fetch_batch(user_batch: list[str]) -> list[tuple[str, list[User]]]:
+            """Fetch users for the parent + children in one batch, return (object_name, users) pairs."""
+            quoted_user_ids = ", ".join("'" + uid + "'" for uid in user_batch)
             filter_str = f"Id in ({quoted_user_ids})"
-            current_batch_users = await self.get_users_for_content_ingestion(
-                salesforce_object_handler.object_name,
-                filter_str,
-            )
 
-            authorized_users = authorized_users_for_sf_objects[salesforce_object_handler.object_name]
-            for user in current_batch_users:
-                user.IsFrozen = user.Id in frozen_users
-                authorized_users[user.Id] = user
+            # Launch parent + child queries concurrently
+            coros = [self.get_users_for_content_ingestion(salesforce_object_handler.object_name, filter_str)]
+            for child in child_handlers:
+                coros.append(self.get_users_for_content_ingestion(child.object_name, filter_str))
 
-            for child in getattr(salesforce_object_handler, "child_handlers", []):
-                child_users = await self.get_users_for_content_ingestion(child.object_name, filter_str)
-                child_authorized = authorized_users_for_sf_objects[child.object_name]
-                for user in child_users:
-                    user.IsFrozen = user.Id in frozen_users
-                    child_authorized[user.Id] = user
+            results = await asyncio.gather(*coros)
+
+            pairs: list[tuple[str, list[User]]] = [
+                (salesforce_object_handler.object_name, results[0])
+            ]
+            for i, child in enumerate(child_handlers):
+                pairs.append((child.object_name, results[i + 1]))
+            return pairs
+
+        non_empty_batches = [b for b in user_batches if b]
+        if non_empty_batches:
+            batch_results = await asyncio.gather(*[_fetch_batch(b) for b in non_empty_batches])
+            for pairs in batch_results:
+                for obj_name, users in pairs:
+                    target = authorized_users_for_sf_objects[obj_name]
+                    for user in users:
+                        user.IsFrozen = user.Id in frozen_users
+                        target[user.Id] = user
 
         sf_groups: dict[str, Group] = {}
         if entity_visibility == EntityVisibility.NONE:

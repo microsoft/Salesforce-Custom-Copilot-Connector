@@ -649,11 +649,19 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
 
     _prev_object_type: str | None = None
 
+    # ── Pipeline: overlap Graph upload of chunk N with ACL resolution of chunk N+1 ──
+    _pipeline_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="graph-upload")
+    _pending_graph_future = None
+
     for object_type, records in _iter_record_chunks(config, since, chunk_size):
         # ── Graceful stop: Ctrl+X exits after the current chunk ───────────
         if dashboard and dashboard.stop_requested:
             logger.info("Stop requested by user (Ctrl+X) — exiting gracefully")
             progress.info("  Stop requested — exiting after current chunk")
+            # Drain any pending upload before exiting
+            if _pending_graph_future is not None:
+                ingested_count += _pending_graph_future.result()
+                _pending_graph_future = None
             del records
             break
 
@@ -739,28 +747,53 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             )
             stats.acl_fallback_used = True
 
-        # ── Transform + ingest this chunk via Graph JSON batching ───────────
+        # ── Wait for the previous chunk's Graph upload (pipeline) ─────────
+        if _pending_graph_future is not None:
+            _prev_submitted = _pending_graph_future.result()
+            ingested_count += _prev_submitted
+            _pending_graph_future = None
+
+        # ── Transform + ingest this chunk via Graph JSON batching (async) ──
         if dashboard:
             dashboard.set_activity(f"[{object_type}] chunk #{chunk_index} -- Pushing to Graph API")
-        submitted = _ingest_chunk_graph_batch(
-            config, client, transformer, records, acl_map_for_chunk, stats, graph_batch_size,
-            dl_path=_dl_path, object_type=object_type, dashboard=dashboard,
-            concurrency=_concurrency,
-        )
-        ingested_count += submitted
 
-        if ingested_count % 25 == 0 or submitted > 0:
+        # Capture references for the closure — records/acl will be replaced next iteration
+        _chunk_records = records
+        _chunk_acl = acl_map_for_chunk
+        _chunk_ot = object_type
+        _chunk_ci = chunk_index
+
+        def _upload_chunk(
+            recs=_chunk_records, acl=_chunk_acl, ot=_chunk_ot, ci=_chunk_ci,
+        ) -> int:
+            submitted = _ingest_chunk_graph_batch(
+                config, client, transformer, recs, acl, stats, graph_batch_size,
+                dl_path=_dl_path, object_type=ot, dashboard=dashboard,
+                concurrency=_concurrency,
+            )
+            # Persist checkpoint so this chunk is not re-processed on crash
+            write_checkpoint(_connector_id, _since_iso, ot, ci)
+            # Release chunk memory
+            acl.clear()
+            return submitted
+
+        _pending_graph_future = _pipeline_pool.submit(_upload_chunk)
+
+        if ingested_count % 25 == 0:
             progress.info(
                 "  Ingested %d items so far (total across all types)...",
                 ingested_count,
             )
 
-        # ── Explicitly release chunk memory ───────────────────────────────
+        # ── Explicitly release chunk reference (data stays alive in the future) ──
         del records
-        acl_map_for_chunk.clear()
+        del acl_map_for_chunk
 
-        # ── Persist checkpoint so this chunk is not re-processed on crash ──
-        write_checkpoint(_connector_id, _since_iso, object_type, chunk_index)
+    # ── Drain the last pending upload ─────────────────────────────────────
+    if _pending_graph_future is not None:
+        ingested_count += _pending_graph_future.result()
+        _pending_graph_future = None
+    _pipeline_pool.shutdown(wait=False)
 
     # Mark the last object type as done
     if dashboard and _prev_object_type:
