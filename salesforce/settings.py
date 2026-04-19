@@ -234,9 +234,9 @@ def load_config() -> AppConfig:
             salesforce_query_limit=int(os.getenv("SALESFORCE_QUERY_LIMIT", "0")),
             salesforce_batch_size=_require_int_env("SALESFORCE_BATCH_SIZE"),
             acl_max_parent_depth=_require_int_env("ACL_MAX_PARENT_DEPTH"),
-            ingest_chunk_size=int(os.getenv("INGEST_CHUNK_SIZE", "500")),  # 500 avoids Graph 429 throttling
+            ingest_chunk_size=int(os.getenv("INGEST_CHUNK_SIZE", "2000")),  # 2000 matches SF page size = 1 page per ingest cycle
             ingest_graph_batch_size=min(int(os.getenv("INGEST_GRAPH_BATCH_SIZE", "20")), 20),
-            graph_concurrent_batches=max(1, int(os.getenv("GRAPH_CONCURRENT_BATCHES", "4"))),
+            graph_concurrent_batches=max(1, int(os.getenv("GRAPH_CONCURRENT_BATCHES", "8"))),
         ),
         connector=ConnectorSettings(
             id=connector_id,
