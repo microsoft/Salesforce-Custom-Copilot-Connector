@@ -1,0 +1,788 @@
+"""
+Item ingestion pipeline — Salesforce → Graph external items.
+
+Orchestrates the full ingestion flow:
+
+1. **Fetch** — queries all Salesforce objects defined in ``config/schema.json``
+   via the Salesforce REST API (supports full and incremental sync).
+2. **ACL resolution** — for each record, resolves the Salesforce sharing model
+   (OWD, roles, groups, territories, sharing rules, parent chains) into
+   Microsoft Graph ACL entries.  Two engines are available:
+   * *Legacy* (``Graph.acl.AclResolver``) — default.
+   * *New* (``acl_engine``) — enabled by setting ``USE_NEW_ACL_ENGINE=true``.
+3. **Transform** — converts each Salesforce record + ACLs into a Graph
+   ``externalItem`` payload using ``SalesforceItemTransformer``.
+4. **Upsert / delete** — PUTs each item into the external connection (or
+   DELETEs it if the transformer marks it as ``deleted``).
+
+Debug modes
+-----------
+``DEBUG_ITEM_ID``
+    Set via the ``single-item`` command.  Restricts ingestion to a single
+    Salesforce record ID.
+``DEBUG_OBJECT_TYPE``
+    Set via the ``single-object`` command.  Restricts ingestion to one
+    Salesforce object type (e.g. ``Case``, ``Account``).
+
+Key functions
+-------------
+ingest_content(config, client, since)
+    Main entry point.  Called by every command that performs ingestion.
+load_content(config, client, item)
+    PUTs a single transformed item into the Graph external connection.
+delete_content(config, client, item_id)
+    DELETEs a single item from the Graph external connection.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Iterator
+from urllib.parse import quote
+import json
+import logging
+import threading
+
+from graph.legacy_acl_resolver import AclResolver as LegacyAclResolver
+from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH, GRAPH_BATCH_MAX_SIZE
+from salesforce.api_client import get_all_items_from_api
+from salesforce.settings import AppConfig
+from salesforce.item_transformer import SalesforceItemTransformer
+from config.sync_state import (
+    append_failed_records,
+    clear_checkpoint,
+    failed_records_path,
+    read_checkpoint,
+    write_checkpoint,
+)
+
+
+@dataclass
+class IngestionStats:
+    """Tracks ingestion outcomes for summary reporting."""
+    total_fetched: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    deleted_count: int = 0
+    skipped_count: int = 0
+    failed_ids: list[str] = field(default_factory=list)
+    object_type_counts: dict[str, int] = field(default_factory=dict)
+    acl_engine: str = "LEGACY"
+    acl_fallback_used: bool = False
+
+logger = logging.getLogger("salesforce_connector")
+
+# Track sample items for detailed logging
+_sample_items_logged_by_type = set()
+_FAILED_IDS_DISPLAY_LIMIT = 100
+
+
+class _AdaptiveConcurrency:
+    """Tracks concurrency level: dials down on 429, dials up on sustained success."""
+
+    def __init__(self, max_workers: int) -> None:
+        self._max = max(1, max_workers)
+        self._current = self._max
+        self._success_streak = 0
+        self._lock = threading.Lock()
+
+    @property
+    def current(self) -> int:
+        return self._current
+
+    def on_success(self) -> None:
+        with self._lock:
+            self._success_streak += 1
+            # Ramp up after 3 consecutive successes (not 10) to recover quickly
+            if self._success_streak >= 3 and self._current < self._max:
+                self._current += 1
+                self._success_streak = 0
+                logger.info("Graph concurrency ramped up to %d", self._current)
+
+    def on_throttle(self) -> None:
+        with self._lock:
+            prev = self._current
+            self._current = max(1, self._current - 1)
+            self._success_streak = 0
+            if self._current != prev:
+                logger.warning("Graph 429 throttling — concurrency reduced to %d", self._current)
+
+
+def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
+    """PUT a single transformed item into the Graph external connection."""
+    item_id = item["id"]
+    payload = {key: value for key, value in item.items() if key != "id"}
+    url = f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items/{quote(item_id, safe='')}"
+
+    # Log sample item request/response for first item of each object type
+    object_type = item.get("properties", {}).get("ObjectName")
+    if object_type and object_type not in _sample_items_logged_by_type:
+        _sample_items_logged_by_type.add(object_type)
+        logger.info("SAMPLE ITEM REQUEST: %s (ID: %s)", object_type, item_id)
+        logger.info("PUT %s", url)
+        logger.info("\nRequest Payload:")
+        logger.info(json.dumps(payload, indent=2))
+    else:
+        logger.debug("ITEM REQUEST: %s | PUT %s", item_id, url)
+        logger.debug(json.dumps(payload, indent=2))
+
+    logger.info("PUT %s", url)
+
+    try:
+        response = client.put(url, json_body=payload, headers={"content-type": "application/json"})
+        
+        # Log response for sample items
+        if object_type and object_type in _sample_items_logged_by_type and len(_sample_items_logged_by_type) <= 6:
+            logger.info("\nResponse:")
+            logger.info(json.dumps(response if response else {"status": "success"}, indent=2))
+            logger.info("=" * 80 + "\n")
+            
+    except GraphApiError as error:
+        logger.error("Failed to load %s: %s", item_id, error)
+        if error.body:
+            logger.error("Graph response: %s", error.body)
+        raise
+
+
+def delete_content(config: AppConfig, client: GraphClient, item_id: str) -> None:
+    """DELETE a single item from the Graph external connection."""
+    url = f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/items/{quote(item_id, safe='')}"
+    logger.info("DELETE %s", url)
+
+    try:
+        client.delete(url)
+    except GraphApiError as error:
+        logger.error("Failed to delete %s: %s", item_id, error)
+        if error.body:
+            logger.error("Graph response: %s", error.body)
+
+
+# ── New ACL engine helper ─────────────────────────────────────────────────────
+
+async def _resolve_acl_new_engine(
+    config: AppConfig,
+    graph_client: GraphClient,
+    records_by_object_type: dict[str, list[dict]],
+    *,
+    resolver=None,
+    mapper=None,
+) -> dict[str, dict[str, list[dict[str, str]]]]:
+    """
+    Resolve ACLs for all records using the new acl_engine pipeline.
+
+    Flow
+    ----
+    1. For each record, call AclResolver.resolve_async(object_type, record_id)
+       concurrently (asyncio.gather per object type).
+    2. Collect the union of all Salesforce User IDs across every record.
+    3. PrincipalMapper bulk-fetches user identity fields (FederationIdentifier /
+       UserName / Email) in a single SOQL per 100 IDs.
+    4. For each record's AclResult, call PrincipalMapper.to_acl_entries() to
+       produce the final Graph-API-ready ACL list.
+
+    When *resolver* and *mapper* are provided they are reused across calls so
+    that the PrincipalMapper's identity cache persists between chunks.
+
+    Returns
+    -------
+    {object_type: {record_id: [acl_entry, ...]}}  – same shape as the legacy
+    AclResolver so the rest of ingest_content is unchanged.
+    """
+    if resolver is None or mapper is None:
+        from acl_engine import AclResolver as NewAclResolver, PrincipalMapper
+        from acl_engine.salesforce_client import SalesforceClient
+        from salesforce.api_client import get_salesforce_access_token
+
+        sf_client = SalesforceClient(
+            instance_url=config.connector.salesforce.instance_url,
+            api_version=config.connector.salesforce.api_version,
+            access_token=get_salesforce_access_token(config),
+        )
+        resolver = NewAclResolver(
+            sf_client,
+            owd_field_map=config.owd_field_map,
+            parent_map=config.parent_map,
+            owd_overrides=config.owd_overrides,
+            max_parent_depth=config.tuning.acl_max_parent_depth,
+        )
+        mapper = PrincipalMapper(
+            sf_client=sf_client,
+            graph_client=graph_client,
+            tenant_id=config.tenant_id,
+            batch_size=config.tuning.salesforce_batch_size,
+        )
+
+    acl_map_by_object: dict[str, dict[str, list[dict[str, str]]]] = {}
+
+    for object_type, records in records_by_object_type.items():
+        logger.info("[NewACL] Resolving %d %s record(s)", len(records), object_type)
+
+        # Resolve all records for this object type concurrently
+        tasks = [
+            resolver.resolve_async(object_type, str(record["Id"]))
+            for record in records
+            if record.get("Id")
+        ]
+        acl_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        object_acl: dict[str, list[dict[str, str]]] = {}
+        for record, acl_result in zip(records, acl_results):
+            record_id = str(record["Id"])
+            if isinstance(acl_result, Exception):
+                logger.error(
+                    "[NewACL] resolve_async failed for %s/%s: %s – using public ACL",
+                    object_type, record_id, acl_result,
+                )
+                object_acl[record_id] = _public_acl_entry(config.tenant_id)
+                continue
+
+            acl_entries = await mapper.to_acl_entries(acl_result)
+            object_acl[record_id] = acl_entries
+
+        # Free the raw ACL result objects — only the mapped entries are needed downstream
+        acl_results.clear()
+
+        acl_map_by_object[object_type] = object_acl
+        logger.info("[NewACL] %s: resolved %d ACL(s)", object_type, len(object_acl))
+
+    return acl_map_by_object
+
+
+def _public_acl_entry(tenant_id: str) -> list[dict[str, str]]:
+    """Return a public ACL entry granting access to everyone in the tenant."""
+    return [{"accessType": "grant", "type": "everyone", "value": tenant_id}]
+
+
+def _iter_record_chunks(
+    config: AppConfig,
+    since: datetime | None,
+    chunk_size: int,
+) -> Iterator[tuple[str, list[dict]]]:
+    """
+    Yield ``(object_type, chunk)`` tuples where *chunk* is at most *chunk_size*
+    records of the same object type.
+
+    Records stream directly from the Salesforce API page-by-page.  Only a
+    single chunk is buffered at a time — peak RAM is therefore
+    ``chunk_size × avg_record_size`` rather than
+    ``total_records × avg_record_size``.
+
+    Object-type filtering (``DEBUG_OBJECT_TYPE``) is handled upstream in
+    ``get_all_items_from_api`` — only the matching thread is started so no
+    wasted Salesforce API calls occur here.
+
+    ``DEBUG_ITEM_ID`` filtering is applied here because all object threads must
+    run (we don't know which object owns the ID) and we need to drop every
+    non-matching record before it enters the ingest pipeline.
+    """
+    DEBUG_ITEM_ID = config.debug_item_id
+
+    current_type: str | None = None
+    buffer: list[dict] = []
+
+    for record in get_all_items_from_api(config, since):
+        object_type = record.get("objectType", "")
+
+        # When the object type changes, flush whatever is in the buffer
+        if object_type != current_type:
+            if buffer and current_type:
+                yield current_type, buffer
+            current_type = object_type
+            buffer = []
+
+        # DEBUG: skip individual records that don't match the requested ID
+        if DEBUG_ITEM_ID and record.get("Id") != DEBUG_ITEM_ID:
+            continue
+
+        buffer.append(record)
+
+        # Flush whenever the chunk is full — this is the key memory-saving step
+        if len(buffer) >= chunk_size:
+            yield current_type, buffer  # type: ignore[arg-type]
+            buffer = []
+
+    # Flush the final partial chunk
+    if buffer and current_type:
+        yield current_type, buffer
+
+
+def _ingest_chunk_graph_batch(
+    config: AppConfig,
+    client: GraphClient,
+    transformer: "SalesforceItemTransformer",
+    records: list[dict],
+    acl_map: dict[str, list[dict[str, str]]],
+    stats: "IngestionStats",
+    batch_size: int,
+    *,
+    dl_path=None,
+    object_type: str = "",
+    dashboard=None,
+    concurrency: "_AdaptiveConcurrency | None" = None,
+) -> int:
+    """
+    Transform *records* and push them to Graph using JSON batching.
+
+    Sub-batches (max 20 items each) are sent **concurrently** using a
+    ``ThreadPoolExecutor``.  The concurrency level is controlled by
+    *concurrency* (``_AdaptiveConcurrency``): on 429 throttling it dials
+    down; on sustained success it dials back up.
+
+    Returns the total number of items submitted (success + failure).
+    """
+    # 1. Transform all records into Graph external-item payloads
+    items_to_process: list[dict] = []
+    for record in records:
+        item_id = record["Id"]
+        acl = acl_map.get(item_id)
+        if acl is None:
+            logger.warning(
+                "No ACL found for item %s (%s) — using fallback ACL",
+                item_id, record.get("objectType"),
+            )
+        for transformed in transformer.transform_record(record, acl):
+            items_to_process.append(transformed)
+
+    if not items_to_process:
+        return 0
+
+    effective_batch = min(batch_size, GRAPH_BATCH_MAX_SIZE)
+    max_workers = concurrency.current if concurrency else 1
+
+    # 2. Build all sub-batch payloads up front
+    sub_batches: list[tuple[list[dict], list[dict]]] = []  # (items, requests_payload)
+    for start in range(0, len(items_to_process), effective_batch):
+        batch_items = items_to_process[start : start + effective_batch]
+        payload: list[dict] = []
+        for idx, item in enumerate(batch_items):
+            item_url = (
+                f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}"
+                f"/items/{quote(item['id'], safe='')}"
+            )
+            if item.get("type") == "deleted":
+                payload.append({"id": str(idx), "method": "DELETE", "url": item_url})
+            else:
+                body = {k: v for k, v in item.items() if k != "id"}
+                payload.append({
+                    "id": str(idx), "method": "PUT", "url": item_url,
+                    "headers": {"Content-Type": "application/json"}, "body": body,
+                })
+        sub_batches.append((batch_items, payload))
+
+    # 3. Send sub-batches concurrently with adaptive throttling
+    submitted = 0
+    stats_lock = threading.Lock()
+
+    _MAX_ITEM_RETRIES = config.tuning.graph_max_retries
+    _BACKOFF_BASE = config.tuning.graph_retry_backoff_base
+
+    def _extract_error(status: int, resp: dict) -> str:
+        body = resp.get("body", {})
+        if isinstance(body, dict):
+            err_obj = body.get("error", {})
+            err_msg = err_obj.get("message", "") if isinstance(err_obj, dict) else str(body)
+            err_code = err_obj.get("code", "") if isinstance(err_obj, dict) else ""
+            return f"[Graph] HTTP {status}: {err_code} -- {err_msg}".rstrip(" -")
+        return f"[Graph] HTTP {status}: {body}"
+
+    def _send_one(batch_items: list[dict], payload: list[dict]) -> None:
+        nonlocal submitted
+        # Items and payload may shrink on retry (only 429s are re-sent)
+        cur_items = list(batch_items)
+        cur_payload = list(payload)
+        total_ok = 0
+        all_failed: list[tuple[str, str]] = []
+        saw_throttle = False
+
+        for attempt in range(_MAX_ITEM_RETRIES + 1):
+            if attempt > 0:
+                wait = _BACKOFF_BASE * (2 ** (attempt - 1))
+                retry_after = None
+                # Use Retry-After from first 429 response if available
+                for r in responses:
+                    if r.get("status") == 429:
+                        headers = r.get("headers", {})
+                        if isinstance(headers, dict):
+                            retry_after = headers.get("Retry-After") or headers.get("retry-after")
+                        break
+                if retry_after:
+                    try:
+                        wait = max(wait, float(retry_after))
+                    except (ValueError, TypeError):
+                        pass
+                logger.warning(
+                    "Retrying %d throttled items in %.0fs (attempt %d/%d)",
+                    len(cur_items), wait, attempt, _MAX_ITEM_RETRIES,
+                )
+                import time as _time
+                _time.sleep(wait)
+
+            try:
+                responses = client.batch_requests(cur_payload)
+            except Exception as exc:
+                logger.error("Graph $batch call failed for %d items: %s", len(cur_items), exc)
+                failed_ids: list[str] = []
+                with stats_lock:
+                    for item in cur_items:
+                        stats.failed_count += 1
+                        fid = item.get("id", "unknown")
+                        failed_ids.append(fid)
+                        if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                            stats.failed_ids.append(fid)
+                    submitted += len(cur_items)
+                if dl_path:
+                    append_failed_records(dl_path, failed_ids, object_type, f"[Graph] $batch POST failed: {exc}")
+                if dashboard:
+                    dashboard.chunk_ingested(object_type, total_ok, len(failed_ids) + len(all_failed))
+                return
+
+            # Sort responses into ok / retry (429) / permanent failure
+            ok_this_round = 0
+            retry_items: list[dict] = []
+            retry_payload: list[dict] = []
+            id_to_item = {str(j): item for j, item in enumerate(cur_items)}
+            id_to_req = {str(j): req for j, req in enumerate(cur_payload)}
+
+            with stats_lock:
+                for resp in responses:
+                    idx_str = str(resp.get("id", ""))
+                    item = id_to_item.get(idx_str)
+                    status = resp.get("status", 0)
+                    if item is None:
+                        continue
+
+                    if 200 <= status < 300:
+                        if item.get("type") == "deleted":
+                            stats.deleted_count += 1
+                        else:
+                            stats.success_count += 1
+                        ok_this_round += 1
+
+                    elif status == 429:
+                        saw_throttle = True
+                        # Queue for retry — don't count as failed yet
+                        retry_items.append(item)
+                        req = id_to_req.get(idx_str)
+                        if req:
+                            retry_payload.append(req)
+
+                    else:
+                        # Permanent failure
+                        stats.failed_count += 1
+                        fid = item.get("id", "unknown")
+                        detail = _extract_error(status, resp)
+                        all_failed.append((fid, detail))
+                        if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                            stats.failed_ids.append(fid)
+                        logger.error("Graph batch item %s failed — %s", fid, detail)
+
+            total_ok += ok_this_round
+
+            if not retry_items:
+                break  # No 429s — done
+
+            # Renumber payload IDs for the retry batch
+            for new_idx, req in enumerate(retry_payload):
+                req["id"] = str(new_idx)
+            cur_items = retry_items
+            cur_payload = retry_payload
+
+        else:
+            # Exhausted all retries — mark remaining 429s as permanent failures
+            with stats_lock:
+                for item in cur_items:
+                    stats.failed_count += 1
+                    fid = item.get("id", "unknown")
+                    all_failed.append((fid, "[Graph] HTTP 429: throttled after all retries"))
+                    if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                        stats.failed_ids.append(fid)
+                    logger.error("Graph batch item %s failed — 429 after %d retries", fid, _MAX_ITEM_RETRIES)
+
+        with stats_lock:
+            submitted += len(batch_items)
+
+        if all_failed and dl_path:
+            append_failed_records(dl_path, all_failed, object_type)
+        if dashboard:
+            dashboard.chunk_ingested(object_type, total_ok, len(all_failed))
+            for fid, detail in all_failed:
+                dashboard.add_error(f"{object_type}/{fid} -- {detail}")
+
+        # Adaptive concurrency feedback
+        if concurrency:
+            if saw_throttle:
+                concurrency.on_throttle()
+            else:
+                concurrency.on_success()
+
+    # Dispatch sub-batches with adaptive parallelism
+    i = 0
+    while i < len(sub_batches):
+        workers = concurrency.current if concurrency else 1
+        window = sub_batches[i : i + workers]
+        if workers <= 1:
+            for batch_items, payload in window:
+                _send_one(batch_items, payload)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_send_one, bi, pl) for bi, pl in window]
+                for f in as_completed(futures):
+                    f.result()  # propagate exceptions
+        i += len(window)
+
+    items_to_process.clear()
+    return submitted
+
+
+def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None, dashboard=None) -> IngestionStats:
+    """
+    Ingest content from Salesforce.
+
+    Args:
+        config: Application configuration
+        client: Graph API client
+        since: Timestamp for incremental sync (None for full sync)
+
+    Returns:
+        IngestionStats with success/fail/delete counts and failed item IDs.
+
+    Memory strategy
+    ---------------
+    Records are processed **one object type at a time**.  Only the records for
+    the current object type are held in RAM; once they have been ACL-resolved
+    and ingested the buffer is released before the next object type is fetched.
+    This keeps peak memory proportional to the largest single Salesforce object
+    type rather than the sum of all objects.
+    """
+    stats = IngestionStats()
+    progress = logging.getLogger("progress")
+    logger.info("Starting ingestion process...")
+
+    if since:
+        logger.info("Incremental sync from: %s", since.isoformat())
+    else:
+        logger.info("Full sync (all items)")
+
+    _USE_NEW_ACL_ENGINE: bool = config.use_new_acl_engine
+    stats.acl_engine = "NEW (acl_engine)" if _USE_NEW_ACL_ENGINE else "LEGACY"
+
+    chunk_size = config.tuning.ingest_chunk_size
+    graph_batch_size = config.tuning.ingest_graph_batch_size
+    _concurrency = _AdaptiveConcurrency(config.tuning.graph_concurrent_batches)
+    logger.info(
+        "Batching config — chunk_size=%d, graph_batch_size=%d (max 20 per $batch), "
+        "concurrent_batches=%d, acl_engine=%s",
+        chunk_size, graph_batch_size, _concurrency.current, stats.acl_engine,
+    )
+
+    transformer = SalesforceItemTransformer(
+        config.connector.salesforce.instance_url,
+        config.connector.schema,
+        tenant_id=config.tenant_id,
+    )
+
+    # ── New ACL engine: initialise once so identity caches persist across chunks ──
+    _new_acl_resolver = None
+    _new_acl_mapper = None
+    if _USE_NEW_ACL_ENGINE:
+        from acl_engine import AclResolver as NewAclResolver, PrincipalMapper
+        from acl_engine.salesforce_client import SalesforceClient
+        from salesforce.api_client import get_salesforce_access_token
+
+        _acl_sf_client = SalesforceClient(
+            instance_url=config.connector.salesforce.instance_url,
+            api_version=config.connector.salesforce.api_version,
+            access_token=get_salesforce_access_token(config),
+        )
+        _new_acl_resolver = NewAclResolver(
+            _acl_sf_client,
+            owd_field_map=config.owd_field_map,
+            parent_map=config.parent_map,
+            owd_overrides=config.owd_overrides,
+            max_parent_depth=config.tuning.acl_max_parent_depth,
+        )
+        _new_acl_mapper = PrincipalMapper(
+            sf_client=_acl_sf_client,
+            graph_client=client,
+            tenant_id=config.tenant_id,
+            batch_size=config.tuning.salesforce_batch_size,
+        )
+        logger.info("New ACL engine initialised (identity cache persists across chunks)")
+
+    # Legacy resolver is stateful across object types — initialise once.
+    legacy_resolver = (
+        None
+        if _USE_NEW_ACL_ENGINE
+        else LegacyAclResolver(config, transformer.handlers, graph_client=client)
+    )
+
+    # ── Checkpointing & dead-letter setup ─────────────────────────────────────
+    _connector_id = config.connector.id
+    _since_iso = since.isoformat() if since else None
+    _checkpoint = read_checkpoint(_connector_id)
+    if _checkpoint and _checkpoint.get("since") == _since_iso:
+        logger.info("Checkpoint found — resuming from: %s", _checkpoint["completed"])
+    else:
+        _checkpoint = None
+    _dl_path = failed_records_path(_connector_id)
+
+    ingested_count = 0
+    any_records_seen = False
+    chunk_index_by_type: dict[str, int] = {}
+
+    # Pre-populate dashboard with known object types and record counts
+    if dashboard:
+        from salesforce.api_client import OBJECT_CONFIGS, get_object_counts
+        obj_types = (
+            [config.debug_object_type]
+            if config.debug_object_type
+            else [c.object_type for c in OBJECT_CONFIGS]
+        )
+        dashboard.set_object_types(obj_types)
+        dashboard.set_activity("Querying Salesforce record counts...")
+        total_counts = get_object_counts(config, since)
+        dashboard.set_total_counts(total_counts)
+        logger.info("Record counts: %s (total: %d)", total_counts, sum(total_counts.values()))
+
+    _prev_object_type: str | None = None
+
+    for object_type, records in _iter_record_chunks(config, since, chunk_size):
+        # ── Graceful stop: Ctrl+X exits after the current chunk ───────────
+        if dashboard and dashboard.stop_requested:
+            logger.info("Stop requested by user (Ctrl+X) — exiting gracefully")
+            progress.info("  Stop requested — exiting after current chunk")
+            del records
+            break
+
+        any_records_seen = True
+
+        # Mark previous object type as done when the type changes
+        if dashboard and object_type != _prev_object_type and _prev_object_type is not None:
+            dashboard.object_done(_prev_object_type)
+        _prev_object_type = object_type
+
+        chunk_index = chunk_index_by_type.get(object_type, 0) + 1
+        chunk_index_by_type[object_type] = chunk_index
+        batch_size = len(records)
+        stats.total_fetched += batch_size
+        stats.object_type_counts[object_type] = (
+            stats.object_type_counts.get(object_type, 0) + batch_size
+        )
+
+        logger.info(
+            "\n" + "=" * 70 + "\nSALESFORCE CHUNK: %s chunk #%d (%d records)\n" + "=" * 70,
+            object_type, chunk_index, batch_size,
+        )
+        progress.info(
+            "  [%s] chunk #%d — fetched %d record(s)",
+            object_type, chunk_index, batch_size,
+        )
+        if dashboard:
+            dashboard.chunk_fetched(object_type, chunk_index, batch_size)
+
+        # ── Checkpointing: skip already-completed chunks on resume ────────
+        if _checkpoint:
+            completed_up_to = _checkpoint["completed"].get(object_type, 0)
+            if chunk_index <= completed_up_to:
+                logger.info("Skipping %s chunk #%d (already checkpointed)", object_type, chunk_index)
+                stats.skipped_count += batch_size
+                if dashboard:
+                    dashboard.chunk_skipped(object_type, batch_size)
+                del records
+                continue
+
+        if records:
+            sample = records[0]
+            logger.info("Sample record ID: %s", sample.get("Id", "Unknown"))
+            logger.debug("Sample record payload:\n%s", json.dumps(sample, indent=2))
+
+        # ── ACL resolution for this chunk ─────────────────────────────────
+        acl_map_for_chunk: dict[str, list[dict[str, str]]] = {}
+        try:
+            logger.info(
+                "Resolving ACLs for %d %s record(s) (chunk #%d) using %s engine",
+                batch_size, object_type, chunk_index, stats.acl_engine,
+            )
+            progress.info("  Resolving ACLs for %s chunk #%d...", object_type, chunk_index)
+            if dashboard:
+                dashboard.acl_started(object_type, chunk_index, batch_size)
+            if _USE_NEW_ACL_ENGINE:
+                acl_map_by_object = asyncio.run(
+                    _resolve_acl_new_engine(
+                        config, client, {object_type: records},
+                        resolver=_new_acl_resolver, mapper=_new_acl_mapper,
+                    )
+                )
+                acl_map_for_chunk = acl_map_by_object.get(object_type, {})
+                acl_map_by_object.clear()  # free the wrapper dict immediately
+            else:
+                acl_map_by_object = legacy_resolver.resolve({object_type: records})  # type: ignore[union-attr]
+                acl_map_for_chunk = acl_map_by_object.get(object_type, {})
+                acl_map_by_object.clear()  # free the wrapper dict immediately
+            logger.info(
+                "ACL resolution complete for %s chunk #%d: %d entries",
+                object_type, chunk_index, len(acl_map_for_chunk),
+            )
+            progress.info("  ACL resolution complete for %s chunk #%d", object_type, chunk_index)
+        except Exception as error:  # pragma: no cover
+            logger.exception(
+                "❌ CRITICAL: ACL resolution failed for %s chunk #%d, "
+                "falling back to public ACLs: %s",
+                object_type, chunk_index, error,
+            )
+            logger.error(
+                "⚠️ %s CHUNK #%d WILL HAVE PUBLIC ACCESS DUE TO ACL FAILURE",
+                object_type, chunk_index,
+            )
+            stats.acl_fallback_used = True
+
+        # ── Transform + ingest this chunk via Graph JSON batching ───────────
+        if dashboard:
+            dashboard.set_activity(f"[{object_type}] chunk #{chunk_index} -- Pushing to Graph API")
+        submitted = _ingest_chunk_graph_batch(
+            config, client, transformer, records, acl_map_for_chunk, stats, graph_batch_size,
+            dl_path=_dl_path, object_type=object_type, dashboard=dashboard,
+            concurrency=_concurrency,
+        )
+        ingested_count += submitted
+
+        if ingested_count % 25 == 0 or submitted > 0:
+            progress.info(
+                "  Ingested %d items so far (total across all types)...",
+                ingested_count,
+            )
+
+        # ── Explicitly release chunk memory ───────────────────────────────
+        del records
+        acl_map_for_chunk.clear()
+
+        # ── Persist checkpoint so this chunk is not re-processed on crash ──
+        write_checkpoint(_connector_id, _since_iso, object_type, chunk_index)
+
+    # Mark the last object type as done
+    if dashboard and _prev_object_type:
+        dashboard.object_done(_prev_object_type)
+        dashboard.finish()
+
+    if not any_records_seen:
+        logger.info("No items returned from Salesforce")
+
+    progress.info(
+        "  Ingestion complete: %d succeeded, %d failed, %d deleted",
+        stats.success_count, stats.failed_count, stats.deleted_count,
+    )
+    logger.info("Ingestion complete. Total items ingested: %d", ingested_count)
+
+    # Only clear checkpoint if the run completed fully (not stopped by Ctrl+X).
+    # On Ctrl+X the checkpoint stays so the next run resumes where we left off.
+    _was_stopped = dashboard and dashboard.stop_requested
+    if not _was_stopped:
+        clear_checkpoint(_connector_id)
+    if stats.failed_count and _dl_path.exists():
+        logger.info("Failed items written to dead-letter file: %s", _dl_path)
+
+    return stats
+

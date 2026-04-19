@@ -1,0 +1,1 @@
+"""Connector-level automated tests and reusable mock data."""
