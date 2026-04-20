@@ -48,7 +48,7 @@ import threading
 
 from graph.legacy_acl_resolver import AclResolver as LegacyAclResolver
 from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH, GRAPH_BATCH_MAX_SIZE
-from salesforce.api_client import get_all_items_from_api
+from salesforce.api_client import get_all_items_from_api, iter_object_chunks, get_object_config, OBJECT_CONFIGS
 from salesforce.settings import AppConfig
 from salesforce.item_transformer import SalesforceItemTransformer
 from config.sync_state import (
@@ -322,6 +322,7 @@ def _ingest_chunk_graph_batch(
     object_type: str = "",
     dashboard=None,
     concurrency: "_AdaptiveConcurrency | None" = None,
+    stats_lock: threading.Lock | None = None,
 ) -> int:
     """
     Transform *records* and push them to Graph using JSON batching.
@@ -374,7 +375,8 @@ def _ingest_chunk_graph_batch(
 
     # 3. Send sub-batches concurrently with adaptive throttling
     submitted = 0
-    stats_lock = threading.Lock()
+    if stats_lock is None:
+        stats_lock = threading.Lock()
 
     _MAX_ITEM_RETRIES = config.tuning.graph_max_retries
     _BACKOFF_BASE = config.tuning.graph_retry_backoff_base
@@ -537,27 +539,188 @@ def _ingest_chunk_graph_batch(
     return submitted
 
 
+def _ingest_single_object_type(
+    object_type: str,
+    config: AppConfig,
+    client: GraphClient,
+    transformer: SalesforceItemTransformer,
+    legacy_resolver: LegacyAclResolver | None,
+    new_acl_resolver,
+    new_acl_mapper,
+    stats: IngestionStats,
+    concurrency: _AdaptiveConcurrency,
+    since: datetime | None,
+    checkpoint: dict | None,
+    since_iso: str | None,
+    dl_path,
+    dashboard,
+    stats_lock: threading.Lock,
+) -> int:
+    """Ingest all chunks for a single Salesforce object type.
+
+    Designed to run inside a ``ThreadPoolExecutor`` so multiple object
+    types can be ingested in parallel.  All shared state (``stats``,
+    ``concurrency``, ``dashboard``) is thread-safe.
+
+    Returns the number of items submitted to the Graph API.
+    """
+    progress = logging.getLogger("progress")
+    _USE_NEW_ACL_ENGINE = config.use_new_acl_engine
+    chunk_size = config.tuning.ingest_chunk_size
+    graph_batch_size = config.tuning.ingest_graph_batch_size
+    _connector_id = config.connector.id
+
+    obj_config = get_object_config(object_type)
+    if obj_config is None:
+        logger.warning("No config found for object type '%s' — skipping", object_type)
+        return 0
+
+    ingested_count = 0
+    chunk_index = 0
+    _debug_item_id = config.debug_item_id
+
+    # Pipeline: overlap Graph upload of chunk N with ACL resolution of chunk N+1
+    _pipeline_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"graph-{object_type}")
+    _pending_graph_future = None
+
+    try:
+        for records in iter_object_chunks(config, obj_config, since, chunk_size):
+            # ── Debug: single item filter ─────────────────────────────────
+            if _debug_item_id:
+                records = [r for r in records if r.get("Id") == _debug_item_id]
+                if not records:
+                    continue
+
+            # ── Graceful stop ─────────────────────────────────────────────
+            if dashboard and dashboard.stop_requested:
+                if _pending_graph_future is not None:
+                    ingested_count += _pending_graph_future.result()
+                    _pending_graph_future = None
+                break
+
+            chunk_index += 1
+            batch_size = len(records)
+            with stats_lock:
+                stats.total_fetched += batch_size
+                stats.object_type_counts[object_type] = (
+                    stats.object_type_counts.get(object_type, 0) + batch_size
+                )
+
+            logger.info(
+                "\n" + "=" * 70 + "\nSALESFORCE CHUNK: %s chunk #%d (%d records)\n" + "=" * 70,
+                object_type, chunk_index, batch_size,
+            )
+            progress.info(
+                "  [%s] chunk #%d — fetched %d record(s)",
+                object_type, chunk_index, batch_size,
+            )
+            if dashboard:
+                dashboard.chunk_fetched(object_type, chunk_index, batch_size)
+
+            # ── Checkpoint: skip already-completed chunks ─────────────────
+            if checkpoint:
+                completed_up_to = checkpoint["completed"].get(object_type, 0)
+                if chunk_index <= completed_up_to:
+                    logger.info("Skipping %s chunk #%d (already checkpointed)", object_type, chunk_index)
+                    with stats_lock:
+                        stats.skipped_count += batch_size
+                    if dashboard:
+                        dashboard.chunk_skipped(object_type, batch_size)
+                    del records
+                    continue
+
+            # ── ACL resolution for this chunk ─────────────────────────────
+            acl_map_for_chunk: dict[str, list[dict[str, str]]] = {}
+            try:
+                logger.info(
+                    "Resolving ACLs for %d %s record(s) (chunk #%d)",
+                    batch_size, object_type, chunk_index,
+                )
+                if dashboard:
+                    dashboard.acl_started(object_type, chunk_index, batch_size)
+                if _USE_NEW_ACL_ENGINE:
+                    acl_map_by_object = asyncio.run(
+                        _resolve_acl_new_engine(
+                            config, client, {object_type: records},
+                            resolver=new_acl_resolver, mapper=new_acl_mapper,
+                        )
+                    )
+                    acl_map_for_chunk = acl_map_by_object.get(object_type, {})
+                    acl_map_by_object.clear()
+                else:
+                    acl_map_by_object = legacy_resolver.resolve({object_type: records})  # type: ignore[union-attr]
+                    acl_map_for_chunk = acl_map_by_object.get(object_type, {})
+                    acl_map_by_object.clear()
+                logger.info(
+                    "ACL resolution complete for %s chunk #%d: %d entries",
+                    object_type, chunk_index, len(acl_map_for_chunk),
+                )
+            except Exception as error:
+                logger.exception(
+                    "ACL resolution failed for %s chunk #%d, falling back to public ACLs: %s",
+                    object_type, chunk_index, error,
+                )
+                with stats_lock:
+                    stats.acl_fallback_used = True
+
+            # ── Wait for previous chunk's Graph upload (pipeline) ─────────
+            if _pending_graph_future is not None:
+                ingested_count += _pending_graph_future.result()
+                _pending_graph_future = None
+
+            # ── Transform + push this chunk via Graph JSON batching ───────
+            if dashboard:
+                dashboard.set_activity(f"[{object_type}] chunk #{chunk_index} -- Pushing to Graph API")
+
+            _chunk_records = records
+            _chunk_acl = acl_map_for_chunk
+            _chunk_ot = object_type
+            _chunk_ci = chunk_index
+
+            def _upload_chunk(
+                recs=_chunk_records, acl=_chunk_acl, ot=_chunk_ot, ci=_chunk_ci,
+            ) -> int:
+                submitted = _ingest_chunk_graph_batch(
+                    config, client, transformer, recs, acl, stats, graph_batch_size,
+                    dl_path=dl_path, object_type=ot, dashboard=dashboard,
+                    concurrency=concurrency, stats_lock=stats_lock,
+                )
+                write_checkpoint(_connector_id, since_iso, ot, ci)
+                acl.clear()
+                return submitted
+
+            _pending_graph_future = _pipeline_pool.submit(_upload_chunk)
+            del records
+            del acl_map_for_chunk
+
+        # ── Drain last pending upload ─────────────────────────────────────
+        if _pending_graph_future is not None:
+            ingested_count += _pending_graph_future.result()
+            _pending_graph_future = None
+    finally:
+        _pipeline_pool.shutdown(wait=True)
+
+    if dashboard:
+        dashboard.object_done(object_type)
+
+    logger.info("[%s] Object ingestion complete — %d items submitted", object_type, ingested_count)
+    return ingested_count
+
+
 def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None, dashboard=None) -> IngestionStats:
     """
-    Ingest content from Salesforce.
+    Ingest content from Salesforce — **parallel by object type**.
 
-    Args:
-        config: Application configuration
-        client: Graph API client
-        since: Timestamp for incremental sync (None for full sync)
+    Each Salesforce object type (User, Account, Contact, …) is ingested by
+    an independent worker thread.  Workers share the Graph API concurrency
+    budget (``_AdaptiveConcurrency``), the ACL resolver caches, and the
+    dashboard.
 
-    Returns:
-        IngestionStats with success/fail/delete counts and failed item IDs.
-
-    Memory strategy
-    ---------------
-    Records are processed **one object type at a time**.  Only the records for
-    the current object type are held in RAM; once they have been ACL-resolved
-    and ingested the buffer is released before the next object type is fetched.
-    This keeps peak memory proportional to the largest single Salesforce object
-    type rather than the sum of all objects.
+    The number of concurrent object workers is controlled by the
+    ``PARALLEL_OBJECT_WORKERS`` environment variable (default 3).
     """
     stats = IngestionStats()
+    stats_lock = threading.Lock()
     progress = logging.getLogger("progress")
     logger.info("Starting ingestion process...")
 
@@ -571,11 +734,12 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
 
     chunk_size = config.tuning.ingest_chunk_size
     graph_batch_size = config.tuning.ingest_graph_batch_size
+    max_workers = config.tuning.parallel_object_workers
     _concurrency = _AdaptiveConcurrency(config.tuning.graph_concurrent_batches)
     logger.info(
         "Batching config — chunk_size=%d, graph_batch_size=%d (max 20 per $batch), "
-        "concurrent_batches=%d, acl_engine=%s",
-        chunk_size, graph_batch_size, _concurrency.current, stats.acl_engine,
+        "concurrent_batches=%d, parallel_objects=%d, acl_engine=%s",
+        chunk_size, graph_batch_size, _concurrency.current, max_workers, stats.acl_engine,
     )
 
     transformer = SalesforceItemTransformer(
@@ -584,7 +748,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         tenant_id=config.tenant_id,
     )
 
-    # ── New ACL engine: initialise once so identity caches persist across chunks ──
+    # ── New ACL engine: initialise once ──────────────────────────────────────
     _new_acl_resolver = None
     _new_acl_mapper = None
     if _USE_NEW_ACL_ENGINE:
@@ -612,14 +776,19 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         )
         logger.info("New ACL engine initialised (identity cache persists across chunks)")
 
-    # Legacy resolver is stateful across object types — initialise once.
+    # Legacy resolver — initialise once and pre-warm caches before workers start
     legacy_resolver = (
         None
         if _USE_NEW_ACL_ENGINE
         else LegacyAclResolver(config, transformer.handlers, graph_client=client)
     )
+    if legacy_resolver:
+        logger.info("Pre-warming ACL caches before starting parallel object workers...")
+        _pw = legacy_resolver.prewarm_caches()
+        if asyncio.iscoroutine(_pw):
+            asyncio.run(_pw)
 
-    # ── Checkpointing & dead-letter setup ─────────────────────────────────────
+    # ── Checkpointing & dead-letter setup ────────────────────────────────────
     _connector_id = config.connector.id
     _since_iso = since.isoformat() if since else None
     _checkpoint = read_checkpoint(_connector_id)
@@ -629,188 +798,76 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         _checkpoint = None
     _dl_path = failed_records_path(_connector_id)
 
-    ingested_count = 0
-    any_records_seen = False
-    chunk_index_by_type: dict[str, int] = {}
+    # ── Determine active object types ────────────────────────────────────────
+    if config.debug_object_type:
+        active_types = [config.debug_object_type]
+    else:
+        active_types = [c.object_type for c in OBJECT_CONFIGS]
 
     # Pre-populate dashboard with known object types and record counts
     if dashboard:
-        from salesforce.api_client import OBJECT_CONFIGS, get_object_counts
-        obj_types = (
-            [config.debug_object_type]
-            if config.debug_object_type
-            else [c.object_type for c in OBJECT_CONFIGS]
-        )
-        dashboard.set_object_types(obj_types)
+        dashboard.set_object_types(active_types)
         dashboard.set_activity("Querying Salesforce record counts...")
+        from salesforce.api_client import get_object_counts
         total_counts = get_object_counts(config, since)
         dashboard.set_total_counts(total_counts)
         logger.info("Record counts: %s (total: %d)", total_counts, sum(total_counts.values()))
 
-    _prev_object_type: str | None = None
+    # ── Launch parallel object workers ───────────────────────────────────────
+    effective_workers = min(max_workers, len(active_types))
+    logger.info(
+        "Launching %d parallel object worker(s) for %d object type(s): %s",
+        effective_workers, len(active_types), ", ".join(active_types),
+    )
+    progress.info(
+        "  Ingesting %d object types in parallel (%d workers)",
+        len(active_types), effective_workers,
+    )
 
-    # ── Pipeline: overlap Graph upload of chunk N with ACL resolution of chunk N+1 ──
-    _pipeline_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="graph-upload")
-    _pending_graph_future = None
+    total_ingested = 0
 
-    for object_type, records in _iter_record_chunks(config, since, chunk_size):
-        # ── Graceful stop: Ctrl+X exits after the current chunk ───────────
-        if dashboard and dashboard.stop_requested:
-            logger.info("Stop requested by user (Ctrl+X) — exiting gracefully")
-            progress.info("  Stop requested — exiting after current chunk")
-            # Drain any pending upload before exiting
-            if _pending_graph_future is not None:
-                ingested_count += _pending_graph_future.result()
-                _pending_graph_future = None
-            del records
-            break
+    with ThreadPoolExecutor(max_workers=effective_workers, thread_name_prefix="obj-ingest") as pool:
+        futures = {
+            pool.submit(
+                _ingest_single_object_type,
+                obj_type,
+                config,
+                client,
+                transformer,
+                legacy_resolver,
+                _new_acl_resolver,
+                _new_acl_mapper,
+                stats,
+                _concurrency,
+                since,
+                _checkpoint,
+                _since_iso,
+                _dl_path,
+                dashboard,
+                stats_lock,
+            ): obj_type
+            for obj_type in active_types
+        }
 
-        any_records_seen = True
+        for future in as_completed(futures):
+            obj_type = futures[future]
+            try:
+                count = future.result()
+                total_ingested += count
+                logger.info("[%s] completed — %d items", obj_type, count)
+            except Exception:
+                logger.exception("[%s] worker failed with an exception", obj_type)
 
-        # Mark previous object type as done when the type changes
-        if dashboard and object_type != _prev_object_type and _prev_object_type is not None:
-            dashboard.object_done(_prev_object_type)
-        _prev_object_type = object_type
-
-        chunk_index = chunk_index_by_type.get(object_type, 0) + 1
-        chunk_index_by_type[object_type] = chunk_index
-        batch_size = len(records)
-        stats.total_fetched += batch_size
-        stats.object_type_counts[object_type] = (
-            stats.object_type_counts.get(object_type, 0) + batch_size
-        )
-
-        logger.info(
-            "\n" + "=" * 70 + "\nSALESFORCE CHUNK: %s chunk #%d (%d records)\n" + "=" * 70,
-            object_type, chunk_index, batch_size,
-        )
-        progress.info(
-            "  [%s] chunk #%d — fetched %d record(s)",
-            object_type, chunk_index, batch_size,
-        )
-        if dashboard:
-            dashboard.chunk_fetched(object_type, chunk_index, batch_size)
-
-        # ── Checkpointing: skip already-completed chunks on resume ────────
-        if _checkpoint:
-            completed_up_to = _checkpoint["completed"].get(object_type, 0)
-            if chunk_index <= completed_up_to:
-                logger.info("Skipping %s chunk #%d (already checkpointed)", object_type, chunk_index)
-                stats.skipped_count += batch_size
-                if dashboard:
-                    dashboard.chunk_skipped(object_type, batch_size)
-                del records
-                continue
-
-        if records:
-            sample = records[0]
-            logger.info("Sample record ID: %s", sample.get("Id", "Unknown"))
-            logger.debug("Sample record payload:\n%s", json.dumps(sample, indent=2))
-
-        # ── ACL resolution for this chunk ─────────────────────────────────
-        acl_map_for_chunk: dict[str, list[dict[str, str]]] = {}
-        try:
-            logger.info(
-                "Resolving ACLs for %d %s record(s) (chunk #%d) using %s engine",
-                batch_size, object_type, chunk_index, stats.acl_engine,
-            )
-            progress.info("  Resolving ACLs for %s chunk #%d...", object_type, chunk_index)
-            if dashboard:
-                dashboard.acl_started(object_type, chunk_index, batch_size)
-            if _USE_NEW_ACL_ENGINE:
-                acl_map_by_object = asyncio.run(
-                    _resolve_acl_new_engine(
-                        config, client, {object_type: records},
-                        resolver=_new_acl_resolver, mapper=_new_acl_mapper,
-                    )
-                )
-                acl_map_for_chunk = acl_map_by_object.get(object_type, {})
-                acl_map_by_object.clear()  # free the wrapper dict immediately
-            else:
-                acl_map_by_object = legacy_resolver.resolve({object_type: records})  # type: ignore[union-attr]
-                acl_map_for_chunk = acl_map_by_object.get(object_type, {})
-                acl_map_by_object.clear()  # free the wrapper dict immediately
-            logger.info(
-                "ACL resolution complete for %s chunk #%d: %d entries",
-                object_type, chunk_index, len(acl_map_for_chunk),
-            )
-            progress.info("  ACL resolution complete for %s chunk #%d", object_type, chunk_index)
-        except Exception as error:  # pragma: no cover
-            logger.exception(
-                "❌ CRITICAL: ACL resolution failed for %s chunk #%d, "
-                "falling back to public ACLs: %s",
-                object_type, chunk_index, error,
-            )
-            logger.error(
-                "⚠️ %s CHUNK #%d WILL HAVE PUBLIC ACCESS DUE TO ACL FAILURE",
-                object_type, chunk_index,
-            )
-            stats.acl_fallback_used = True
-
-        # ── Wait for the previous chunk's Graph upload (pipeline) ─────────
-        if _pending_graph_future is not None:
-            _prev_submitted = _pending_graph_future.result()
-            ingested_count += _prev_submitted
-            _pending_graph_future = None
-
-        # ── Transform + ingest this chunk via Graph JSON batching (async) ──
-        if dashboard:
-            dashboard.set_activity(f"[{object_type}] chunk #{chunk_index} -- Pushing to Graph API")
-
-        # Capture references for the closure — records/acl will be replaced next iteration
-        _chunk_records = records
-        _chunk_acl = acl_map_for_chunk
-        _chunk_ot = object_type
-        _chunk_ci = chunk_index
-
-        def _upload_chunk(
-            recs=_chunk_records, acl=_chunk_acl, ot=_chunk_ot, ci=_chunk_ci,
-        ) -> int:
-            submitted = _ingest_chunk_graph_batch(
-                config, client, transformer, recs, acl, stats, graph_batch_size,
-                dl_path=_dl_path, object_type=ot, dashboard=dashboard,
-                concurrency=_concurrency,
-            )
-            # Persist checkpoint so this chunk is not re-processed on crash
-            write_checkpoint(_connector_id, _since_iso, ot, ci)
-            # Release chunk memory
-            acl.clear()
-            return submitted
-
-        _pending_graph_future = _pipeline_pool.submit(_upload_chunk)
-
-        if ingested_count % 25 == 0:
-            progress.info(
-                "  Ingested %d items so far (total across all types)...",
-                ingested_count,
-            )
-
-        # ── Explicitly release chunk reference (data stays alive in the future) ──
-        del records
-        del acl_map_for_chunk
-
-    # ── Drain the last pending upload ─────────────────────────────────────
-    if _pending_graph_future is not None:
-        ingested_count += _pending_graph_future.result()
-        _pending_graph_future = None
-    _pipeline_pool.shutdown(wait=False)
-
-    # Mark the last object type as done
-    if dashboard and _prev_object_type:
-        dashboard.object_done(_prev_object_type)
+    # ── Finalise ─────────────────────────────────────────────────────────────
+    if dashboard:
         dashboard.finish()
-
-    if not any_records_seen:
-        logger.info("No items returned from Salesforce")
 
     progress.info(
         "  Ingestion complete: %d succeeded, %d failed, %d deleted",
         stats.success_count, stats.failed_count, stats.deleted_count,
     )
-    logger.info("Ingestion complete. Total items ingested: %d", ingested_count)
+    logger.info("Ingestion complete. Total items ingested: %d", total_ingested)
 
-    # Only clear checkpoint if the run completed fully (not stopped by Ctrl+X).
-    # On Ctrl+X the checkpoint stays so the next run resumes where we left off.
     _was_stopped = dashboard and dashboard.stop_requested
     if not _was_stopped:
         clear_checkpoint(_connector_id)

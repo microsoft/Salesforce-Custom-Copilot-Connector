@@ -270,6 +270,42 @@ def get_all_items_from_api(config: AppConfig, since: datetime | None = None) -> 
         t.join()
 
 
+def iter_object_chunks(
+    config: AppConfig,
+    object_config: SalesforceObjectConfig,
+    since: datetime | None,
+    chunk_size: int,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield record chunks (lists of at most *chunk_size* dicts) for a single object type.
+
+    Each record is enriched with ``objectType`` and ``url`` fields,
+    identical to the output of ``get_all_items_from_api``.
+    """
+    access_token = get_salesforce_access_token(config)
+    buffer: list[dict[str, Any]] = []
+    for record in fetch_salesforce_records(config, access_token, object_config, since):
+        clean_url = (
+            f"{config.connector.salesforce.instance_url}/{record['Id']}"
+            .replace("'", "")
+            .replace('"', "")
+        )
+        record["url"] = clean_url
+        buffer.append(record)
+        if len(buffer) >= chunk_size:
+            yield buffer
+            buffer = []
+    if buffer:
+        yield buffer
+
+
+def get_object_config(object_type: str) -> SalesforceObjectConfig | None:
+    """Return the ``SalesforceObjectConfig`` for *object_type*, or ``None``."""
+    for cfg in OBJECT_CONFIGS:
+        if cfg.object_type == object_type:
+            return cfg
+    return None
+
+
 def fetch_salesforce_records(
     config: AppConfig,
     access_token: str,

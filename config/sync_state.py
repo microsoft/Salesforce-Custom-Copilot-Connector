@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,9 @@ from typing import Any
 logger = logging.getLogger("salesforce_connector")
 
 LOGS_DIR = Path(__file__).resolve().parents[1] / "logs"
+
+# Protects read-modify-write of checkpoint files from concurrent workers
+_checkpoint_lock = threading.Lock()
 
 
 # ── Delta sync timestamp ─────────────────────────────────────────────────────
@@ -91,19 +95,20 @@ def write_checkpoint(
     same incremental boundary as the original run.
     """
     path = _checkpoint_path(connector_id)
-    data: dict[str, Any] = {"since": since_iso, "completed": {}}
-    try:
-        existing = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(existing, dict) and existing.get("since") == since_iso:
-            data = existing
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    data["completed"][object_type] = max(
-        data["completed"].get(object_type, 0),
-        chunk_index,
-    )
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    with _checkpoint_lock:
+        data: dict[str, Any] = {"since": since_iso, "completed": {}}
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(existing, dict) and existing.get("since") == since_iso:
+                data = existing
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        data["completed"][object_type] = max(
+            data["completed"].get(object_type, 0),
+            chunk_index,
+        )
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def clear_checkpoint(connector_id: str) -> None:

@@ -123,6 +123,7 @@ class TuningSettings:
     ingest_chunk_size: int          # records per processing chunk (default 500)
     ingest_graph_batch_size: int    # requests per Graph $batch POST (max 20, per MS docs)
     graph_concurrent_batches: int   # parallel $batch calls (default 4, auto-dials on 429)
+    parallel_object_workers: int    # object types ingested in parallel (default 3)
 
 
 @dataclass(frozen=True)
@@ -237,6 +238,7 @@ def load_config() -> AppConfig:
             ingest_chunk_size=int(os.getenv("INGEST_CHUNK_SIZE", "2000")),  # 2000 matches SF page size = 1 page per ingest cycle
             ingest_graph_batch_size=min(int(os.getenv("INGEST_GRAPH_BATCH_SIZE", "20")), 20),
             graph_concurrent_batches=max(1, int(os.getenv("GRAPH_CONCURRENT_BATCHES", "8"))),
+            parallel_object_workers=max(1, int(os.getenv("PARALLEL_OBJECT_WORKERS", "3"))),
         ),
         connector=ConnectorSettings(
             id=connector_id,
