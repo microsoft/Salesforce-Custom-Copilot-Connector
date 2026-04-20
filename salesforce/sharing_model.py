@@ -324,6 +324,32 @@ class IdentitySyncQueries:
         "SELECT Id, ParentTerritory2Id "
         "FROM Territory2 WHERE Id = '{0}'"
     )
+    # Bulk queries for pre-warming caches ─────────────────────────────────
+    # Fetch ALL territory→parent relationships in one SOQL call
+    AllTerritory2Query = "SELECT Id, ParentTerritory2Id FROM Territory2{0} ORDER BY Id asc"
+    # Fetch ALL ObjectTerritory2Association records in one SOQL call
+    AllObjectTerritory2AssociationQuery = (
+        "SELECT Id, ObjectId, Territory2Id FROM ObjectTerritory2Association{0} ORDER BY Id asc"
+    )
+    # Fetch ALL UserTerritory2Association records in one SOQL call
+    AllUserTerritory2AssociationQuery = (
+        "SELECT Id, UserId, Territory2Id FROM UserTerritory2Association{0} ORDER BY Id asc"
+    )
+    # Fetch ALL groups with type/related info in one SOQL call
+    AllGroupsQuery = (
+        "SELECT Id, Name, Type, RelatedId, DoesIncludeBosses "
+        "FROM Group{0} ORDER BY Id asc"
+    )
+    # Fetch ALL group members in one SOQL call
+    AllGroupMembersQuery = (
+        "SELECT Id, GroupId, UserOrGroupId FROM GroupMember{0} ORDER BY Id asc"
+    )
+    # Fetch ALL users with role info for principal resolution
+    AllUsersWithRolesQuery = (
+        "SELECT Id, Name, Alias, Email, FederationIdentifier, FirstName, LastName, "
+        "UserName, UserRoleId, IsActive, ManagerId "
+        "FROM User WHERE IsActive = True AND (NOT Name Like '%User%'){0} ORDER BY Id asc"
+    )
 
 
 class SalesforceConstants:
@@ -690,6 +716,65 @@ class ClientHelperForIdentitySync:
         if territories and territories[0].ParentTerritory2Id:
             return territories[0].ParentTerritory2Id
         return None
+
+    # ── Bulk pre-warm helpers ────────────────────────────────────────────────
+    # These methods fetch entire tables in a few paginated SOQL calls rather
+    # than making per-record queries.  They return pre-built lookup dicts so
+    # the ACL resolver can operate entirely in-memory.
+
+    async def bulk_fetch_all_territories(self) -> dict[str, str | None]:
+        """Fetch ALL Territory2 records and return ``{territory_id: parent_id}``."""
+        territories = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllTerritory2Query, True, False, None, Territory2,
+        )
+        return {t.Id: t.ParentTerritory2Id for t in territories if t.Id}
+
+    async def bulk_fetch_object_territory_associations(self) -> dict[str, list[str]]:
+        """Fetch ALL ObjectTerritory2Association records.
+
+        Returns ``{object_id: [territory_id, ...]}``."""
+        associations = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllObjectTerritory2AssociationQuery, True, False, None,
+            ObjectTerritory2Association,
+        )
+        result: dict[str, list[str]] = {}
+        for a in associations:
+            if a.ObjectId and a.Territory2Id:
+                result.setdefault(a.ObjectId, []).append(a.Territory2Id)
+        return result
+
+    async def bulk_fetch_user_territory_associations(self) -> dict[str, set[str]]:
+        """Fetch ALL UserTerritory2Association records.
+
+        Returns ``{territory_id: {user_id, ...}}``."""
+        associations = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllUserTerritory2AssociationQuery, True, False, None,
+            UserTerritory2Association,
+        )
+        result: dict[str, set[str]] = {}
+        for a in associations:
+            if a.Territory2Id and a.UserId:
+                result.setdefault(a.Territory2Id, set()).add(a.UserId)
+        return result
+
+    async def bulk_fetch_all_groups(self) -> list[Group]:
+        """Fetch ALL Group records in one paginated sweep."""
+        return await self._get_records_using_last_id(
+            IdentitySyncQueries.AllGroupsQuery, True, False, None, Group,
+        )
+
+    async def bulk_fetch_all_group_members(self) -> dict[str, list[str]]:
+        """Fetch ALL GroupMember records.
+
+        Returns ``{group_id: [user_or_group_id, ...]}``."""
+        members = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllGroupMembersQuery, True, False, None, GroupMember,
+        )
+        result: dict[str, list[str]] = {}
+        for m in members:
+            if m.GroupId and m.UserOrGroupId:
+                result.setdefault(m.GroupId, []).append(m.UserOrGroupId)
+        return result
 
     async def _get_records_using_last_id(
         self,

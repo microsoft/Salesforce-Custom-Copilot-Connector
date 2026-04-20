@@ -88,6 +88,15 @@ class AclResolver:
         # territory ACL caches
         self._territory_parent_cache: dict[str, str | None] = {}
         self._territory_users_cache: dict[str, set[str]] = {}
+        # bulk pre-warm caches (populated by prewarm_caches)
+        self._object_territory_assoc: dict[str, list[str]] | None = None
+        self._all_territory_parents: dict[str, str | None] | None = None
+        self._all_territory_users: dict[str, set[str]] | None = None
+        self._all_groups_by_id: dict[str, Any] | None = None
+        self._all_group_members_by_group: dict[str, list[str]] | None = None
+        self._role_parent_map: dict[str, str] | None = None
+        self._users_by_role: dict[str, set[str]] | None = None
+        self._prewarmed: bool = False
 
     def resolve(
         self,
@@ -98,12 +107,105 @@ class AclResolver:
             return {}
         return asyncio.run(self._resolve_async(records_by_object_type))
 
+    async def prewarm_caches(self) -> None:
+        """Bulk-fetch all reference data from Salesforce in a few SOQL calls.
+
+        After this method completes the ACL resolver can resolve territories,
+        groups, role hierarchies, and user-to-role mappings entirely in-memory
+        without any per-record SOQL queries.
+
+        Typical Salesforce orgs:
+        - Territory2:                      < 500 rows
+        - ObjectTerritory2Association:     < 50 000 rows
+        - UserTerritory2Association:       < 10 000 rows
+        - Group + GroupMember:             < 5 000 rows
+        - UserRole:                        < 1 000 rows
+        - Users (active, with roles):      < 50 000 rows
+
+        All of these fit comfortably in RAM and are fetched in seconds.
+        """
+        if self._prewarmed:
+            return
+
+        logger.info("=" * 70)
+        logger.info("BULK PRE-WARM: Fetching all ACL reference data from Salesforce")
+        logger.info("=" * 70)
+
+        import time as _time
+        t0 = _time.monotonic()
+
+        # 1. Role hierarchy  ────────────────────────────────────────────────
+        roles = await self._helper.get_user_role_hierarchy_from_salesforce(fetch_all=True)
+        children_by_parent: dict[str, set[str]] = defaultdict(set)
+        parent_map: dict[str, str] = {}
+        for role in roles:
+            if role.ParentRoleId and role.Id:
+                children_by_parent[role.ParentRoleId].add(role.Id)
+                parent_map[role.Id] = role.ParentRoleId
+        self._role_children_cache = dict(children_by_parent)
+        self._role_parent_map = parent_map
+        logger.info("  Roles: %d records, %d parent links", len(roles), len(parent_map))
+
+        # 2. Users with role info (for role→user mapping) ──────────────────
+        all_users = await self._helper.get_users_from_salesforce(fetch_all=True)
+        users_by_role: dict[str, set[str]] = defaultdict(set)
+        for user in all_users:
+            if user.UserRoleId and user.Id:
+                users_by_role[user.UserRoleId].add(user.Id)
+        self._users_by_role = dict(users_by_role)
+        self._users_and_managers = all_users
+        logger.info("  Users: %d active, %d with roles", len(all_users), sum(len(v) for v in users_by_role.values()))
+
+        # 3. Frozen users ──────────────────────────────────────────────────
+        frozen_logins = await self._helper.get_frozen_users()
+        self._frozen_users = {ul.UserId for ul in frozen_logins if ul.UserId}
+        logger.info("  Frozen users: %d", len(self._frozen_users))
+
+        # 4. Territory data (all 3 tables in parallel) ─────────────────────
+        terr_parents_task = self._helper.bulk_fetch_all_territories()
+        obj_terr_task = self._helper.bulk_fetch_object_territory_associations()
+        user_terr_task = self._helper.bulk_fetch_user_territory_associations()
+        (
+            self._all_territory_parents,
+            self._object_territory_assoc,
+            self._all_territory_users,
+        ) = await asyncio.gather(terr_parents_task, obj_terr_task, user_terr_task)
+
+        # Also fill the per-territory caches used by the fallback code paths
+        self._territory_parent_cache = dict(self._all_territory_parents)
+        self._territory_users_cache = dict(self._all_territory_users)
+        logger.info(
+            "  Territories: %d nodes, %d object associations, %d user associations",
+            len(self._all_territory_parents),
+            sum(len(v) for v in self._object_territory_assoc.values()),
+            sum(len(v) for v in self._all_territory_users.values()),
+        )
+
+        # 5. Groups + group members (in parallel) ─────────────────────────
+        groups_task = self._helper.bulk_fetch_all_groups()
+        members_task = self._helper.bulk_fetch_all_group_members()
+        all_groups, self._all_group_members_by_group = await asyncio.gather(groups_task, members_task)
+        self._all_groups_by_id = {g.Id: g for g in all_groups if g.Id}
+        logger.info(
+            "  Groups: %d, GroupMembers: %d",
+            len(self._all_groups_by_id),
+            sum(len(v) for v in self._all_group_members_by_group.values()),
+        )
+
+        elapsed = _time.monotonic() - t0
+        self._prewarmed = True
+        logger.info("BULK PRE-WARM COMPLETE in %.1fs", elapsed)
+        logger.info("=" * 70)
+
     async def _resolve_async(
         self,
         records_by_object_type: dict[str, list[dict[str, Any]]],
     ) -> dict[str, dict[str, list[dict[str, str]]]]:
         """Async implementation that resolves ACLs per object type using OWD visibility."""
         logger.info("ACL RESOLUTION START")
+
+        # Bulk pre-warm all reference data on first invocation
+        await self.prewarm_caches()
         
         acl_maps: dict[str, dict[str, list[dict[str, str]]]] = {}
         visibility_map = await self._helper.get_org_wide_defaults_map()
@@ -244,18 +346,7 @@ class AclResolver:
             # Territory2 assignments.  Include all users from directly assigned
             # territories as well as every ancestor territory in the hierarchy.
             if object_name in ("Account", "Opportunity"):
-                logger.info(
-                    "  [Territory ACL] Resolving territory-based access for %s record %s",
-                    object_name,
-                    record_id,
-                )
                 territory_user_ids = await self._get_territory_user_ids(record_id)
-                if territory_user_ids:
-                    logger.info(
-                        "  [Territory ACL] Adding %d territory user(s) to ACL for record %s",
-                        len(territory_user_ids),
-                        record_id,
-                    )
                 user_ids.update(territory_user_ids)
 
             record_user_ids[record_id] = user_ids
@@ -327,10 +418,68 @@ class AclResolver:
         return user_ids, includes_everyone
 
     async def _resolve_group(self, group_id: str) -> tuple[set[str], bool]:
-        """Recursively resolve a Salesforce group to its member user IDs with caching."""
+        """Recursively resolve a Salesforce group to its member user IDs with caching.
+
+        When pre-warmed data is available, uses in-memory lookups instead of
+        per-group SOQL queries.
+        """
         if group_id in self._group_cache:
             return self._group_cache[group_id]
 
+        # ── Fast path: use pre-warmed data ────────────────────────────────
+        if self._all_groups_by_id is not None:
+            group = self._all_groups_by_id.get(group_id)
+            if not group:
+                self._group_cache[group_id] = (set(), False)
+                return self._group_cache[group_id]
+
+            group_type = (group.Type or "").strip()
+
+            if group_type == UserOrGroupType.ORGANIZATION.value:
+                self._group_cache[group_id] = (set(), True)
+                return self._group_cache[group_id]
+
+            if group_type == UserOrGroupType.ROLE.value and group.RelatedId:
+                result = (self._get_role_users_from_cache(group.RelatedId, include_descendants=False), False)
+                self._group_cache[group_id] = result
+                return result
+
+            if group_type in {
+                UserOrGroupType.ROLE_AND_SUBORDINATES.value,
+                UserOrGroupType.ROLE_AND_SUBORDINATES_INTERNAL.value,
+            } and group.RelatedId:
+                result = (self._get_role_users_from_cache(group.RelatedId, include_descendants=True), False)
+                self._group_cache[group_id] = result
+                return result
+
+            if group_type == UserOrGroupType.MANAGER.value and group.RelatedId:
+                result = (await self._resolve_manager_users(group.RelatedId, include_descendants=False), False)
+                self._group_cache[group_id] = result
+                return result
+
+            if group_type == UserOrGroupType.MANAGER_AND_SUBORDINATES_INTERNAL.value and group.RelatedId:
+                result = (await self._resolve_manager_users(group.RelatedId, include_descendants=True), False)
+                self._group_cache[group_id] = result
+                return result
+
+            # Regular group: expand members from pre-warmed data
+            member_ids = self._all_group_members_by_group.get(group_id, []) if self._all_group_members_by_group else []
+            user_ids: set[str] = set()
+            includes_everyone = False
+            for member_id in member_ids:
+                if not member_id or member_id == group_id:
+                    continue
+                if member_id.startswith(USER_ID_PREFIX):
+                    user_ids.add(member_id)
+                    continue
+                nested_users, nested_everyone = await self._resolve_group(member_id)
+                user_ids.update(nested_users)
+                includes_everyone = includes_everyone or nested_everyone
+
+            self._group_cache[group_id] = (user_ids, includes_everyone)
+            return self._group_cache[group_id]
+
+        # ── Fallback: per-group SOQL queries ──────────────────────────────
         groups = await self._helper.get_group_type_and_related_id(self._build_in_filter("Id", [group_id]))
         if not groups:
             self._group_cache[group_id] = (set(), False)
@@ -385,7 +534,13 @@ class AclResolver:
         return self._group_cache[group_id]
 
     async def _resolve_role_users(self, role_id: str, include_descendants: bool) -> set[str]:
-        """Return user IDs assigned to a role, optionally including descendant roles."""
+        """Return user IDs assigned to a role, optionally including descendant roles.
+
+        Uses pre-warmed ``_users_by_role`` cache when available (zero SOQL).
+        """
+        if self._users_by_role is not None:
+            return self._get_role_users_from_cache(role_id, include_descendants)
+
         role_ids = {role_id}
         if include_descendants:
             role_ids.update(await self._get_descendant_role_ids(role_id))
@@ -395,6 +550,24 @@ class AclResolver:
             fetch_all=True,
         )
         return {user.Id for user in users if user.Id}
+
+    def _get_role_users_from_cache(self, role_id: str, include_descendants: bool) -> set[str]:
+        """Pure in-memory role→users lookup using pre-warmed caches."""
+        role_ids = {role_id}
+        if include_descendants and self._role_children_cache:
+            frontier = list(self._role_children_cache.get(role_id, set()))
+            while frontier:
+                current = frontier.pop()
+                if current in role_ids:
+                    continue
+                role_ids.add(current)
+                frontier.extend(self._role_children_cache.get(current, set()))
+
+        result: set[str] = set()
+        if self._users_by_role:
+            for rid in role_ids:
+                result.update(self._users_by_role.get(rid, set()))
+        return result
 
     async def _resolve_manager_users(self, manager_id: str, include_descendants: bool) -> set[str]:
         """Return user IDs in a manager's reporting chain, optionally including all subordinates."""
@@ -436,40 +609,57 @@ class AclResolver:
         return descendants
 
     async def _get_parent_role_ids(self, role_id: str) -> set[str]:
-        """Get all parent role IDs (upward in hierarchy) for implicit sharing"""
-        if self._role_children_cache is None:
-            await self._get_descendant_role_ids("")  # Initialize cache
-        
-        # Build parent map from children cache
-        parent_map: dict[str, str] = {}
-        roles = await self._helper.get_user_role_hierarchy_from_salesforce(fetch_all=True)
-        for role in roles:
-            if role.Id and role.ParentRoleId:
-                parent_map[role.Id] = role.ParentRoleId
-        
+        """Get all parent role IDs (upward in hierarchy) for implicit sharing.
+
+        Uses pre-warmed ``_role_parent_map`` when available (zero SOQL).
+        """
+        parent_map = self._role_parent_map
+        if parent_map is None:
+            # Fallback: build from SOQL
+            if self._role_children_cache is None:
+                await self._get_descendant_role_ids("")  # Initialize cache
+            roles = await self._helper.get_user_role_hierarchy_from_salesforce(fetch_all=True)
+            parent_map = {}
+            for role in roles:
+                if role.Id and role.ParentRoleId:
+                    parent_map[role.Id] = role.ParentRoleId
+            self._role_parent_map = parent_map
+
         # Traverse upward to collect all parent roles
         parents: set[str] = set()
         current = role_id
         while current in parent_map:
             parent = parent_map[current]
+            if parent in parents:
+                break  # cycle guard
             parents.add(parent)
             current = parent
-        
+
         return parents
 
     async def _get_parent_role_users(self, role_id: str) -> set[str]:
-        """Get all users in parent roles for implicit upward sharing"""
+        """Get all users in parent roles for implicit upward sharing.
+
+        Uses pre-warmed data when available (zero SOQL).
+        """
         parent_role_ids = await self._get_parent_role_ids(role_id)
-        
+
         if not parent_role_ids:
             return set()
-        
+
+        # Fast path: in-memory lookup
+        if self._users_by_role is not None:
+            result: set[str] = set()
+            for rid in parent_role_ids:
+                result.update(self._users_by_role.get(rid, set()))
+            return result
+
+        # Fallback: SOQL
         users = await self._helper.get_users_from_salesforce(
             self._build_in_filter("UserRoleId", sorted(parent_role_ids)),
             fetch_all=True,
         )
-        user_ids = {user.Id for user in users if user.Id}
-        return user_ids
+        return {user.Id for user in users if user.Id}
 
     # ── Territory-based ACL helpers ───────────────────────────────────────────
 
@@ -492,7 +682,7 @@ class AclResolver:
                 )
             parent_id = self._territory_parent_cache[current_id]
             cache_note = "(cached)" if cached else "(fetched)"
-            logger.info(
+            logger.debug(
                 "      Territory hierarchy: %s → parent: %s %s",
                 current_id,
                 parent_id or "(none – root)",
@@ -513,12 +703,12 @@ class AclResolver:
         same territory (across multiple records) hit memory instead of Salesforce.
         """
         if territory_id not in self._territory_users_cache:
-            logger.info("      Querying UserTerritory2Association for territory %s", territory_id)
+            logger.debug("      Querying UserTerritory2Association for territory %s", territory_id)
             user_ids = await self._helper.get_users_for_territories([territory_id])
             self._territory_users_cache[territory_id] = set(user_ids)
-            logger.info("      → %d user(s) found for territory %s", len(user_ids), territory_id)
+            logger.debug("      → %d user(s) found for territory %s", len(user_ids), territory_id)
         else:
-            logger.info(
+            logger.debug(
                 "      Territory %s users served from cache (%d user(s))",
                 territory_id,
                 len(self._territory_users_cache[territory_id]),
@@ -528,12 +718,41 @@ class AclResolver:
     async def _get_territory_user_ids(self, record_id: str) -> set[str]:
         """Resolve the full set of territory-based Salesforce UserIds for one record.
 
-        ACL resolution flow (per the spec):
-          Step 1 – ObjectTerritory2Association   → direct Territory2Ids for this record
-          Step 2 – Territory2.ParentTerritory2Id → recurse upward until root
-          Step 3 – UserTerritory2Association     → UserIds for every territory collected
-          Step 5 – return the union (callers merge with owner / share-based sets)
+        When bulk pre-warmed data is available (the common path for full syncs),
+        this method performs **zero SOQL queries** — all lookups are pure
+        in-memory dict operations.
         """
+        # ── Fast path: use pre-warmed data ────────────────────────────────
+        if self._object_territory_assoc is not None:
+            direct_territories = self._object_territory_assoc.get(record_id, [])
+            if not direct_territories:
+                return set()
+
+            # Collect direct + all ancestor territories via in-memory parent walk
+            all_territory_ids: set[str] = set(direct_territories)
+            for t_id in direct_territories:
+                current: str | None = t_id
+                while current and self._all_territory_parents is not None:
+                    parent = self._all_territory_parents.get(current)
+                    if not parent or parent in all_territory_ids:
+                        break
+                    all_territory_ids.add(parent)
+                    current = parent
+
+            # Collect users from all territories
+            all_user_ids: set[str] = set()
+            if self._all_territory_users is not None:
+                for t_id in all_territory_ids:
+                    users = self._all_territory_users.get(t_id, set())
+                    all_user_ids.update(users)
+
+            logger.debug(
+                "  [Territory ACL] Record %s: %d territories → %d users (pre-warmed)",
+                record_id, len(all_territory_ids), len(all_user_ids),
+            )
+            return all_user_ids
+
+        # ── Fallback: per-record SOQL queries (only if prewarm failed) ────
         logger.info("    ── Territory ACL: Step 1 – ObjectTerritory2Association ──────────")
         territory_ids = await self._helper.get_territory_ids_for_record(record_id)
         if not territory_ids:
@@ -570,24 +789,21 @@ class AclResolver:
         )
 
         # Steps 4+5: Fetch users per territory (with per-territory caching)
-        logger.info("    ── Territory ACL: Steps 3-4 – UserTerritory2Association ──────────")
+        logger.debug("    ── Territory ACL: Steps 3-4 – UserTerritory2Association ──────────")
         all_user_ids: set[str] = set()
         for t_id in sorted(all_territory_ids):
             users = await self._get_territory_users_cached(t_id)
-            logger.info(
-                "    Step 3/4: Territory %s → %d user(s): %s",
+            logger.debug(
+                "    Step 3/4: Territory %s → %d user(s)",
                 t_id,
                 len(users),
-                sorted(users) if users else "(none)",
             )
             all_user_ids.update(users)
 
-        logger.info("    ── Territory ACL: Step 5 – Final Effective ACL ──────────────────")
-        logger.info(
-            "    Step 5: Record %s → territory ACL union: %d unique user(s): %s",
+        logger.debug(
+            "    [Territory ACL] Record %s → %d unique territory user(s)",
             record_id,
             len(all_user_ids),
-            sorted(all_user_ids) if all_user_ids else "(none)",
         )
         return all_user_ids
 
