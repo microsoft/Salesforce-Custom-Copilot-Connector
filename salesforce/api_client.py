@@ -323,6 +323,7 @@ def fetch_salesforce_records(
     }
 
     active_config = object_config
+    all_removed_fields: list[str] = []
 
     while True:
         soql = build_soql_query(active_config, since, query_limit=config.tuning.salesforce_query_limit)
@@ -339,11 +340,7 @@ def fetch_salesforce_records(
                 error_info = _extract_salesforce_error_info(response)
                 retry_config, removed_fields = _build_retry_object_config(active_config, error_info)
                 if retry_config is not None and next_url == query_url and fetched_count == 0:
-                    logger.warning(
-                        "Retrying Salesforce %s without unsupported field(s): %s",
-                        active_config.object_type,
-                        ", ".join(removed_fields),
-                    )
+                    all_removed_fields.extend(removed_fields)
                     active_config = retry_config
                     retry_requested = True
                     break
@@ -362,6 +359,12 @@ def fetch_salesforce_records(
         if retry_requested:
             continue
 
+        if all_removed_fields:
+            logger.warning(
+                "Salesforce %s: skipped unsupported field(s): %s",
+                active_config.object_type,
+                ", ".join(all_removed_fields),
+            )
         logger.info("Fetched %s %s records from Salesforce", fetched_count, active_config.object_type)
         return
 

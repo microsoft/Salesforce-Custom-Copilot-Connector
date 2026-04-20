@@ -151,9 +151,9 @@ class OWDFetcher:
         Execute ONE ``SELECT <owd_fields> FROM Organization`` and populate
         ``_org_owd_cache`` keyed by objectName.
 
-        The SELECT list is built from the ``owdField`` values in schema.json.
-        Duplicate field names (multiple objects sharing one OWD field) are
-        deduplicated before the query is assembled.
+        If the bulk query fails (e.g. an owdField is missing from this org),
+        falls back to querying each owdField individually.  Any field that
+        still fails is silently defaulted to ``Private``.
 
         curl equivalent
         ---------------
@@ -169,10 +169,10 @@ class OWDFetcher:
             records = await self._sf.query_all(soql)
         except RuntimeError as exc:
             logger.warning(
-                "[OWD] Organization query failed (%s); all objects default to Private",
+                "[OWD] Bulk Organization query failed (%s); retrying per-field (defaulting to Private on failure)",
                 exc,
             )
-            self._org_owd_cache = {}
+            self._org_owd_cache = await self._fetch_owd_per_field()
             return
 
         if not records:
@@ -189,6 +189,46 @@ class OWDFetcher:
 
         self._org_owd_cache = cache
         logger.info("[OWD] Cache primed for %d object(s): %s", len(cache), cache)
+
+    async def _fetch_owd_per_field(self) -> dict[str, str]:
+        """
+        Fall back: query each owdField individually against the Organization table.
+
+        Multiple objects can share the same owdField (e.g. both Account and
+        Opportunity might use ``DefaultAccountAccess``), so we deduplicate the
+        field names and fan the result back out to all affected objects.
+
+        Any field whose query fails defaults to ``Private`` — never to a
+        permissive value — to preserve the principle of least privilege.
+        """
+        # Invert map: owdField → [objectName, ...]
+        field_to_objects: dict[str, list[str]] = {}
+        for obj_name, owd_field in self._owd_field_map.items():
+            field_to_objects.setdefault(owd_field, []).append(obj_name)
+
+        cache: dict[str, str] = {}
+        for owd_field, obj_names in field_to_objects.items():
+            soql = f"SELECT {owd_field} FROM Organization"
+            try:
+                records = await self._sf.query_all(soql)
+                if records:
+                    raw: Optional[str] = records[0].get(owd_field)
+                    value = raw if raw else OWDVisibility.PRIVATE.value
+                else:
+                    logger.warning("[OWD] Per-field query for %s returned no rows; defaulting to Private", owd_field)
+                    value = OWDVisibility.PRIVATE.value
+            except RuntimeError as exc:
+                logger.warning(
+                    "[OWD] Per-field query for %s failed (%s); defaulting to Private",
+                    owd_field, exc,
+                )
+                value = OWDVisibility.PRIVATE.value
+
+            for obj_name in obj_names:
+                cache[obj_name] = value
+                logger.info("[OWD] %s (Organization.%s) → %s (per-field fallback)", obj_name, owd_field, value)
+
+        return cache
 
     # ── Predicates ────────────────────────────────────────────────────────────
 

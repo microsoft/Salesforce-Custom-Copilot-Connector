@@ -429,13 +429,65 @@ class ClientHelperForIdentitySync:
         return organization
 
     async def get_org_wide_defaults_map(self) -> dict[str, EntityVisibility]:
-        """Return a mapping of object names to their org-wide default visibility."""
-        organization = await self.get_org_wide_defaults_from_salesforce()
-        return {
-            obj_name: getattr(organization, obj_cfg["owdField"], EntityVisibility.PUBLIC_READ_WRITE)
-            for obj_name, obj_cfg in SalesforceConstants.OBJECTS.items()
-            if "owdField" in obj_cfg
-        }
+        """
+        Return a mapping of object names to their org-wide default visibility.
+
+        Strategy
+        --------
+        1. Try a single bulk ``SELECT <all_owd_fields> FROM Organization``.
+        2. If that fails (e.g. a field is missing from this org), retry with
+           one ``SELECT <field> FROM Organization`` per owdField.
+        3. Any field/object that still fails defaults to ``NONE`` (Private) —
+           never to a permissive value — to preserve least privilege.
+        """
+        owd_field_map = build_owd_field_map()  # {objectName: owdField}
+
+        # ── 1. Bulk attempt ───────────────────────────────────────────────────
+        try:
+            organization = await self.get_org_wide_defaults_from_salesforce()
+            result: dict[str, EntityVisibility] = {}
+            for obj_name, obj_cfg in SalesforceConstants.OBJECTS.items():
+                if "owdField" not in obj_cfg:
+                    continue
+                # Default to NONE (Private) — not PUBLIC_READ_WRITE — on missing attribute
+                result[obj_name] = getattr(organization, obj_cfg["owdField"], EntityVisibility.NONE)
+            return result
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[OWD] Bulk Organization query failed (%s); retrying per-field (defaulting to Private on failure)",
+                exc,
+            )
+
+        # ── 2. Per-field fallback ─────────────────────────────────────────────
+        # Invert: owdField → [objectName, ...]
+        field_to_objects: dict[str, list[str]] = {}
+        for obj_name, owd_field in owd_field_map.items():
+            field_to_objects.setdefault(owd_field, []).append(obj_name)
+
+        result = {}
+        for owd_field, obj_names in field_to_objects.items():
+            soql = f"SELECT {owd_field} FROM Organization"
+            try:
+                response = await self._execute_query(soql)
+                rows = self.response_processor.get(response, Organization)
+                if rows:
+                    raw_value = getattr(rows[0], owd_field, EntityVisibility.NONE)
+                    visibility = raw_value if isinstance(raw_value, EntityVisibility) else EntityVisibility.NONE
+                else:
+                    logger.warning("[OWD] Per-field query for %s returned no rows; defaulting to Private", owd_field)
+                    visibility = EntityVisibility.NONE
+            except Exception as field_exc:  # noqa: BLE001
+                logger.warning(
+                    "[OWD] Per-field query for %s failed (%s); defaulting to Private",
+                    owd_field, field_exc,
+                )
+                visibility = EntityVisibility.NONE
+
+            for obj_name in obj_names:
+                result[obj_name] = visibility
+                logger.info("[OWD] %s (Organization.%s) → %s (per-field fallback)", obj_name, owd_field, visibility)
+
+        return result
 
     async def get_records_with_shares(
         self,

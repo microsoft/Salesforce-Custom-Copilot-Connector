@@ -73,6 +73,8 @@ class PrincipalMapper:
         self._batch_size = batch_size
         # identifier (FedId/UPN/email) → resolved AAD GUID or None
         self._principal_cache: dict[str, Optional[str]] = {}
+        # user IDs already warned about missing M365 principal (suppress duplicates)
+        self._warned_missing_principals: set[str] = set()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -109,11 +111,13 @@ class PrincipalMapper:
 
             principal = await asyncio.to_thread(self._resolve_principal, details)
             if not principal:
-                logger.warning(
-                    "[PrincipalMapper] User %s (%s): no M365 principal found",
-                    user_id,
-                    details.get("Email") or details.get("UserName") or "no-identifier",
-                )
+                if user_id not in self._warned_missing_principals:
+                    self._warned_missing_principals.add(user_id)
+                    logger.warning(
+                        "[PrincipalMapper] User %s (%s): no M365 principal found",
+                        user_id,
+                        details.get("Email") or details.get("UserName") or "no-identifier",
+                    )
                 continue
 
             normalized = principal.lower()
