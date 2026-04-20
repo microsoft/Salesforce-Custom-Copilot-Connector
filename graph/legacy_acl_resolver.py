@@ -162,14 +162,22 @@ class AclResolver:
         logger.info("  Frozen users: %d", len(self._frozen_users))
 
         # 4. Territory data (all 3 tables in parallel) ─────────────────────
-        terr_parents_task = self._helper.bulk_fetch_all_territories()
-        obj_terr_task = self._helper.bulk_fetch_object_territory_associations()
-        user_terr_task = self._helper.bulk_fetch_user_territory_associations()
-        (
-            self._all_territory_parents,
-            self._object_territory_assoc,
-            self._all_territory_users,
-        ) = await asyncio.gather(terr_parents_task, obj_terr_task, user_terr_task)
+        #    Territory Management 2.0 objects may not exist in every org —
+        #    treat any error as "no territory data" rather than crashing.
+        try:
+            terr_parents_task = self._helper.bulk_fetch_all_territories()
+            obj_terr_task = self._helper.bulk_fetch_object_territory_associations()
+            user_terr_task = self._helper.bulk_fetch_user_territory_associations()
+            (
+                self._all_territory_parents,
+                self._object_territory_assoc,
+                self._all_territory_users,
+            ) = await asyncio.gather(terr_parents_task, obj_terr_task, user_terr_task)
+        except Exception as exc:
+            logger.warning("  Territory bulk fetch failed (Territory Management may not be enabled): %s", exc)
+            self._all_territory_parents = {}
+            self._object_territory_assoc = {}
+            self._all_territory_users = {}
 
         # Also fill the per-territory caches used by the fallback code paths
         self._territory_parent_cache = dict(self._all_territory_parents)
