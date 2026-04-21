@@ -125,7 +125,8 @@ class AclResolver:
         self._share_fetcher = ShareFetcher(sf_client)
         self._user_handler = UserHandler(sf_client)
         self._group_handler = GroupHandler(sf_client)
-        # {objectName: (parentFieldName, parentObjectName)} – loaded once from schema.json
+        # Share the same UserHandler instance so prewarm is shared
+        self._group_handler._uh = self._user_handler
         self._parent_map: dict[str, tuple[str, str]] = _load_parent_map(parent_map)
         self._max_parent_depth = max_parent_depth
 
@@ -140,6 +141,25 @@ class AclResolver:
         instead.
         """
         return asyncio.run(self.resolve_async(object_type, record_id))
+
+    async def prewarm_chunk(self, object_type: str, record_ids: list[str]) -> None:
+        """
+        Bulk pre-warm all reference data for a chunk of records.
+
+        Call this ONCE before launching asyncio.gather() over the chunk.
+        Eliminates per-record SOQL queries for owners, share entries, groups,
+        and role/user mappings.
+
+        SOQL calls fired:
+          - 2 × ceil(N/100) calls: bulk owner + bulk share-table per batch
+          - 1 call:  SELECT Id, ParentRoleId FROM UserRole  (once ever)
+          - 1 call:  SELECT Id, UserRoleId FROM User        (once ever)
+          - 1 call:  SELECT Id, Type, RelatedId FROM Group  (once ever)
+        """
+        # Per-chunk: owner IDs and share entries (batch_size=200 = safe SOQL IN limit)
+        await self._share_fetcher.prewarm_chunk(object_type, record_ids, batch_size=200)
+        # One-time: all groups + roles + users + territories + group-members
+        await self._group_handler.prewarm()
 
     async def resolve_async(self, object_type: str, record_id: str) -> AclResult:
         """

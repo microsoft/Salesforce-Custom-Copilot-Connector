@@ -48,7 +48,7 @@ import threading
 
 from graph.legacy_acl_resolver import AclResolver as LegacyAclResolver
 from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH, GRAPH_BATCH_MAX_SIZE
-from salesforce.api_client import get_all_items_from_api, iter_object_chunks, get_object_config, OBJECT_CONFIGS
+from salesforce.api_client import get_all_items_from_api, iter_object_chunks, get_object_config, OBJECT_CONFIGS, _SkipObjectError
 from salesforce.settings import AppConfig
 from salesforce.item_transformer import SalesforceItemTransformer
 from config.sync_state import (
@@ -220,15 +220,38 @@ async def _resolve_acl_new_engine(
     for object_type, records in records_by_object_type.items():
         logger.info("[NewACL] Resolving %d %s record(s)", len(records), object_type)
 
+        # Bulk pre-warm: fetch all owner IDs, share entries, groups, roles for
+        # this chunk in ~5 SOQL calls total instead of O(N) per-record calls.
+        record_ids = [str(r["Id"]) for r in records if r.get("Id")]
+        await resolver.prewarm_chunk(object_type, record_ids)
+
+        # Pre-warm PrincipalMapper user-identity details for all owners that
+        # will likely appear in this chunk (eliminates per-record SOQL in mapper).
+        # Use the owner IDs already in the share_fetcher cache as a first approximation.
+        owner_ids = {v for v in resolver._share_fetcher._owner_cache.values() if v}  # noqa: SLF001
+        if owner_ids:
+            await mapper.prewarm_users(owner_ids)
+
+        # Configurable concurrency — after pre-warm most work is in-memory so
+        # raising this to 500 is safe and gives a large throughput boost.
+        import os as _os
+        _ACL_CONCURRENCY = int(_os.environ.get("ACL_RESOLVE_CONCURRENCY", "500"))
+        semaphore = asyncio.Semaphore(_ACL_CONCURRENCY)
+
+        async def _resolve_with_sem(ot: str, rid: str):
+            async with semaphore:
+                return await resolver.resolve_async(ot, rid)
+
         # Resolve all records for this object type concurrently
         tasks = [
-            resolver.resolve_async(object_type, str(record["Id"]))
+            _resolve_with_sem(object_type, str(record["Id"]))
             for record in records
             if record.get("Id")
         ]
         acl_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         object_acl: dict[str, list[dict[str, str]]] = {}
+        valid_pairs = []
         for record, acl_result in zip(records, acl_results):
             record_id = str(record["Id"])
             if isinstance(acl_result, Exception):
@@ -237,10 +260,22 @@ async def _resolve_acl_new_engine(
                     object_type, record_id, acl_result,
                 )
                 object_acl[record_id] = _public_acl_entry(config.tenant_id)
-                continue
+            else:
+                valid_pairs.append((record_id, acl_result))
 
-            acl_entries = await mapper.to_acl_entries(acl_result)
-            object_acl[record_id] = acl_entries
+        # Run to_acl_entries() concurrently — it was previously sequential
+        # which serialised all Graph/SOQL lookups across 2000 records.
+        if valid_pairs:
+            acl_entry_results = await asyncio.gather(
+                *[mapper.to_acl_entries(acl_result) for _, acl_result in valid_pairs],
+                return_exceptions=True,
+            )
+            for (record_id, _), acl_entries in zip(valid_pairs, acl_entry_results):
+                if isinstance(acl_entries, Exception):
+                    logger.error("[NewACL] to_acl_entries failed for %s/%s: %s", object_type, record_id, acl_entries)
+                    object_acl[record_id] = _public_acl_entry(config.tenant_id)
+                else:
+                    object_acl[record_id] = acl_entries
 
         # Free the raw ACL result objects — only the mapped entries are needed downstream
         acl_results.clear()
@@ -415,6 +450,14 @@ def _ingest_chunk_graph_batch(
                         wait = max(wait, float(retry_after))
                     except (ValueError, TypeError):
                         pass
+                # Hard cap: never wait more than 60s regardless of Retry-After
+                _MAX_RETRY_WAIT = 60
+                if wait > _MAX_RETRY_WAIT:
+                    logger.warning(
+                        "Retry-After of %.0fs exceeds cap; clamping to %ds",
+                        wait, _MAX_RETRY_WAIT,
+                    )
+                    wait = _MAX_RETRY_WAIT
                 logger.warning(
                     "Retrying %d throttled items in %.0fs (attempt %d/%d)",
                     len(cur_items), wait, attempt, _MAX_ITEM_RETRIES,
@@ -470,6 +513,16 @@ def _ingest_chunk_graph_batch(
                         req = id_to_req.get(idx_str)
                         if req:
                             retry_payload.append(req)
+
+                    elif status == 503:
+                        # Transient Graph outage — retry without signalling
+                        # throttle (503 is not a rate-limit, don't penalise
+                        # adaptive concurrency for it).
+                        retry_items.append(item)
+                        req = id_to_req.get(idx_str)
+                        if req:
+                            retry_payload.append(req)
+                        logger.warning("Graph 503 on item %s — will retry", item.get("id", "?"))
 
                     else:
                         # Permanent failure
@@ -855,6 +908,8 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
                 count = future.result()
                 total_ingested += count
                 logger.info("[%s] completed — %d items", obj_type, count)
+            except _SkipObjectError as exc:
+                logger.warning("[%s] skipped — %s", obj_type, exc)
             except Exception:
                 logger.exception("[%s] worker failed with an exception", obj_type)
 

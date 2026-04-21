@@ -40,7 +40,9 @@ Queries used
 from __future__ import annotations
 
 import logging
+import threading
 from collections import defaultdict
+from typing import Optional
 
 from acl_engine.models import PUBLIC_SENTINEL
 from acl_engine.salesforce_client import SalesforceClient
@@ -60,6 +62,39 @@ class QueueHandler:
 
     def __init__(self, sf_client: SalesforceClient) -> None:
         self._sf = sf_client
+        # Pre-warm cache: group_id → [member_ids] (None = not yet fetched)
+        self._group_members: Optional[dict[str, list[str]]] = None
+        self._prewarm_lock = threading.Lock()
+
+    # ── Bulk pre-warm (once per run) ─────────────────────────────────────
+
+    async def prewarm(self) -> None:
+        """
+        Fetch ALL GroupMember rows in one SOQL call.
+        After this, resolve_static_group() is a pure in-memory DFS.
+        """
+        if self._group_members is not None:
+            return
+
+        members: dict[str, list[str]] = {}
+        try:
+            rows = await self._sf.query_all(
+                "SELECT GroupId, UserOrGroupId FROM GroupMember"
+            )
+            for r in rows:
+                gid = r.get("GroupId")
+                mid = r.get("UserOrGroupId")
+                if gid and mid:
+                    members.setdefault(gid, []).append(mid)
+            logger.info("[QueueHandler] Pre-warmed group members for %d group(s)", len(members))
+        except RuntimeError as exc:
+            logger.warning(
+                "[QueueHandler] GroupMember prewarm failed: %s; will fall back to per-group SOQL", exc
+            )
+
+        with self._prewarm_lock:
+            if self._group_members is None:
+                self._group_members = members
 
     # ── Organization ──────────────────────────────────────────────────────────
 

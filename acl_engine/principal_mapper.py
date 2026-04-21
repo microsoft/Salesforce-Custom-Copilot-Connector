@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -74,7 +75,39 @@ class PrincipalMapper:
         # identifier (FedId/UPN/email) → resolved AAD GUID or None
         self._principal_cache: dict[str, Optional[str]] = {}
         # user IDs already warned about missing M365 principal (suppress duplicates)
+        # Protected by a threading.Lock because 3 parallel object workers share this instance.
         self._warned_missing_principals: set[str] = set()
+        self._warned_lock = threading.Lock()
+        # Pre-warm cache: user_id → {FederationIdentifier, UserName, Email}
+        self._user_details_cache: dict[str, dict[str, Any]] = {}
+
+    # ── Bulk pre-warm (call once per chunk with all owner/share user IDs) ──────
+
+    async def prewarm_users(self, user_ids: set[str], batch_size: int = 200) -> None:
+        """
+        Bulk-fetch FederationIdentifier / UserName / Email for all *user_ids*
+        that are not already in the cache.  After this, to_acl_entries() fires
+        zero SOQL for identity lookups.
+        """
+        missing = [uid for uid in user_ids if uid not in self._user_details_cache]
+        if not missing:
+            return
+
+        for i in range(0, len(missing), batch_size):
+            batch = missing[i : i + batch_size]
+            quoted = ", ".join(f"'{uid}'" for uid in batch)
+            soql = (
+                f"SELECT Id, FederationIdentifier, UserName, Email "
+                f"FROM User WHERE Id IN ({quoted}) AND IsActive = true"
+            )
+            try:
+                rows = await self._sf.query_all(soql)
+                for r in rows:
+                    uid = r.get("Id")
+                    if uid:
+                        self._user_details_cache[uid] = r
+            except RuntimeError as exc:
+                logger.warning("[PrincipalMapper] User details prewarm failed for batch: %s", exc)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -98,7 +131,14 @@ class PrincipalMapper:
             return self._deny_all_acl()
 
         # Bulk-fetch identity fields for all user IDs in a single SOQL call
-        user_details = await self._fetch_user_details_bulk(acl_result.user_ids)
+        # Use pre-warm cache when available to avoid per-record SOQL
+        cached = {uid: self._user_details_cache[uid] for uid in acl_result.user_ids if uid in self._user_details_cache}
+        uncached = acl_result.user_ids - set(cached.keys())
+        if uncached:
+            fetched = await self._fetch_user_details_bulk(uncached)
+            user_details = {**cached, **fetched}
+        else:
+            user_details = cached
 
         entries: list[dict[str, str]] = []
         seen: set[str] = set()
@@ -111,8 +151,11 @@ class PrincipalMapper:
 
             principal = await asyncio.to_thread(self._resolve_principal, details)
             if not principal:
-                if user_id not in self._warned_missing_principals:
-                    self._warned_missing_principals.add(user_id)
+                with self._warned_lock:
+                    already_warned = user_id in self._warned_missing_principals
+                    if not already_warned:
+                        self._warned_missing_principals.add(user_id)
+                if not already_warned:
                     logger.warning(
                         "[PrincipalMapper] User %s (%s): no M365 principal found",
                         user_id,

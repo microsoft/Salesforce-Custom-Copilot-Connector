@@ -306,6 +306,10 @@ def get_object_config(object_type: str) -> SalesforceObjectConfig | None:
     return None
 
 
+class _SkipObjectError(RuntimeError):
+    """Raised when a Salesforce object type is not available in this org."""
+
+
 def fetch_salesforce_records(
     config: AppConfig,
     access_token: str,
@@ -315,12 +319,17 @@ def fetch_salesforce_records(
     """Fetch records for a single Salesforce object, retrying on unsupported-field errors."""
     base_url = config.connector.salesforce.instance_url
     api_version = config.connector.salesforce.api_version
-    headers = {
-        "accept": "application/json",
-        "accept-language": "en-US,en;q=0.9,en-IN;q=0.8",
-        "content-type": "application/json",
-        "authorization": f"Bearer {access_token}",
-    }
+
+    def _make_headers(token: str) -> dict[str, str]:
+        return {
+            "accept": "application/json",
+            "accept-language": "en-US,en;q=0.9,en-IN;q=0.8",
+            "content-type": "application/json",
+            "authorization": f"Bearer {token}",
+        }
+
+    headers = _make_headers(access_token)
+    current_token = access_token
 
     active_config = object_config
     all_removed_fields: list[str] = []
@@ -336,8 +345,30 @@ def fetch_salesforce_records(
 
         while next_url:
             response = _sf_session.get(next_url, headers=headers, timeout=60)
+
+            # ── 401: token expired — refresh once and retry immediately ────────────────
+            if response.status_code == 401:
+                logger.warning(
+                    "[SF] 401 Unauthorized for %s — refreshing Salesforce token and retrying",
+                    active_config.object_type,
+                )
+                try:
+                    current_token = get_salesforce_access_token(config)
+                    headers = _make_headers(current_token)
+                    response = _sf_session.get(next_url, headers=headers, timeout=60)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Token refresh failed for {active_config.object_type}: {exc}"
+                    ) from exc
+
             if not response.ok:
+                # ── 400 INVALID_TYPE: object not available in this org — skip ──────
                 error_info = _extract_salesforce_error_info(response)
+                if response.status_code == 400 and "INVALID_TYPE" in (str(error_info) if error_info else ""):
+                    raise _SkipObjectError(
+                        f"{active_config.object_type} is not available in this Salesforce org (INVALID_TYPE)"
+                    )
+
                 retry_config, removed_fields = _build_retry_object_config(active_config, error_info)
                 if retry_config is not None and next_url == query_url and fetched_count == 0:
                     all_removed_fields.extend(removed_fields)

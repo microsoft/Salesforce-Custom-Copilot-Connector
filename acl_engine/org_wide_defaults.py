@@ -22,8 +22,10 @@ Predicates
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 from typing import Any, Optional
 
 from acl_engine.models import OWDVisibility
@@ -98,6 +100,13 @@ class OWDFetcher:
         self._org_owd_cache: Optional[dict[str, str]] = None
         # Optional overrides from config (e.g. {"Account": "Private"})
         self._owd_overrides: dict[str, str] = owd_overrides or {}
+        # threading.Lock (NOT asyncio.Lock): this OWDFetcher instance is shared
+        # across multiple ThreadPoolExecutor workers each running their own
+        # asyncio.run() / event loop.  asyncio.Lock is bound to a single event
+        # loop and raises RuntimeError when used from a different loop.
+        # threading.Lock is safe to acquire inside async code because each
+        # asyncio.run() worker occupies exactly one OS thread.
+        self._prime_lock: threading.Lock = threading.Lock()
 
     # ── Main fetch ────────────────────────────────────────────────────────────
 
@@ -126,7 +135,15 @@ class OWDFetcher:
             return OWDVisibility.PRIVATE.value
 
         if self._org_owd_cache is None:
-            await self._prime_org_owd_cache()
+            # Fetch OUTSIDE the lock so the await does not block other coroutines.
+            # Multiple coroutines may race to fetch; that's acceptable \u2014 a few
+            # redundant SOQL calls are far better than a deadlock.
+            # The lock only guards the final assignment so the dict is not
+            # partially observed by other coroutines.
+            candidate = await self._prime_org_owd_cache()
+            with self._prime_lock:
+                if self._org_owd_cache is None:
+                    self._org_owd_cache = candidate
 
         owd_field = self._owd_field_map[object_type]
         owd = (self._org_owd_cache or {}).get(object_type, OWDVisibility.PRIVATE.value)
@@ -146,19 +163,15 @@ class OWDFetcher:
 
     # ── Organization query (primes the in-memory cache) ───────────────────────
 
-    async def _prime_org_owd_cache(self) -> None:
+    async def _prime_org_owd_cache(self) -> dict[str, str]:
         """
-        Execute ONE ``SELECT <owd_fields> FROM Organization`` and populate
-        ``_org_owd_cache`` keyed by objectName.
+        Execute ONE ``SELECT <owd_fields> FROM Organization`` and return a
+        cache dict keyed by objectName.
 
-        If the bulk query fails (e.g. an owdField is missing from this org),
-        falls back to querying each owdField individually.  Any field that
-        still fails is silently defaulted to ``Private``.
-
-        curl equivalent
-        ---------------
-        GET /services/data/v60.0/query
-            ?q=SELECT+DefaultAccountAccess%2CDefaultLeadAccess%2C...+FROM+Organization
+        Returns the dict \u2014 caller is responsible for assigning to _org_owd_cache
+        under the threading.Lock.  This allows the await to happen outside the
+        lock, preventing the deadlock that occurs when an awaiting coroutine
+        holds a threading.Lock and suspends, blocking all other coroutines.
         """
         owd_fields = list(dict.fromkeys(self._owd_field_map.values()))
         soql = f"SELECT {', '.join(owd_fields)} FROM Organization"
@@ -172,13 +185,11 @@ class OWDFetcher:
                 "[OWD] Bulk Organization query failed (%s); retrying per-field (defaulting to Private on failure)",
                 exc,
             )
-            self._org_owd_cache = await self._fetch_owd_per_field()
-            return
+            return await self._fetch_owd_per_field()
 
         if not records:
             logger.warning("[OWD] Organization returned no rows; all objects default to Private")
-            self._org_owd_cache = {}
-            return
+            return {}
 
         org_row = records[0]  # There is always exactly one Organization record
 
@@ -187,8 +198,8 @@ class OWDFetcher:
             raw: Optional[str] = org_row.get(owd_field)
             cache[obj_name] = raw if raw else OWDVisibility.PRIVATE.value
 
-        self._org_owd_cache = cache
         logger.info("[OWD] Cache primed for %d object(s): %s", len(cache), cache)
+        return cache
 
     async def _fetch_owd_per_field(self) -> dict[str, str]:
         """

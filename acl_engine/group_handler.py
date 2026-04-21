@@ -40,6 +40,7 @@ embedded in share rows?
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Optional
 
 from acl_engine.models import GroupRecord
@@ -66,6 +67,60 @@ class GroupHandler:
         self._role_handler = RoleHandler(sf_client)
         self._territory_handler = TerritoryHandler(sf_client)
         self._queue_handler = QueueHandler(sf_client)
+        # Bulk pre-warm cache: group_id → GroupRecord
+        self._group_cache: Optional[dict[str, GroupRecord]] = None
+        self._prewarm_lock = threading.Lock()
+
+    # ── Expose sub-handler prewarm ──────────────────────────────────────────
+
+    async def prewarm(self) -> None:
+        """
+        Fetch ALL Salesforce Group records in 1 SOQL call, and pre-warm the
+        role handler (2 SOQL calls).  After this, every group and role lookup
+        during ACL resolution is a pure in-memory dict lookup.
+        """
+        if self._group_cache is not None:
+            return
+
+        with self._prewarm_lock:
+            if self._group_cache is not None:
+                return
+
+            cache: dict[str, GroupRecord] = {}
+            try:
+                rows = await self._sf.query_all(
+                    "SELECT Id, Type, RelatedId, DoesIncludeBosses FROM Group"
+                )
+                for r in rows:
+                    gid = r.get("Id")
+                    if gid:
+                        cache[gid] = GroupRecord(
+                            id=gid,
+                            type=r.get("Type"),
+                            related_id=r.get("RelatedId"),
+                            does_include_bosses=r.get("DoesIncludeBosses"),
+                        )
+                logger.info("[GroupHandler] Pre-warmed %d group(s)", len(cache))
+            except RuntimeError as exc:
+                logger.warning("[GroupHandler] Bulk group prewarm failed: %s; will fall back to per-group SOQL", exc)
+
+            self._group_cache = cache
+
+        # Pre-warm role handler (independent of group cache)
+        await self._role_handler.prewarm()
+        # Pre-warm queue/group members, territory data, and active user set
+        await self._queue_handler.prewarm()
+        await self._territory_handler.prewarm()
+        await self._user_handler.prewarm()
+
+    @property
+    def _user_handler(self):
+        """Access the UserHandler from the RoleHandler's sf_client (shared)."""
+        # UserHandler is instantiated inside GroupHandler to share prewarm
+        if not hasattr(self, '_uh'):
+            from acl_engine.user_handler import UserHandler
+            self._uh = UserHandler(self._sf)
+        return self._uh
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -159,11 +214,16 @@ class GroupHandler:
 
     async def _fetch_group(self, group_id: str) -> Optional[GroupRecord]:
         """
-        Query the Salesforce Group object for *group_id*.
+        Return the GroupRecord for *group_id*.
 
-        We fetch Type, RelatedId, and DoesIncludeBosses so the dispatcher has
-        all the information it needs without a second round-trip.
+        Serves from the bulk pre-warm cache when available; falls back to a
+        per-group SOQL otherwise.
         """
+        # Fast path — bulk cache hit
+        if self._group_cache is not None:
+            return self._group_cache.get(group_id)
+
+        # Slow path — per-group SOQL fallback
         soql = (
             f"SELECT Id, Type, RelatedId, DoesIncludeBosses "
             f"FROM Group "
