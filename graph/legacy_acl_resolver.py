@@ -951,18 +951,35 @@ class AclResolver:
         return None
 
     def _resolve_user_guid(self, user: User) -> str | None:
-        """Resolve a Salesforce user to a Microsoft Graph user GUID, trying all identity fields."""
-        resolved = self._resolve_principal_guid(user.FederationIdentifier)
-        if resolved:
-            return resolved
+        """Resolve a Salesforce user to a Microsoft Graph user GUID, trying all identity fields.
 
-        resolved = self._resolve_principal_guid(user.UserName)
-        if resolved:
-            return resolved
+        For FederationIdentifier and UserName we also try stripping the extra org-unique
+        suffix Salesforce appends (e.g. ``john@nokia.com.cape2104`` → ``john@nokia.com``)
+        because AAD UPNs / mails never carry that suffix.
+        """
+        seen: set[str] = set()
 
-        resolved = self._resolve_principal_guid(user.Email)
-        if resolved:
-            return resolved
+        def _try(identifier: str | None) -> str | None:
+            if not identifier:
+                return None
+            val = identifier.strip()
+            if not val or val in seen:
+                return None
+            seen.add(val)
+            result = self._resolve_principal_guid(val)
+            if result:
+                return result
+            # Also try the suffix-stripped version
+            stripped = _strip_sf_username_suffix(val)
+            if stripped and stripped not in seen:
+                seen.add(stripped)
+                return self._resolve_principal_guid(stripped)
+            return None
+
+        for field_value in (user.FederationIdentifier, user.UserName, user.Email):
+            resolved = _try(field_value)
+            if resolved:
+                return resolved
 
         return None
 
@@ -1001,29 +1018,42 @@ class AclResolver:
         try:
             payload = self._graph_client.get(direct_path)
             if isinstance(payload, dict) and payload.get("id"):
+                logger.info("[LegacyACL] Graph direct lookup ✓ %s → %s", identifier, payload["id"])
                 return str(payload["id"])
         except GraphApiError as error:
+            logger.debug("[LegacyACL] Graph direct lookup %s for %s", error.status_code, identifier)
             if error.status_code not in (400, 403, 404):
                 raise
-        except Exception:
+        except Exception as exc:
+            logger.debug("[LegacyACL] Graph direct lookup exception for %s: %s", identifier, exc)
             return None
 
+        # Advanced filter query — requires ConsistencyLevel: eventual + $count=true
+        # or the Graph API silently returns empty results for multi-property 'or' filters.
         escaped_identifier = identifier.replace("'", "''")
         filter_path = (
-            f"/users?$select=id&$top=1&$filter="
-            f"userPrincipalName eq '{escaped_identifier}' or mail eq '{escaped_identifier}'"
+            f"/users?$select=id&$top=1&$count=true&$filter="
+            f"userPrincipalName eq '{escaped_identifier}'"
+            f" or mail eq '{escaped_identifier}'"
+            f" or onPremisesUserPrincipalName eq '{escaped_identifier}'"
         )
+        eventual_headers = {"ConsistencyLevel": "eventual"}
         try:
-            payload = self._graph_client.get(filter_path)
+            payload = self._graph_client.get(filter_path, headers=eventual_headers)
             values = payload.get("value", []) if isinstance(payload, dict) else []
             if values and isinstance(values[0], dict) and values[0].get("id"):
-                return str(values[0]["id"])
+                guid = str(values[0]["id"])
+                logger.info("[LegacyACL] Graph filter lookup ✓ %s → %s", identifier, guid)
+                return guid
             else:
+                logger.warning("[LegacyACL] No AAD user found for '%s' (tried direct + filter on UPN/mail/onPremisesUPN)", identifier)
                 return None
         except GraphApiError as error:
+            logger.debug("[LegacyACL] Graph filter error for %s (status=%s): %s", identifier, error.status_code, error)
             if error.status_code not in (400, 403, 404):
                 raise
-        except Exception:
+        except Exception as exc:
+            logger.debug("[LegacyACL] Graph filter exception for %s: %s", identifier, exc)
             return None
 
         return None
@@ -1042,6 +1072,23 @@ class AclResolver:
             if not all(char in "0123456789abcdefABCDEF" for char in part):
                 return False
         return True
+
+
+def _strip_sf_username_suffix(username: str) -> str | None:
+    """
+    Salesforce appends an extra label to the domain to make usernames globally
+    unique (e.g. ``rohith.kakumani.ext@nokia.com.cape2104``).  Strip the trailing
+    label so the result can be matched against a normal AAD UPN / mail address.
+
+    Returns ``None`` when stripping is not applicable (domain has ≤ 2 labels).
+    """
+    if "@" not in username:
+        return None
+    local, domain = username.rsplit("@", 1)
+    labels = domain.split(".")
+    if len(labels) <= 2:
+        return None
+    return f"{local}@{'.' .join(labels[:-1])}"
 
     def _public_acl(self) -> list[dict[str, str]]:
         """Return an ACL list granting access to everyone in the tenant."""

@@ -234,14 +234,32 @@ class PrincipalMapper:
         Pick the best identifier and resolve to an AAD GUID if possible.
 
         Priority: FederationIdentifier → UserName → Email
+        For UserName we also try stripping the Salesforce-appended org suffix
+        (e.g. ``john@nokia.com.cape2104`` → ``john@nokia.com``) because SF
+        UserNames are globally unique but AAD UPNs are not suffixed.
         If GraphClient is available, attempts a Graph API lookup for each
         until one succeeds.
         """
+        seen: set[str] = set()
+        candidates: list[str] = []
+
         for field in ("FederationIdentifier", "UserName", "Email"):
             identifier = (user_details.get(field) or "").strip()
-            if not identifier:
+            if not identifier or identifier in seen:
                 continue
-            resolved = self._resolve_identifier(identifier)
+            seen.add(identifier)
+            candidates.append(identifier)
+            # For UserName (and FederationIdentifier), also try stripping the
+            # extra domain segment that Salesforce appends to make usernames
+            # globally unique (e.g. "@company.com.sandboxSuffix" → "@company.com")
+            if field in ("UserName", "FederationIdentifier"):
+                stripped = _strip_sf_username_suffix(identifier)
+                if stripped and stripped not in seen:
+                    seen.add(stripped)
+                    candidates.append(stripped)
+
+        for candidate in candidates:
+            resolved = self._resolve_identifier(candidate)
             if resolved:
                 return resolved
         return None
@@ -287,42 +305,52 @@ class PrincipalMapper:
         try:
             payload = self._graph_client.get(direct_path)
             if isinstance(payload, dict) and payload.get("id"):
-                logger.debug(
-                    "[PrincipalMapper] Graph direct lookup → %s → %s",
+                logger.info(
+                    "[PrincipalMapper] Graph direct lookup ✓ %s → %s",
                     identifier,
                     payload["id"],
                 )
                 return str(payload["id"])
         except GraphApiError as exc:
+            logger.debug("[PrincipalMapper] Graph direct lookup 404/400 for %s (status=%s)", identifier, exc.status_code)
             if exc.status_code not in (400, 403, 404):
                 raise
-        except Exception:
+        except Exception as exc:
+            logger.debug("[PrincipalMapper] Graph direct lookup error for %s: %s", identifier, exc)
             pass
 
-        # Attempt 2 – filter by UPN or mail
+        # Attempt 2 – filter by UPN, mail, or on-premises UPN.
+        # IMPORTANT: Graph $filter with 'or' across properties is an "advanced"
+        # query that requires ConsistencyLevel: eventual + $count=true, otherwise
+        # the API returns 400 or silently returns an empty result set.
         safe_id = identifier.replace("'", "''")
         filter_path = (
-            f"/users?$select=id&$top=1&$filter="
-            f"userPrincipalName eq '{safe_id}' or mail eq '{safe_id}'"
+            f"/users?$select=id&$top=1&$count=true&$filter="
+            f"userPrincipalName eq '{safe_id}'"
+            f" or mail eq '{safe_id}'"
+            f" or onPremisesUserPrincipalName eq '{safe_id}'"
         )
+        eventual_headers = {"ConsistencyLevel": "eventual"}
         try:
-            payload = self._graph_client.get(filter_path)
+            payload = self._graph_client.get(filter_path, headers=eventual_headers)
             values = payload.get("value", []) if isinstance(payload, dict) else []
             if values and isinstance(values[0], dict) and values[0].get("id"):
                 guid = str(values[0]["id"])
-                logger.debug(
-                    "[PrincipalMapper] Graph filter lookup → %s → %s",
+                logger.info(
+                    "[PrincipalMapper] Graph filter lookup ✓ %s → %s",
                     identifier,
                     guid,
                 )
                 return guid
         except GraphApiError as exc:
+            logger.debug("[PrincipalMapper] Graph filter lookup error for %s (status=%s): %s", identifier, exc.status_code, exc)
             if exc.status_code not in (400, 403, 404):
                 raise
-        except Exception:
+        except Exception as exc:
+            logger.debug("[PrincipalMapper] Graph filter lookup exception for %s: %s", identifier, exc)
             pass
 
-        logger.debug("[PrincipalMapper] No AAD user found for identifier: %s", identifier)
+        logger.warning("[PrincipalMapper] No AAD user found for '%s' (tried direct + filter on UPN/mail/onPremisesUPN)", identifier)
         return None
 
     # ── ACL entry helpers ─────────────────────────────────────────────────────
@@ -348,3 +376,32 @@ def _looks_like_guid(value: str) -> bool:
         len(p) == exp and all(c in "0123456789abcdefABCDEF" for c in p)
         for p, exp in zip(parts, expected)
     )
+
+
+def _strip_sf_username_suffix(username: str) -> Optional[str]:
+    """
+    Salesforce makes every username globally unique by appending an extra label
+    to the domain portion (e.g. ``john@acme.com.sandboxSuffix``).  This helper
+    returns the version with that trailing label stripped so the caller can try
+    it as a normal corporate UPN / email against AAD.
+
+    Rules:
+    - Must contain exactly one ``@``.
+    - The domain part must have **more than two** dot-separated labels
+      (``acme.com`` has two labels and should not be stripped).
+    - Returns ``None`` (no stripping done) when the conditions are not met.
+
+    Example::
+
+        _strip_sf_username_suffix("john@nokia.com.cape2104")  # → "john@nokia.com"
+        _strip_sf_username_suffix("john@nokia.com")           # → None
+    """
+    if "@" not in username:
+        return None
+    local, domain = username.rsplit("@", 1)
+    labels = domain.split(".")
+    # Need at least 3 labels to strip one (e.g. "nokia.com.suffix" → "nokia.com")
+    if len(labels) <= 2:
+        return None
+    stripped_domain = ".".join(labels[:-1])
+    return f"{local}@{stripped_domain}"
