@@ -151,11 +151,16 @@ class AclResolver:
         and role/user mappings.
 
         SOQL calls fired:
-          - 2 × ceil(N/100) calls: bulk owner + bulk share-table per batch
+          - 1 call:  SELECT <owd_fields> FROM Organization  (once ever, primed here)
+          - 2 × ceil(N/200) calls: bulk owner + bulk share-table per batch
           - 1 call:  SELECT Id, ParentRoleId FROM UserRole  (once ever)
           - 1 call:  SELECT Id, UserRoleId FROM User        (once ever)
           - 1 call:  SELECT Id, Type, RelatedId FROM Group  (once ever)
         """
+        # Prime OWD cache FIRST so it's fully populated before any concurrent
+        # record resolvers run.  Without this every coroutine in asyncio.gather()
+        # races to see _org_owd_cache is None and fires its own Organization query.
+        await self._owd_fetcher.prime()
         # Per-chunk: owner IDs and share entries (batch_size=200 = safe SOQL IN limit)
         await self._share_fetcher.prewarm_chunk(object_type, record_ids, batch_size=200)
         # One-time: all groups + roles + users + territories + group-members

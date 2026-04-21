@@ -110,6 +110,22 @@ class OWDFetcher:
 
     # ── Main fetch ────────────────────────────────────────────────────────────
 
+    async def prime(self) -> None:
+        """
+        Eagerly populate the OWD cache before any record resolvers run.
+
+        Call this ONCE from prewarm_chunk() so the cache is fully populated
+        before asyncio.gather() fans out over individual records.  Without
+        this, every concurrent coroutine sees ``_org_owd_cache is None`` and
+        each fires its own Organization query, causing N redundant SOQL calls
+        (one per record in the chunk).
+        """
+        if self._org_owd_cache is None:
+            candidate = await self._prime_org_owd_cache()
+            with self._prime_lock:
+                if self._org_owd_cache is None:
+                    self._org_owd_cache = candidate
+
     async def get_owd(self, object_type: str) -> str:
         """
         Return the OWD string for *object_type*.

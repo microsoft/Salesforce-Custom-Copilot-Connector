@@ -105,23 +105,32 @@ class ShareFetcher:
             self._owner_cache.setdefault(rid, None)
             self._share_cache.setdefault(rid, [])
 
+        # User records own themselves — Salesforce does not expose an OwnerId
+        # field on the User sObject.  Querying it always returns INVALID_FIELD.
+        _user_owns_self = (object_type == "User")
+
         for i in range(0, len(record_ids), batch_size):
             batch = record_ids[i : i + batch_size]
             ids_in = ", ".join(f"'{rid}'" for rid in batch)
 
             # ── Bulk owner fetch ──────────────────────────────────────────────
-            try:
-                owner_rows = await self._sf.query_all(
-                    f"SELECT Id, OwnerId FROM {object_type} WHERE Id IN ({ids_in})"
-                )
-                for r in owner_rows:
-                    if r.get("Id"):
-                        self._owner_cache[r["Id"]] = r.get("OwnerId")
-            except RuntimeError as exc:
-                logger.warning(
-                    "[ShareFetcher] Bulk owner fetch failed for %s batch %d: %s",
-                    object_type, i // batch_size + 1, exc,
-                )
+            if _user_owns_self:
+                # User IS the owner — no OwnerId field exists on User sObject
+                for rid in batch:
+                    self._owner_cache[rid] = rid
+            else:
+                try:
+                    owner_rows = await self._sf.query_all(
+                        f"SELECT Id, OwnerId FROM {object_type} WHERE Id IN ({ids_in})"
+                    )
+                    for r in owner_rows:
+                        if r.get("Id"):
+                            self._owner_cache[r["Id"]] = r.get("OwnerId")
+                except RuntimeError as exc:
+                    logger.warning(
+                        "[ShareFetcher] Bulk owner fetch failed for %s batch %d: %s",
+                        object_type, i // batch_size + 1, exc,
+                    )
 
             # ── Bulk share-table fetch ────────────────────────────────────────
             if not parent_field:
@@ -165,6 +174,11 @@ class ShareFetcher:
         # Fast path — bulk cache hit
         if record_id in self._owner_cache:
             return self._owner_cache[record_id]
+
+        # User records own themselves — no OwnerId field exists on User sObject
+        if object_type == "User":
+            self._owner_cache[record_id] = record_id
+            return record_id
 
         # Slow path — per-record fallback (incremental ingest / single-record mode)
         soql = f"SELECT OwnerId FROM {object_type} WHERE Id = '{record_id}' LIMIT 1"

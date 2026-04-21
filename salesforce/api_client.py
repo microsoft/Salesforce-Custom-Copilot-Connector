@@ -4,10 +4,14 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Iterator
 from urllib.parse import urlencode
+import hashlib
+import json
 import logging
+import os
 import queue
 import re
 import threading
+from pathlib import Path
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -39,6 +43,49 @@ def _build_sf_session() -> requests.Session:
 # Module-level pooled session — shared across all Salesforce fetch threads.
 # Thread-safe: urllib3 connection pools are internally locked.
 _sf_session = _build_sf_session()
+
+# ── Per-org, per-object field-list disk cache ──────────────────────────────
+# After the per-field retry loop discovers which fields work for a given org,
+# we persist the final list so subsequent runs skip the retry loop entirely.
+_FIELD_CACHE_DIR = Path("logs")
+
+
+def _field_cache_path(instance_url: str, object_type: str) -> Path:
+    """Return the path for the field-cache file for *instance_url* / *object_type*."""
+    org_hash = hashlib.md5(instance_url.encode()).hexdigest()[:8]
+    return _FIELD_CACHE_DIR / f"sf_fields_{org_hash}_{object_type}.json"
+
+
+def _load_field_cache(instance_url: str, object_type: str) -> tuple[str, ...] | None:
+    """Return cached field list or ``None`` if not found / invalid."""
+    path = _field_cache_path(instance_url, object_type)
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                logger.info(
+                    "[FieldCache] Loaded %d cached fields for %s from %s",
+                    len(data), object_type, path.name,
+                )
+                return tuple(data)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("[FieldCache] Could not load cache for %s: %s", object_type, exc)
+    return None
+
+
+def _save_field_cache(instance_url: str, object_type: str, fields: tuple[str, ...]) -> None:
+    """Persist *fields* to disk so the next run can skip the retry loop."""
+    try:
+        _FIELD_CACHE_DIR.mkdir(exist_ok=True)
+        path = _field_cache_path(instance_url, object_type)
+        path.write_text(json.dumps(list(fields)), encoding="utf-8")
+        logger.info(
+            "[FieldCache] Saved %d working fields for %s → %s",
+            len(fields), object_type, path.name,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning("[FieldCache] Could not save cache for %s: %s", object_type, exc)
+
 
 INVALID_FIELD_NAME_PATTERNS = (
     re.compile(r"No such column '([^']+)' on entity", re.IGNORECASE),
@@ -334,6 +381,18 @@ def fetch_salesforce_records(
     active_config = object_config
     all_removed_fields: list[str] = []
 
+    # ── Load per-org field cache (skip retry loop on subsequent runs) ─────────
+    cached_fields = _load_field_cache(
+        config.connector.salesforce.instance_url, object_config.object_type
+    )
+    if cached_fields is not None:
+        # Use the pre-validated field list directly — no retry loop needed
+        active_config = replace(object_config, fields=cached_fields)
+        logger.info(
+            "[FieldCache] Using %d cached fields for %s (skipping retry loop)",
+            len(cached_fields), object_config.object_type,
+        )
+
     while True:
         soql = build_soql_query(active_config, since, query_limit=config.tuning.salesforce_query_limit)
         query_url = _build_query_url(base_url, api_version, soql)
@@ -396,6 +455,13 @@ def fetch_salesforce_records(
                 active_config.object_type,
                 ", ".join(all_removed_fields),
             )
+            # Persist the working field list so the next run skips the retry loop
+            if cached_fields is None:  # only save when we just discovered it
+                _save_field_cache(
+                    config.connector.salesforce.instance_url,
+                    active_config.object_type,
+                    active_config.fields,
+                )
         logger.info("Fetched %s %s records from Salesforce", fetched_count, active_config.object_type)
         return
 
