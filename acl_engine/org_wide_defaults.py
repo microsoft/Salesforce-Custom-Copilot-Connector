@@ -100,31 +100,12 @@ class OWDFetcher:
         self._org_owd_cache: Optional[dict[str, str]] = None
         # Optional overrides from config (e.g. {"Account": "Private"})
         self._owd_overrides: dict[str, str] = owd_overrides or {}
-        # threading.Lock (NOT asyncio.Lock): this OWDFetcher instance is shared
-        # across multiple ThreadPoolExecutor workers each running their own
-        # asyncio.run() / event loop.  asyncio.Lock is bound to a single event
-        # loop and raises RuntimeError when used from a different loop.
-        # threading.Lock is safe to acquire inside async code because each
-        # asyncio.run() worker occupies exactly one OS thread.
+        # threading.Lock guards the final cache assignment so two threads
+        # (when running in ThreadPoolExecutor mode) don't partially observe
+        # the dict.  In single-threaded asyncio this is a no-op but harmless.
         self._prime_lock: threading.Lock = threading.Lock()
 
     # ── Main fetch ────────────────────────────────────────────────────────────
-
-    async def prime(self) -> None:
-        """
-        Eagerly populate the OWD cache before any record resolvers run.
-
-        Call this ONCE from prewarm_chunk() so the cache is fully populated
-        before asyncio.gather() fans out over individual records.  Without
-        this, every concurrent coroutine sees ``_org_owd_cache is None`` and
-        each fires its own Organization query, causing N redundant SOQL calls
-        (one per record in the chunk).
-        """
-        if self._org_owd_cache is None:
-            candidate = await self._prime_org_owd_cache()
-            with self._prime_lock:
-                if self._org_owd_cache is None:
-                    self._org_owd_cache = candidate
 
     async def get_owd(self, object_type: str) -> str:
         """
@@ -151,11 +132,9 @@ class OWDFetcher:
             return OWDVisibility.PRIVATE.value
 
         if self._org_owd_cache is None:
-            # Fetch OUTSIDE the lock so the await does not block other coroutines.
-            # Multiple coroutines may race to fetch; that's acceptable \u2014 a few
-            # redundant SOQL calls are far better than a deadlock.
-            # The lock only guards the final assignment so the dict is not
-            # partially observed by other coroutines.
+            # Multiple coroutines may race here; a few redundant SOQL calls are
+            # acceptable — they all return the same value and the lock ensures
+            # the cache dict is written atomically.
             candidate = await self._prime_org_owd_cache()
             with self._prime_lock:
                 if self._org_owd_cache is None:

@@ -75,6 +75,10 @@ class ShareFetcher:
         self._owner_cache: dict[str, Optional[str]] = {}
         # record_id → list of ShareEntry
         self._share_cache: dict[str, list[ShareEntry]] = {}
+        # Object types whose sObject has no OwnerId field.
+        # Populated dynamically the first time a query returns INVALID_FIELD,
+        # so subsequent batches and runs skip the query immediately.
+        self._no_owner_id_types: set[str] = set()
 
     # ── Bulk pre-warm (call once per chunk before resolving records) ──────────
 
@@ -105,19 +109,23 @@ class ShareFetcher:
             self._owner_cache.setdefault(rid, None)
             self._share_cache.setdefault(rid, [])
 
-        # User records own themselves — Salesforce does not expose an OwnerId
-        # field on the User sObject.  Querying it always returns INVALID_FIELD.
-        _user_owns_self = (object_type == "User")
-
+        # Objects known to lack an OwnerId field in Salesforce.
+        # User owns itself (no OwnerId column exists on the User sObject).
+        # Other objects (e.g. Product2) are added dynamically on first failure.
         for i in range(0, len(record_ids), batch_size):
             batch = record_ids[i : i + batch_size]
             ids_in = ", ".join(f"'{rid}'" for rid in batch)
 
             # ── Bulk owner fetch ──────────────────────────────────────────────
-            if _user_owns_self:
-                # User IS the owner — no OwnerId field exists on User sObject
+            if object_type == "User":
+                # Salesforce User sObject has no OwnerId column — each user
+                # record is owned by itself.
                 for rid in batch:
                     self._owner_cache[rid] = rid
+            elif object_type in self._no_owner_id_types:
+                # Previously discovered via INVALID_FIELD — leave owner as None
+                # (already pre-initialised above).
+                pass
             else:
                 try:
                     owner_rows = await self._sf.query_all(
@@ -127,10 +135,18 @@ class ShareFetcher:
                         if r.get("Id"):
                             self._owner_cache[r["Id"]] = r.get("OwnerId")
                 except RuntimeError as exc:
-                    logger.warning(
-                        "[ShareFetcher] Bulk owner fetch failed for %s batch %d: %s",
-                        object_type, i // batch_size + 1, exc,
-                    )
+                    exc_str = str(exc)
+                    if "INVALID_FIELD" in exc_str:
+                        logger.warning(
+                            "[ShareFetcher] OwnerId field does not exist on %s (will skip for all batches): %s",
+                            object_type, exc,
+                        )
+                        self._no_owner_id_types.add(object_type)
+                    else:
+                        logger.warning(
+                            "[ShareFetcher] Bulk owner fetch failed for %s batch %d (transient): %s",
+                            object_type, i // batch_size + 1, exc,
+                        )
 
             # ── Bulk share-table fetch ────────────────────────────────────────
             if not parent_field:
@@ -175,17 +191,30 @@ class ShareFetcher:
         if record_id in self._owner_cache:
             return self._owner_cache[record_id]
 
-        # User records own themselves — no OwnerId field exists on User sObject
+        # Salesforce User sObject has no OwnerId column — each user owns itself.
         if object_type == "User":
             self._owner_cache[record_id] = record_id
             return record_id
+
+        # Object previously discovered to have no OwnerId field (INVALID_FIELD).
+        if object_type in self._no_owner_id_types:
+            self._owner_cache[record_id] = None
+            return None
 
         # Slow path — per-record fallback (incremental ingest / single-record mode)
         soql = f"SELECT OwnerId FROM {object_type} WHERE Id = '{record_id}' LIMIT 1"
         try:
             records = await self._sf.query_all(soql)
         except RuntimeError as exc:
-            logger.warning("[ShareFetcher] Could not fetch owner for %s/%s: %s", object_type, record_id, exc)
+            exc_str = str(exc)
+            if "INVALID_FIELD" in exc_str:
+                logger.warning(
+                    "[ShareFetcher] OwnerId field does not exist on %s; skipping for future lookups: %s",
+                    object_type, exc,
+                )
+                self._no_owner_id_types.add(object_type)
+            else:
+                logger.warning("[ShareFetcher] Could not fetch owner for %s/%s: %s", object_type, record_id, exc)
             return None
 
         if not records:
