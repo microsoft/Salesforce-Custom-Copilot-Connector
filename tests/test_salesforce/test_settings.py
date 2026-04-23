@@ -29,7 +29,6 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path) -> N
                 "CONNECTION_TIMEOUT_SECONDS=600",
                 "CONNECTION_RETRY_INTERVAL_SECONDS=15",
                 "SCHEMA_RETRY_INTERVAL_SECONDS=15",
-                "SALESFORCE_QUERY_LIMIT=10",
                 "SALESFORCE_BATCH_SIZE=100",
                 "ACL_MAX_PARENT_DEPTH=5",
             ]
@@ -57,7 +56,6 @@ def test_load_config_does_not_read_example_env_files(monkeypatch, tmp_path) -> N
         "CONNECTION_TIMEOUT_SECONDS",
         "CONNECTION_RETRY_INTERVAL_SECONDS",
         "SCHEMA_RETRY_INTERVAL_SECONDS",
-        "SALESFORCE_QUERY_LIMIT",
         "SALESFORCE_BATCH_SIZE",
         "ACL_MAX_PARENT_DEPTH",
         "GRAPH_API_VERSION",

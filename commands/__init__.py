@@ -40,7 +40,6 @@ from .deploy import cmd_full_deployment
 from .ingest import cmd_ingest
 from .ingest_item import cmd_ingest_item
 from .ingest_object import cmd_ingest_object
-from .identity_dry_run import cmd_identity_dry_run
 
 
 # ---------------------------------------------------------------------------
@@ -51,10 +50,15 @@ LOGS_DIR = Path(__file__).resolve().parents[1] / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def setup_logging(prefix: str, verbose: bool = False) -> tuple[Path, Path]:
+_console_handlers: list[tuple[logging.Handler, int]] = []
+
+
+def setup_logging(prefix: str, verbose: bool = False, dashboard_mode: bool = False) -> tuple[Path, Path]:
     """Configure logging: full INFO detail always goes to file.
     Console shows INFO+ when verbose=True, WARNING+ otherwise.
     A 'progress' logger always prints to console for key milestones.
+    When *dashboard_mode* is True, console handlers are suppressed so
+    that the rich live dashboard can render without interference.
     Returns (log_file, summary_file).
     """
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -66,8 +70,9 @@ def setup_logging(prefix: str, verbose: bool = False) -> tuple[Path, Path]:
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter(fmt))
 
+    console_level = logging.INFO if verbose else logging.WARNING
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO if verbose else logging.WARNING)
+    console_handler.setLevel(logging.CRITICAL + 1 if dashboard_mode else console_level)
     console_handler.setFormatter(logging.Formatter(fmt))
 
     root = logging.getLogger()
@@ -79,12 +84,23 @@ def setup_logging(prefix: str, verbose: bool = False) -> tuple[Path, Path]:
     progress = logging.getLogger("progress")
     progress.propagate = False  # don't duplicate to root
     progress_console = logging.StreamHandler(sys.stdout)
-    progress_console.setLevel(logging.INFO)
+    progress_console.setLevel(logging.CRITICAL + 1 if dashboard_mode else logging.INFO)
     progress_console.setFormatter(logging.Formatter("%(message)s"))
     progress.addHandler(progress_console)
     progress.addHandler(file_handler)  # also goes to main log file
 
+    # Store handlers so they can be restored after dashboard stops
+    _console_handlers.clear()
+    _console_handlers.append((console_handler, console_level))
+    _console_handlers.append((progress_console, logging.INFO))
+
     return log_file, summary_file
+
+
+def restore_console_logging() -> None:
+    """Re-enable console handlers after dashboard mode ends."""
+    for handler, level in _console_handlers:
+        handler.setLevel(level)
 
 
 def write_summary(summary_file, log_file, stats, connection_status, connector_id, elapsed, command_name):
@@ -110,12 +126,13 @@ def write_summary(summary_file, log_file, stats, connection_status, connector_id
     lines.append(f"  Deleted:          {stats.deleted_count}")
     lines.append(f"  Failed:           {stats.failed_count}")
     if stats.failed_ids:
-        lines.append(f"  Failed item IDs:")
+        lines.append(f"  Failed item IDs (first {len(stats.failed_ids)}):")
         for fid in stats.failed_ids:
             lines.append(f"    - {fid}")
+        if stats.failed_count > len(stats.failed_ids):
+            lines.append(f"    ... and {stats.failed_count - len(stats.failed_ids)} more")
         lines.append(f"")
-        lines.append(f"  >> To retry failed items, check the summary log:")
-        lines.append(f"  >> {summary_file}")
+        lines.append(f"  >> Failed records: logs/failed_records_{connector_id}.jsonl")
     lines.append(f"  Time elapsed:     {elapsed:.1f}s")
     lines.append(f"  Full log:         {log_file}")
     lines.append(f"  Summary log:      {summary_file}")
@@ -160,13 +177,11 @@ def build_parser() -> argparse.ArgumentParser:
             "  python run.py guide\n"
             "  python run.py full-deployment\n"
             "  python run.py full-deployment --verbose\n"
-            "  python run.py full-deployment --continuous --full-crawl-hours 24 --incremental-hours 4\n"
+            "  python run.py full-deployment --continuous --hours 24\n"
             "  python run.py ingest\n"
-            "  python run.py ingest --continuous --full-crawl-hours 48 --incremental-hours 6\n"
+            "  python run.py ingest --continuous --hours 12\n"
             "  python run.py ingest-item --id 500f6000008iCNYAA2\n"
             "  python run.py ingest-object --type Case\n"
-            "  python run.py --verbose identity-dry-run\n"
-            "  python run.py --verbose identity-dry-run --save\n"
         ),
     )
 
@@ -195,19 +210,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--continuous",
         action="store_true",
         default=False,
-        help="Keep running with scheduled full and incremental crawls.",
+        help="Keep running and re-ingest every --hours hours instead of exiting.",
     )
     p_deploy.add_argument(
-        "--full-crawl-hours",
+        "--hours",
         type=int,
-        default=24,
-        help="Full crawl interval in hours when --continuous is set (min 12, max 168). Default: 24.",
+        default=12,
+        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
     )
     p_deploy.add_argument(
-        "--incremental-hours",
-        type=int,
-        default=4,
-        help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
+        "--full",
+        action="store_true",
+        default=False,
+        help="Force a full sync, ignoring delta timestamps and checkpoints.",
     )
     p_deploy.set_defaults(func=cmd_full_deployment)
 
@@ -220,19 +235,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--continuous",
         action="store_true",
         default=False,
-        help="Keep running with scheduled full and incremental crawls.",
+        help="Keep running and re-ingest every --hours hours instead of exiting.",
     )
     p_ingest.add_argument(
-        "--full-crawl-hours",
+        "--hours",
         type=int,
-        default=24,
-        help="Full crawl interval in hours when --continuous is set (min 12, max 168). Default: 24.",
+        default=12,
+        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
     )
     p_ingest.add_argument(
-        "--incremental-hours",
-        type=int,
-        default=4,
-        help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
+        "--full",
+        action="store_true",
+        default=False,
+        help="Force a full sync, ignoring delta timestamps and checkpoints.",
     )
     p_ingest.set_defaults(func=cmd_ingest)
 
@@ -259,18 +274,5 @@ def build_parser() -> argparse.ArgumentParser:
         help="Salesforce object type (e.g. Case, Account, Opportunity)",
     )
     p_obj.set_defaults(func=cmd_ingest_object)
-
-    # identity-dry-run
-    p_identity = subparsers.add_parser(
-        "identity-dry-run",
-        help="Preview identity crawl changes without calling Graph APIs",
-    )
-    p_identity.add_argument(
-        "--save",
-        action="store_true",
-        default=False,
-        help="Write crawl results to the SQLite store (without calling Graph APIs).",
-    )
-    p_identity.set_defaults(func=cmd_identity_dry_run)
 
     return parser

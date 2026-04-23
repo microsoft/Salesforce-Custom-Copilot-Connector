@@ -13,9 +13,6 @@ env/.env.dev
 # Log files
 *.log
 
-# SQLite state database
-data/
-
 # Misc
 .DS_Store
 *.zip

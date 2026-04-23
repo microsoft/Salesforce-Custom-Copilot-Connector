@@ -31,6 +31,7 @@ Queries used
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Optional
 
 from acl_engine.salesforce_client import SalesforceClient
@@ -49,6 +50,69 @@ class RoleHandler:
 
     def __init__(self, sf_client: SalesforceClient) -> None:
         self._sf = sf_client
+        # ── Bulk pre-warm caches (None = not yet fetched) ──────────────────────
+        # role_id → parent_role_id (or None at root)
+        self._role_parent_map: Optional[dict[str, Optional[str]]] = None
+        # parent_role_id → [child_role_ids]
+        self._roles_by_parent: Optional[dict[str, list[str]]] = None
+        # role_id → {active user_ids}
+        self._users_by_role: Optional[dict[str, set[str]]] = None
+        # Guard: at most one thread does the bulk fetch
+        self._prewarm_lock = threading.Lock()
+
+    # ── Bulk pre-warm ───────────────────────────────────────────────────
+
+    async def prewarm(self) -> None:
+        """
+        Fetch ALL UserRole records and ALL active User-role assignments in
+        exactly 2 SOQL calls.  Subsequent role/user lookups are pure
+        in-memory dict lookups — no SOQL fired per-record.
+
+        Thread-safe: only the first caller does the work; subsequent callers
+        return immediately once the caches are populated.
+        """
+        if self._role_parent_map is not None:
+            return  # Already done
+
+        with self._prewarm_lock:
+            if self._role_parent_map is not None:
+                return  # Another thread beat us to it
+
+            role_parent: dict[str, Optional[str]] = {}
+            roles_by_parent: dict[str, list[str]] = {}
+            try:
+                rows = await self._sf.query_all(
+                    "SELECT Id, ParentRoleId FROM UserRole"
+                )
+                for r in rows:
+                    rid = r.get("Id")
+                    pid = r.get("ParentRoleId")
+                    if rid:
+                        role_parent[rid] = pid
+                        if pid:
+                            roles_by_parent.setdefault(pid, []).append(rid)
+                logger.info("[RoleHandler] Pre-warmed %d role(s)", len(role_parent))
+            except RuntimeError as exc:
+                logger.warning("[RoleHandler] Bulk role prewarm failed: %s; will fall back to per-role SOQL", exc)
+
+            users_by_role: dict[str, set[str]] = {}
+            try:
+                rows = await self._sf.query_all(
+                    "SELECT Id, UserRoleId FROM User WHERE IsActive = true AND UserRoleId != null"
+                )
+                for r in rows:
+                    uid = r.get("Id")
+                    role_id = r.get("UserRoleId")
+                    if uid and role_id:
+                        users_by_role.setdefault(role_id, set()).add(uid)
+                logger.info("[RoleHandler] Pre-warmed users for %d role(s)", len(users_by_role))
+            except RuntimeError as exc:
+                logger.warning("[RoleHandler] Bulk user-role prewarm failed: %s; will fall back to per-role SOQL", exc)
+
+            # Publish atomically
+            self._roles_by_parent = roles_by_parent
+            self._users_by_role = users_by_role
+            self._role_parent_map = role_parent  # set last — signals "ready"
 
     # ── Public resolution methods ─────────────────────────────────────────────
 
@@ -126,6 +190,10 @@ class RoleHandler:
 
     async def _users_in_role(self, role_id: str) -> set[str]:
         """Fetch active users whose UserRoleId matches *role_id*."""
+        # Fast path — bulk cache hit
+        if self._users_by_role is not None:
+            return set(self._users_by_role.get(role_id, set()))
+        # Slow path — per-role SOQL fallback
         soql = (
             f"SELECT Id FROM User "
             f"WHERE UserRoleId = '{role_id}' AND IsActive = true"
@@ -135,12 +203,20 @@ class RoleHandler:
 
     async def _child_role_ids(self, role_id: str) -> list[str]:
         """Fetch direct child roles (one level down) of *role_id*."""
+        # Fast path — bulk cache hit
+        if self._roles_by_parent is not None:
+            return list(self._roles_by_parent.get(role_id, []))
+        # Slow path
         soql = f"SELECT Id FROM UserRole WHERE ParentRoleId = '{role_id}'"
         records = await self._sf.query_all(soql)
         return [r["Id"] for r in records if r.get("Id")]
 
     async def _get_parent_role_id(self, role_id: str) -> Optional[str]:
         """Return the ParentRoleId for *role_id*, or None if it is the root."""
+        # Fast path — bulk cache hit
+        if self._role_parent_map is not None:
+            return self._role_parent_map.get(role_id)
+        # Slow path
         soql = (
             f"SELECT Id, ParentRoleId FROM UserRole "
             f"WHERE Id = '{role_id}' LIMIT 1"

@@ -50,9 +50,6 @@ from acl_engine.resolver import AclResolver
 from acl_engine.salesforce_client import SalesforceClient
 from acl_engine.models import AclResult, PUBLIC_SENTINEL
 from acl_engine.principal_mapper import PrincipalMapper
-from acl_engine.group_acl_builder import GroupAclBuilder
-from acl_engine.group_id_formats import SfGroupIdFormats
-from acl_engine.identity_sync import IdentitySyncHandler
 
 __all__ = [
     "AclResolver",
@@ -60,7 +57,4 @@ __all__ = [
     "AclResult",
     "PUBLIC_SENTINEL",
     "PrincipalMapper",
-    "GroupAclBuilder",
-    "SfGroupIdFormats",
-    "IdentitySyncHandler",
 ]

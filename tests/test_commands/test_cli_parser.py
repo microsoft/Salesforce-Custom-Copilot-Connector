@@ -83,26 +83,22 @@ def test_default_verbose_is_false(parser):
 def test_full_deployment_continuous_defaults(parser):
     args = parser.parse_args(["full-deployment"])
     assert args.continuous is False
-    assert args.full_crawl_hours == 24
-    assert args.incremental_hours == 4
+    assert args.hours == 12
 
 
 def test_full_deployment_continuous_with_hours(parser):
-    args = parser.parse_args(["full-deployment", "--continuous", "--full-crawl-hours", "48", "--incremental-hours", "2"])
+    args = parser.parse_args(["full-deployment", "--continuous", "--hours", "24"])
     assert args.continuous is True
-    assert args.full_crawl_hours == 48
-    assert args.incremental_hours == 2
+    assert args.hours == 24
 
 
 def test_ingest_continuous_defaults(parser):
     args = parser.parse_args(["ingest"])
     assert args.continuous is False
-    assert args.full_crawl_hours == 24
-    assert args.incremental_hours == 4
+    assert args.hours == 12
 
 
 def test_ingest_continuous_with_hours(parser):
-    args = parser.parse_args(["ingest", "--continuous", "--full-crawl-hours", "48", "--incremental-hours", "6"])
+    args = parser.parse_args(["ingest", "--continuous", "--hours", "48"])
     assert args.continuous is True
-    assert args.full_crawl_hours == 48
-    assert args.incremental_hours == 6
+    assert args.hours == 48

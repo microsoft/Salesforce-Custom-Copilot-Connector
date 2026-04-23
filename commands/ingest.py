@@ -7,64 +7,40 @@ the Graph external connection and schema exist.  Steps:
 1. Load configuration.
 2. Initialise the Graph API client.
 3. Verify the connection is in the ``ready`` state.
-4. (If USE_GROUP_ACL) Run identity crawl to create/update external groups.
-5. Ingest Salesforce items with ACL resolution.
-
-Continuous mode
----------------
-When ``--continuous`` is passed, iterations alternate between full and
-incremental content crawls:
-
-* ``--full-crawl-hours N``  — full crawl every N hours (default 24, min 12).
-* ``--incremental-hours N`` — incremental crawl every N hours (default 4, min 1).
-
-**Identity crawl** always runs as full (no incremental for groups).
-
-**Incremental content crawl** only fetches Salesforce records modified since
-the last successful content crawl (``LastModifiedDate >= since``).
+4. Ingest all Salesforce items with ACL resolution.
 
 Usage::
 
     python run.py ingest
     python run.py ingest --verbose
-    python run.py ingest --continuous
-    python run.py ingest --continuous --full-crawl-hours 24 --incremental-hours 4
 
 Returns ``True`` on success, ``False`` on failure (exit code 1).
 """
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from graph.connection import is_connection_ready
 from graph.client import GraphClient
 from graph.ingest import ingest_content, IngestionStats
-from graph.identity import run_identity_sync, record_content_crawl, get_last_content_crawl_time
 from salesforce.settings import load_config
+from config.sync_state import read_last_sync, write_last_sync, clear_failed_records, clear_checkpoint, failed_records_path
+from dashboard import IngestionDashboard, HAS_RICH
 
 
-def _clamp(value: int, lo: int, hi: int) -> int:
-    """Clamp *value* to [lo, hi]."""
-    return max(lo, min(hi, value))
+def _clamp_hours(hours: int) -> int:
+    """Clamp hours to the valid range [12, 168]."""
+    return max(12, min(168, hours))
 
 
-def _run_ingest(args, *, since: datetime | None = None, sync_type: str = "full") -> bool:
-    """Execute a single ingestion run.
+def _run_ingest(args) -> bool:
+    """Execute a single ingestion run. Returns True on success."""
+    from commands import setup_logging, write_summary, restore_console_logging
 
-    Parameters
-    ----------
-    args      : Parsed CLI arguments.
-    since     : If set, only fetch Salesforce records modified after this time
-                (incremental content crawl).  ``None`` means full crawl.
-    sync_type : ``"full"`` or ``"incremental"`` — recorded in the sync session.
-
-    Returns ``True`` on success, ``False`` on failure.
-    """
-    from commands import setup_logging, write_summary
-
-    prefix = "ingestion" if sync_type == "full" else "incremental"
-    log_file, summary_file = setup_logging(prefix, verbose=getattr(args, "verbose", False))
+    verbose = getattr(args, "verbose", False)
+    use_dashboard = not verbose and HAS_RICH
+    log_file, summary_file = setup_logging("ingestion", verbose=verbose, dashboard_mode=use_dashboard)
     logger = logging.getLogger("ingestion_only")
     progress = logging.getLogger("progress")
     start_time = time.monotonic()
@@ -72,51 +48,86 @@ def _run_ingest(args, *, since: datetime | None = None, sync_type: str = "full")
     config = None
 
     try:
-        config = load_config()
-        progress.info(
-            "Starting %s ingestion for connector '%s'...",
-            sync_type, config.connector.id,
-        )
+        logger.info("📄 Logging to: %s", log_file)
+        logger.info("=" * 70)
+        logger.info("INGESTION ONLY: Ingest Items with ACLs")
+        logger.info("=" * 70)
 
+        config = load_config()
+
+        # Delta sync: use last successful sync timestamp unless --full
+        full_sync = getattr(args, "full", False)
+        since = None if full_sync else read_last_sync(config.connector.id)
+        if full_sync:
+            clear_failed_records(config.connector.id)
+            clear_checkpoint(config.connector.id)
+
+        progress.info("Starting ingestion for connector '%s'...", config.connector.id)
+        if since:
+            progress.info("  Incremental sync (since %s)", since.isoformat())
+        else:
+            progress.info("  Full sync (all records)")
+        logger.info("  Connector ID: %s", config.connector.id)
+        logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
+
+        logger.info("\n" + "=" * 70)
+        logger.info("STEP 1: Initialize Graph API Client")
+        logger.info("=" * 70)
         client = GraphClient(
             api_version=config.tuning.graph_api_version,
             max_retries=config.tuning.graph_max_retries,
             retry_backoff_base=config.tuning.graph_retry_backoff_base,
         )
+        logger.info("✓ Graph client initialized")
         progress.info("  Graph client initialized")
 
+        logger.info("\n" + "=" * 70)
+        logger.info("STEP 2: Verify Connection Ready")
+        logger.info("=" * 70)
         if not is_connection_ready(config, client):
-            logger.error("Connection not ready! Run 'python run.py full-deployment' first.")
+            logger.error("❌ Connection not ready! Run 'python run.py full-deployment' first.")
             return False
-        progress.info("  Connection '%s' verified", config.connector.id)
+        logger.info("✓ Connection is ready: %s", config.connector.id)
+        progress.info("  Connection '%s' verified (existing)", config.connector.id)
 
-        # ── Identity Crawl (group-based ACL only, always full) ────────────
-        if config.use_group_acl:
-            progress.info("  Running identity sync (group-based ACL)...")
-            identity_stats = run_identity_sync(config, client)
-            logger.info(
-                "Identity sync: created=%d updated=%d deleted=%d unchanged=%d",
-                identity_stats.groups_created, identity_stats.groups_updated,
-                identity_stats.groups_deleted, identity_stats.groups_unchanged,
-            )
+        logger.info("\n" + "=" * 70)
+        logger.info("STEP 3: Ingest Items with ACLs")
+        logger.info("=" * 70)
+        logger.info("  Instance: %s", config.connector.salesforce.instance_url)
+        logger.info("  API Version: %s", config.connector.salesforce.api_version)
+        progress.info("  Starting ingestion...")
 
-        # ── Content Ingestion ─────────────────────────────────────────────
-        if since:
-            progress.info("  Starting incremental ingestion (since %s)...", since.isoformat())
-        else:
-            progress.info("  Starting full ingestion...")
-
-        stats = ingest_content(config, client, since=since)
-        logger.info("Ingestion completed (%s)", sync_type)
+        dashboard = None
+        if use_dashboard:
+            sync_label = f"Incremental (since {since.isoformat()})" if since else "Full sync"
+            acl_label = "NEW" if config.use_new_acl_engine else "LEGACY"
+            try:
+                rel_log = log_file.relative_to(config.repo_root)
+            except (AttributeError, ValueError):
+                rel_log = log_file
+            dl_rel = failed_records_path(config.connector.id)
+            try:
+                dl_rel = dl_rel.relative_to(config.repo_root)
+            except (AttributeError, ValueError):
+                pass
+            dashboard = IngestionDashboard(config.connector.id, sync_label, acl_label, rel_log, str(dl_rel))
+            dashboard.start()
 
         try:
-            record_content_crawl(config, stats, sync_type=sync_type)
-        except Exception as rec_err:
-            logger.warning("Could not record content crawl stats: %s", rec_err)
+            sync_start = datetime.now(timezone.utc)
+            stats = ingest_content(config, client, since=since, dashboard=dashboard)
+            # Only save sync timestamp if the run completed (not stopped by Ctrl+X)
+            if not (dashboard and dashboard.stop_requested):
+                write_last_sync(config.connector.id, sync_start)
+        finally:
+            if dashboard:
+                dashboard.stop()
+                restore_console_logging()
+
+        logger.info("✓ Ingestion completed")
 
         elapsed = time.monotonic() - start_time
-        label = f"INGESTION ({sync_type.upper()})"
-        write_summary(summary_file, log_file, stats, "existing (verified)", config.connector.id, elapsed, label)
+        write_summary(summary_file, log_file, stats, "existing (verified)", config.connector.id, elapsed, "INGESTION")
         return stats.failed_count == 0
 
     except Exception as e:
@@ -126,25 +137,16 @@ def _run_ingest(args, *, since: datetime | None = None, sync_type: str = "full")
         write_summary(summary_file, log_file, stats, "existing (verified)",
                      getattr(config, 'connector', None) and config.connector.id or 'unknown',
                      elapsed, "INGESTION (CRASHED)")
-        logging.getLogger("ingestion_only").exception("Fatal error during ingestion: %s", e)
+        logging.getLogger("ingestion_only").exception("❌ Fatal error during ingestion: %s", e)
         return False
 
 
 def cmd_ingest(args) -> bool:
     """Ingest items only — connection & schema must already exist.
 
-    When ``--continuous`` is passed, iterations alternate between full and
-    incremental content crawls:
-
-    * ``--full-crawl-hours N``  — full content crawl every N hours (default 24).
-    * ``--incremental-hours N`` — incremental content crawl every N hours (default 4).
-
-    Identity crawl always runs as full.  Incremental content crawl reads the
-    last successful content crawl timestamp from the SQLite DB and passes it
-    as ``since`` to ``ingest_content()``.
+    When ``--continuous`` is passed, ingestion repeats on a fixed schedule.
     """
-    # First run: always full
-    success = _run_ingest(args, since=None, sync_type="full")
+    success = _run_ingest(args)
 
     continuous = getattr(args, "continuous", False)
     if not continuous:
@@ -152,38 +154,15 @@ def cmd_ingest(args) -> bool:
 
     from commands import reset_logging
 
-    full_hours = _clamp(getattr(args, "full_crawl_hours", 24), 12, 168)
-    incr_hours = _clamp(getattr(args, "incremental_hours", 4), 1, 168)
-    incr_interval = incr_hours * 3600
-    full_interval = full_hours * 3600
-
+    hours = _clamp_hours(getattr(args, "hours", 12))
+    interval_seconds = hours * 3600
     progress = logging.getLogger("progress")
-    progress.info(
-        "\n🔁 Continuous mode enabled:\n"
-        "   Full crawl every %d hour(s)\n"
-        "   Incremental crawl every %d hour(s)\n"
-        "   Press Ctrl+C to stop.\n",
-        full_hours, incr_hours,
-    )
-
-    last_full_time = time.monotonic()
+    progress.info("\n🔁 Continuous mode enabled — re-ingesting every %d hour(s). Press Ctrl+C to stop.\n", hours)
 
     while True:
-        progress.info("⏳ Next incremental crawl in %d hour(s)...", incr_hours)
-        time.sleep(incr_interval)
+        progress.info("⏳ Next ingestion in %d hour(s)...", hours)
+        time.sleep(interval_seconds)
 
         reset_logging()
-
-        elapsed_since_full = time.monotonic() - last_full_time
-        if elapsed_since_full >= full_interval:
-            progress.info("🔄 Starting scheduled FULL crawl...")
-            _run_ingest(args, since=None, sync_type="full")
-            last_full_time = time.monotonic()
-        else:
-            progress.info("🔄 Starting scheduled INCREMENTAL crawl...")
-            try:
-                config = load_config()
-                since = get_last_content_crawl_time(config)
-            except Exception:
-                since = None
-            _run_ingest(args, since=since, sync_type="incremental")
+        progress.info("🔄 Starting scheduled re-ingestion...")
+        _run_ingest(args)

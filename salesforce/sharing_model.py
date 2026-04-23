@@ -7,6 +7,9 @@ from urllib.parse import urlencode
 import asyncio
 import logging
 
+import requests
+import requests.adapters
+
 from salesforce.settings import build_owd_field_map, load_schema_config
 from item.converter import load_converter_config
 
@@ -321,6 +324,32 @@ class IdentitySyncQueries:
         "SELECT Id, ParentTerritory2Id "
         "FROM Territory2 WHERE Id = '{0}'"
     )
+    # Bulk queries for pre-warming caches ─────────────────────────────────
+    # Fetch ALL territory→parent relationships in one SOQL call
+    AllTerritory2Query = "SELECT Id, ParentTerritory2Id FROM Territory2{0} ORDER BY Id asc"
+    # Fetch ALL ObjectTerritory2Association records in one SOQL call
+    AllObjectTerritory2AssociationQuery = (
+        "SELECT Id, ObjectId, Territory2Id FROM ObjectTerritory2Association{0} ORDER BY Id asc"
+    )
+    # Fetch ALL UserTerritory2Association records in one SOQL call
+    AllUserTerritory2AssociationQuery = (
+        "SELECT Id, UserId, Territory2Id FROM UserTerritory2Association{0} ORDER BY Id asc"
+    )
+    # Fetch ALL groups with type/related info in one SOQL call
+    AllGroupsQuery = (
+        "SELECT Id, Name, Type, RelatedId, DoesIncludeBosses "
+        "FROM Group{0} ORDER BY Id asc"
+    )
+    # Fetch ALL group members in one SOQL call
+    AllGroupMembersQuery = (
+        "SELECT Id, GroupId, UserOrGroupId FROM GroupMember{0} ORDER BY Id asc"
+    )
+    # Fetch ALL users with role info for principal resolution
+    AllUsersWithRolesQuery = (
+        "SELECT Id, Name, Alias, Email, FederationIdentifier, FirstName, LastName, "
+        "UserName, UserRoleId, IsActive, ManagerId "
+        "FROM User WHERE IsActive = True AND (NOT Name Like '%User%'){0} ORDER BY Id asc"
+    )
 
 
 class SalesforceConstants:
@@ -336,6 +365,12 @@ class AsyncSalesforceClient:
         """Initialize with a Salesforce *instance_url* and *api_version*."""
         self.instance_url = instance_url.rstrip("/")
         self.api_version = api_version
+        # Pooled session — reused across all SOQL queries to avoid repeated
+        # TCP + TLS handshakes.  Thread-safe (urllib3 pools are locked internally).
+        self._session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     async def query(self, soql: str, access_token: str) -> dict[str, Any]:
         """Execute a SOQL query against the ``/query`` endpoint."""
@@ -347,15 +382,15 @@ class AsyncSalesforceClient:
 
     def _execute_query(self, soql: str, access_token: str, use_query_all: bool) -> dict[str, Any]:
         """Send a synchronous SOQL request and return the JSON response."""
-        import requests  # Import here to avoid requiring it when just using enums
-        
+        import requests as _requests  # local alias to avoid shadowing the module
+
         endpoint = "queryAll" if use_query_all else "query"
         query_url = (
             f"{self.instance_url}/services/data/{self.api_version}/{endpoint}?"
             f"{urlencode({'q': soql})}"
         )
 
-        response = requests.get(
+        response = self._session.get(
             query_url,
             headers={
                 "accept": "application/json",
@@ -394,13 +429,65 @@ class ClientHelperForIdentitySync:
         return organization
 
     async def get_org_wide_defaults_map(self) -> dict[str, EntityVisibility]:
-        """Return a mapping of object names to their org-wide default visibility."""
-        organization = await self.get_org_wide_defaults_from_salesforce()
-        return {
-            obj_name: getattr(organization, obj_cfg["owdField"], EntityVisibility.PUBLIC_READ_WRITE)
-            for obj_name, obj_cfg in SalesforceConstants.OBJECTS.items()
-            if "owdField" in obj_cfg
-        }
+        """
+        Return a mapping of object names to their org-wide default visibility.
+
+        Strategy
+        --------
+        1. Try a single bulk ``SELECT <all_owd_fields> FROM Organization``.
+        2. If that fails (e.g. a field is missing from this org), retry with
+           one ``SELECT <field> FROM Organization`` per owdField.
+        3. Any field/object that still fails defaults to ``NONE`` (Private) —
+           never to a permissive value — to preserve least privilege.
+        """
+        owd_field_map = build_owd_field_map()  # {objectName: owdField}
+
+        # ── 1. Bulk attempt ───────────────────────────────────────────────────
+        try:
+            organization = await self.get_org_wide_defaults_from_salesforce()
+            result: dict[str, EntityVisibility] = {}
+            for obj_name, obj_cfg in SalesforceConstants.OBJECTS.items():
+                if "owdField" not in obj_cfg:
+                    continue
+                # Default to NONE (Private) — not PUBLIC_READ_WRITE — on missing attribute
+                result[obj_name] = getattr(organization, obj_cfg["owdField"], EntityVisibility.NONE)
+            return result
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[OWD] Bulk Organization query failed (%s); retrying per-field (defaulting to Private on failure)",
+                exc,
+            )
+
+        # ── 2. Per-field fallback ─────────────────────────────────────────────
+        # Invert: owdField → [objectName, ...]
+        field_to_objects: dict[str, list[str]] = {}
+        for obj_name, owd_field in owd_field_map.items():
+            field_to_objects.setdefault(owd_field, []).append(obj_name)
+
+        result = {}
+        for owd_field, obj_names in field_to_objects.items():
+            soql = f"SELECT {owd_field} FROM Organization"
+            try:
+                response = await self._execute_query(soql)
+                rows = self.response_processor.get(response, Organization)
+                if rows:
+                    raw_value = getattr(rows[0], owd_field, EntityVisibility.NONE)
+                    visibility = raw_value if isinstance(raw_value, EntityVisibility) else EntityVisibility.NONE
+                else:
+                    logger.warning("[OWD] Per-field query for %s returned no rows; defaulting to Private", owd_field)
+                    visibility = EntityVisibility.NONE
+            except Exception as field_exc:  # noqa: BLE001
+                logger.warning(
+                    "[OWD] Per-field query for %s failed (%s); defaulting to Private",
+                    owd_field, field_exc,
+                )
+                visibility = EntityVisibility.NONE
+
+            for obj_name in obj_names:
+                result[obj_name] = visibility
+                logger.info("[OWD] %s (Organization.%s) → %s (per-field fallback)", obj_name, owd_field, visibility)
+
+        return result
 
     async def get_records_with_shares(
         self,
@@ -521,11 +608,17 @@ class ClientHelperForIdentitySync:
     ) -> tuple[dict[str, dict[str, User]], dict[str, Group]]:
         """Fetch authorized users (and groups when visibility is ``NONE``) for ACL resolution.
 
+        User batches are fetched **concurrently** via ``asyncio.gather`` to
+        reduce wall-clock time when there are many batches.
+
         Returns:
             A tuple of (per-object user dicts, group dict).
         """
-        authorized_users_for_sf_objects = {salesforce_object_handler.object_name: {}}
-        for child in getattr(salesforce_object_handler, "child_handlers", []):
+        authorized_users_for_sf_objects: dict[str, dict[str, User]] = {
+            salesforce_object_handler.object_name: {}
+        }
+        child_handlers = getattr(salesforce_object_handler, "child_handlers", [])
+        for child in child_handlers:
             authorized_users_for_sf_objects[child.object_name] = {}
 
         distinct_users = list(set(user_ids))
@@ -535,27 +628,35 @@ class ClientHelperForIdentitySync:
             for index in range(0, len(distinct_users), batch_size)
         ]
 
-        for user_batch in user_batches:
-            if not user_batch:
-                continue
-            quoted_user_ids = ", ".join("'" + user_id + "'" for user_id in user_batch)
+        # ── Fetch user batches concurrently ───────────────────────────────
+        async def _fetch_batch(user_batch: list[str]) -> list[tuple[str, list[User]]]:
+            """Fetch users for the parent + children in one batch, return (object_name, users) pairs."""
+            quoted_user_ids = ", ".join("'" + uid + "'" for uid in user_batch)
             filter_str = f"Id in ({quoted_user_ids})"
-            current_batch_users = await self.get_users_for_content_ingestion(
-                salesforce_object_handler.object_name,
-                filter_str,
-            )
 
-            authorized_users = authorized_users_for_sf_objects[salesforce_object_handler.object_name]
-            for user in current_batch_users:
-                user.IsFrozen = user.Id in frozen_users
-                authorized_users[user.Id] = user
+            # Launch parent + child queries concurrently
+            coros = [self.get_users_for_content_ingestion(salesforce_object_handler.object_name, filter_str)]
+            for child in child_handlers:
+                coros.append(self.get_users_for_content_ingestion(child.object_name, filter_str))
 
-            for child in getattr(salesforce_object_handler, "child_handlers", []):
-                child_users = await self.get_users_for_content_ingestion(child.object_name, filter_str)
-                child_authorized = authorized_users_for_sf_objects[child.object_name]
-                for user in child_users:
-                    user.IsFrozen = user.Id in frozen_users
-                    child_authorized[user.Id] = user
+            results = await asyncio.gather(*coros)
+
+            pairs: list[tuple[str, list[User]]] = [
+                (salesforce_object_handler.object_name, results[0])
+            ]
+            for i, child in enumerate(child_handlers):
+                pairs.append((child.object_name, results[i + 1]))
+            return pairs
+
+        non_empty_batches = [b for b in user_batches if b]
+        if non_empty_batches:
+            batch_results = await asyncio.gather(*[_fetch_batch(b) for b in non_empty_batches])
+            for pairs in batch_results:
+                for obj_name, users in pairs:
+                    target = authorized_users_for_sf_objects[obj_name]
+                    for user in users:
+                        user.IsFrozen = user.Id in frozen_users
+                        target[user.Id] = user
 
         sf_groups: dict[str, Group] = {}
         if entity_visibility == EntityVisibility.NONE:
@@ -667,6 +768,65 @@ class ClientHelperForIdentitySync:
         if territories and territories[0].ParentTerritory2Id:
             return territories[0].ParentTerritory2Id
         return None
+
+    # ── Bulk pre-warm helpers ────────────────────────────────────────────────
+    # These methods fetch entire tables in a few paginated SOQL calls rather
+    # than making per-record queries.  They return pre-built lookup dicts so
+    # the ACL resolver can operate entirely in-memory.
+
+    async def bulk_fetch_all_territories(self) -> dict[str, str | None]:
+        """Fetch ALL Territory2 records and return ``{territory_id: parent_id}``."""
+        territories = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllTerritory2Query, True, False, None, Territory2,
+        )
+        return {t.Id: t.ParentTerritory2Id for t in territories if t.Id}
+
+    async def bulk_fetch_object_territory_associations(self) -> dict[str, list[str]]:
+        """Fetch ALL ObjectTerritory2Association records.
+
+        Returns ``{object_id: [territory_id, ...]}``."""
+        associations = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllObjectTerritory2AssociationQuery, True, False, None,
+            ObjectTerritory2Association,
+        )
+        result: dict[str, list[str]] = {}
+        for a in associations:
+            if a.ObjectId and a.Territory2Id:
+                result.setdefault(a.ObjectId, []).append(a.Territory2Id)
+        return result
+
+    async def bulk_fetch_user_territory_associations(self) -> dict[str, set[str]]:
+        """Fetch ALL UserTerritory2Association records.
+
+        Returns ``{territory_id: {user_id, ...}}``."""
+        associations = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllUserTerritory2AssociationQuery, True, False, None,
+            UserTerritory2Association,
+        )
+        result: dict[str, set[str]] = {}
+        for a in associations:
+            if a.Territory2Id and a.UserId:
+                result.setdefault(a.Territory2Id, set()).add(a.UserId)
+        return result
+
+    async def bulk_fetch_all_groups(self) -> list[Group]:
+        """Fetch ALL Group records in one paginated sweep."""
+        return await self._get_records_using_last_id(
+            IdentitySyncQueries.AllGroupsQuery, True, False, None, Group,
+        )
+
+    async def bulk_fetch_all_group_members(self) -> dict[str, list[str]]:
+        """Fetch ALL GroupMember records.
+
+        Returns ``{group_id: [user_or_group_id, ...]}``."""
+        members = await self._get_records_using_last_id(
+            IdentitySyncQueries.AllGroupMembersQuery, True, False, None, GroupMember,
+        )
+        result: dict[str, list[str]] = {}
+        for m in members:
+            if m.GroupId and m.UserOrGroupId:
+                result.setdefault(m.GroupId, []).append(m.UserOrGroupId)
+        return result
 
     async def _get_records_using_last_id(
         self,
