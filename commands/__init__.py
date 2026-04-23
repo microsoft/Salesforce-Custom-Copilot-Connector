@@ -40,6 +40,7 @@ from .deploy import cmd_full_deployment
 from .ingest import cmd_ingest
 from .ingest_item import cmd_ingest_item
 from .ingest_object import cmd_ingest_object
+from .identity_dry_run import cmd_identity_dry_run
 
 
 # ---------------------------------------------------------------------------
@@ -159,11 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
             "  python run.py guide\n"
             "  python run.py full-deployment\n"
             "  python run.py full-deployment --verbose\n"
-            "  python run.py full-deployment --continuous --hours 24\n"
+            "  python run.py full-deployment --continuous --full-crawl-hours 24 --incremental-hours 4\n"
             "  python run.py ingest\n"
-            "  python run.py ingest --continuous --hours 12\n"
+            "  python run.py ingest --continuous --full-crawl-hours 48 --incremental-hours 6\n"
             "  python run.py ingest-item --id 500f6000008iCNYAA2\n"
             "  python run.py ingest-object --type Case\n"
+            "  python run.py --verbose identity-dry-run\n"
+            "  python run.py --verbose identity-dry-run --save\n"
         ),
     )
 
@@ -192,13 +195,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--continuous",
         action="store_true",
         default=False,
-        help="Keep running and re-ingest every --hours hours instead of exiting.",
+        help="Keep running with scheduled full and incremental crawls.",
     )
     p_deploy.add_argument(
-        "--hours",
+        "--full-crawl-hours",
         type=int,
-        default=12,
-        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
+        default=24,
+        help="Full crawl interval in hours when --continuous is set (min 12, max 168). Default: 24.",
+    )
+    p_deploy.add_argument(
+        "--incremental-hours",
+        type=int,
+        default=4,
+        help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
     )
     p_deploy.set_defaults(func=cmd_full_deployment)
 
@@ -211,13 +220,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--continuous",
         action="store_true",
         default=False,
-        help="Keep running and re-ingest every --hours hours instead of exiting.",
+        help="Keep running with scheduled full and incremental crawls.",
     )
     p_ingest.add_argument(
-        "--hours",
+        "--full-crawl-hours",
         type=int,
-        default=12,
-        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
+        default=24,
+        help="Full crawl interval in hours when --continuous is set (min 12, max 168). Default: 24.",
+    )
+    p_ingest.add_argument(
+        "--incremental-hours",
+        type=int,
+        default=4,
+        help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
     )
     p_ingest.set_defaults(func=cmd_ingest)
 
@@ -244,5 +259,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Salesforce object type (e.g. Case, Account, Opportunity)",
     )
     p_obj.set_defaults(func=cmd_ingest_object)
+
+    # identity-dry-run
+    p_identity = subparsers.add_parser(
+        "identity-dry-run",
+        help="Preview identity crawl changes without calling Graph APIs",
+    )
+    p_identity.add_argument(
+        "--save",
+        action="store_true",
+        default=False,
+        help="Write crawl results to the SQLite store (without calling Graph APIs).",
+    )
+    p_identity.set_defaults(func=cmd_identity_dry_run)
 
     return parser

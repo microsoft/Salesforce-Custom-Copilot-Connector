@@ -133,6 +133,7 @@ class AppConfig:
     parent_map: dict[str, tuple[str, str]]
     owd_overrides: dict[str, str]
     use_new_acl_engine: bool
+    use_group_acl: bool
     debug_object_type: str | None
     debug_item_id: str | None
 
@@ -218,6 +219,7 @@ def load_config() -> AppConfig:
         parent_map=build_parent_map(cfg),
         owd_overrides=owd_overrides,
         use_new_acl_engine=os.getenv("USE_NEW_ACL_ENGINE", "false").lower() in ("true", "1", "yes"),
+        use_group_acl=os.getenv("USE_GROUP_ACL", "false").lower() in ("true", "1", "yes"),
         debug_object_type=os.getenv("DEBUG_OBJECT_TYPE") or None,
         debug_item_id=os.getenv("DEBUG_ITEM_ID") or None,
         tuning=TuningSettings(

@@ -210,6 +210,41 @@ def _public_acl_entry(tenant_id: str) -> list[dict[str, str]]:
     return [{"accessType": "grant", "type": "everyone", "value": tenant_id}]
 
 
+# ── Group ACL engine helper ──────────────────────────────────────────────────
+
+def _resolve_acl_group_engine(
+    config: AppConfig,
+    records_by_object_type: dict[str, list[dict]],
+) -> dict[str, dict[str, list[dict[str, str]]]]:
+    """
+    Resolve ACLs using the group-based ACL builder.
+
+    Instead of expanding groups to individual users, this engine produces ACL
+    entries that reference external groups created by the Identity Crawl.
+    The Microsoft Graph framework resolves group membership at search time.
+
+    Requires ``USE_GROUP_ACL=true`` and a prior identity crawl run.
+    """
+    from acl_engine.group_acl_builder import GroupAclBuilder
+    from acl_engine.salesforce_client import SalesforceClient
+    from salesforce.api_client import get_salesforce_access_token
+
+    sf_client = SalesforceClient(
+        instance_url=config.connector.salesforce.instance_url,
+        api_version=config.connector.salesforce.api_version,
+        access_token=get_salesforce_access_token(config),
+    )
+    builder = GroupAclBuilder(
+        sf_client=sf_client,
+        owd_overrides=config.owd_overrides,
+        parent_map=config.parent_map,
+        owd_field_map=config.owd_field_map,
+    )
+
+    logger.info("[GroupACL] Resolving group-based ACLs for %d object type(s)", len(records_by_object_type))
+    return builder.resolve(records_by_object_type)
+
+
 def ingest_content(config: AppConfig, client: GraphClient, since: datetime | None = None) -> IngestionStats:
     """
     Ingest content from Salesforce.
@@ -318,15 +353,23 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
 
     acl_map_by_object: dict[str, dict[str, list[dict[str, str]]]] = {}
     try:
+        _USE_GROUP_ACL: bool = config.use_group_acl
         _USE_NEW_ACL_ENGINE: bool = config.use_new_acl_engine
-        stats.acl_engine = "NEW (acl_engine)" if _USE_NEW_ACL_ENGINE else "LEGACY"
+        if _USE_GROUP_ACL:
+            stats.acl_engine = "GROUP (group_acl_builder)"
+        elif _USE_NEW_ACL_ENGINE:
+            stats.acl_engine = "NEW (acl_engine)"
+        else:
+            stats.acl_engine = "LEGACY"
         progress.info("  Resolving ACLs for %d object type(s)...", len(records_by_object_type))
         logger.info(
             "Starting ACL resolution for %d object type(s) using %s engine",
             len(records_by_object_type),
             stats.acl_engine,
         )
-        if _USE_NEW_ACL_ENGINE:
+        if _USE_GROUP_ACL:
+            acl_map_by_object = _resolve_acl_group_engine(config, dict(records_by_object_type))
+        elif _USE_NEW_ACL_ENGINE:
             acl_map_by_object = asyncio.run(
                 _resolve_acl_new_engine(config, client, dict(records_by_object_type))
             )

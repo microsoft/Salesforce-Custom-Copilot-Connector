@@ -255,15 +255,89 @@ sequenceDiagram
 | `queue_handler.py` | Handles queues, public groups, managers, and org-wide grants. |
 | `salesforce_client.py` | Thin async REST client for SOQL queries, pagination, and sObject describe. |
 | `principal_mapper.py` | Converts Salesforce User IDs into Graph-API-ready ACL entries with AAD GUID resolution. |
+| `identity_models.py` | Data models for identity crawl and group ACL (`EntityVisibility`, `SfUser`, `SfGroup`, `GroupIdentityType`). |
+| `group_id_formats.py` | Canonical format strings for external group IDs (shared by identity crawl and group ACL builder). |
+| `identity_queries.py` | SOQL query methods for identity crawl (authorized users, role hierarchy, shares, frozen users, etc.). |
+| `group_acl_builder.py` | Group-based ACL builder: produces ACLs referencing external groups instead of individual users. |
+| `identity_sync.py` | Identity Crawl handler: creates/populates external groups in Microsoft Graph. |
 
 ## Usage
 
-The engine is invoked automatically during ingestion when `USE_NEW_ACL_ENGINE=true` is set in your environment config. Otherwise, the legacy ACL resolver in `graph/legacy_acl_resolver.py` is used.
+The engine supports three ACL resolution modes, controlled by environment variables:
+
+| Environment Variable | Value | ACL Mode | Description |
+|---------------------|-------|----------|-------------|
+| *(default)* | — | **Legacy** | User-only ACL via `graph/legacy_acl_resolver.py` |
+| `USE_NEW_ACL_ENGINE` | `true` | **New (user-only)** | Modular user-only ACL via `acl_engine/resolver.py` + `PrincipalMapper` |
+| `USE_GROUP_ACL` | `true` | **Group-based** | Group-reference ACLs via `acl_engine/group_acl_builder.py` (requires identity crawl) |
+
+### User-only ACL (existing)
 
 ```python
 from acl_engine import AclResolver
 resolver = AclResolver(config, client)
 acl_map = await resolver.resolve(records_by_object_type)
+```
+
+### Group-based ACL (new)
+
+```python
+from acl_engine import GroupAclBuilder
+builder = GroupAclBuilder(sf_client, owd_overrides=config.owd_overrides, parent_map=config.parent_map)
+acl_map = builder.resolve(records_by_object_type)
+```
+
+### Identity Crawl (new)
+
+The identity crawl creates external groups in Microsoft Graph that the group-based ACL references. It must run before content ingestion when `USE_GROUP_ACL=true`.
+
+```python
+from acl_engine import IdentitySyncHandler
+handler = IdentitySyncHandler(sf_client, object_names=["Account", "Lead"], parent_map=parent_map)
+result = handler.run_full_crawl()
+# result.gathered_groups contains all groups with their user/child-group memberships
+```
+
+---
+
+## Group-based ACL — How It Works
+
+Instead of expanding every role/group/queue into individual user IDs, the group-based ACL builder produces ACLs that reference external groups:
+
+| OWD | ACL produced |
+|-----|-------------|
+| **Public** (Read/Edit/ReadEditTransfer) | `[{type: "externalGroup", value: "Account-TopLevel"}]` |
+| **Private** (None) | `[{type: "externalGroup", value: "Account-GlobalUsers"}, ...]` + per-share group/user ACEs |
+| **ControlledByParent** | `[{type: "externalGroup", value: "Contact-GlobalUsers"}, {type: "user", value: "owner"}]` |
+
+The external groups are created by the Identity Crawl and contain the actual user memberships. The Microsoft Graph framework resolves group membership at search time.
+
+### Critical Rule
+
+**Group IDs used in identity crawl MUST exactly match group IDs referenced in content item ACLs.** Both modules use `SfGroupIdFormats` constants as the single source of truth.
+
+---
+
+## Identity Crawl — Group Structure
+
+```
+"{ObjectName}-TopLevel" (top-level group)
+│
+├── "{ObjectName}-GlobalUsers" (ViewAll/ModifyAll admins)
+│
+├── "{ObjectName}-{RoleId}-Role" (role hierarchy groups)
+│   └── Nested: parent role group (hierarchy chain)
+│
+├── "{ObjectName}-{RoleId}-RoleAndSubordinates"
+│   └── Nested: child role sub-groups + parent role
+│
+├── "{ObjectName}-{GroupId}-PublicGroup"
+│
+├── "{ObjectName}-AllInternalUsers" (Organization-type share)
+│
+├── "{ObjectName}-{UserId}-Manager"
+│
+└── "{ObjectName}-{UserId}-ManagerAndSubordinates"
 ```
 
 ## Key Decision Points

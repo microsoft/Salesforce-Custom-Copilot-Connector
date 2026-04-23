@@ -34,6 +34,7 @@ def test_config() -> AppConfig:
         parent_map=build_parent_map(schema),
         owd_overrides={},
         use_new_acl_engine=False,
+        use_group_acl=False,
         debug_object_type=None,
         debug_item_id=None,
         tuning=TuningSettings(

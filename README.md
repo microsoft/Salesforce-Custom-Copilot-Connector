@@ -21,6 +21,7 @@ A Python-based connector that syncs Salesforce CRM data into **Microsoft Search*
 ├── run.py                  # CLI entry point
 ├── commands/               # CLI subcommand implementations
 ├── config/                 # JSON schema, Graph properties, and result templates
+├── data/                   # SQLite state store for identity crawl (auto-created)
 ├── env/                    # Environment variable config files (.env.local)
 ├── graph/                  # Microsoft Graph API client and ingestion pipeline
 ├── item/                   # Salesforce → Graph external item conversion
@@ -208,14 +209,23 @@ python run.py full-deployment
 # Full deployment with detailed console output
 python run.py full-deployment --verbose
 
-# Full deployment with continuous re-ingestion every 24 hours
-python run.py full-deployment --continuous --hours 24
+# Continuous mode (uses defaults: full every 24h, incremental every 4h)
+python run.py full-deployment --continuous
+
+# Continuous mode with custom schedule
+python run.py full-deployment --continuous --full-crawl-hours 48 --incremental-hours 6
 
 # Re-ingest items only (connection & schema must already exist)
 python run.py ingest
 
-# Continuous re-ingestion every 12 hours
-python run.py ingest --continuous --hours 12
+# Continuous ingestion (defaults: full every 24h, incremental every 4h)
+python run.py ingest --continuous
+
+# Preview identity crawl changes without calling Graph APIs
+python run.py --verbose identity-dry-run
+
+# Preview and save crawl data to SQLite (no Graph calls)
+python run.py --verbose identity-dry-run --save
 
 # Debug: ingest a single record by Salesforce ID
 python run.py ingest-item --id 500f6000008iCNYAA2
@@ -273,12 +283,17 @@ If items fail, check the summary log for failed item IDs, then search the full l
 
 ## ACL Resolution
 
-The connector supports two ACL engines:
+The connector supports three ACL resolution modes:
 
-- **Legacy engine** (default) — `graph/legacy_acl_resolver.py`
-- **New engine** (opt-in) — `acl_engine/` — Set `USE_NEW_ACL_ENGINE=true` in your env config
+| Mode | Environment Variable | Description |
+|------|---------------------|-------------|
+| **Legacy** (default) | *(none)* | User-only ACL via `graph/legacy_acl_resolver.py` |
+| **New user-only** | `USE_NEW_ACL_ENGINE=true` | Modular user-only ACL via `acl_engine/resolver.py` |
+| **Group-based** | `USE_GROUP_ACL=true` | Group-reference ACLs via `acl_engine/group_acl_builder.py` |
 
-Both engines resolve Salesforce's sharing model into Microsoft Graph ACL entries:
+### User-only modes (Legacy / New)
+
+Both engines resolve Salesforce's sharing model into Microsoft Graph ACL entries containing individual Azure AD user GUIDs:
 
 1. Check **Org-Wide Defaults** (Public → everyone; Private → record-level ACLs)
 2. Resolve **ControlledByParent** via recursive parent traversal
@@ -286,7 +301,55 @@ Both engines resolve Salesforce's sharing model into Microsoft Graph ACL entries
 4. Expand principals: **users**, **roles**, **territories**, **queues**, **public groups**, **managers**
 5. Map Salesforce User IDs to **Azure AD identities**
 
-See [`acl_engine/README.md`](acl_engine/README.md) for detailed flowcharts and sequence diagrams.
+### Group-based mode (New)
+
+Instead of expanding groups into individual users, the group-based engine produces ACL entries that reference **external groups** created by the Identity Crawl. The Microsoft Graph framework resolves group membership at search time.
+
+**Requirements:** Run the Identity Crawl before content ingestion to create external groups in Graph.
+
+| OWD | ACL produced |
+|-----|-------------|
+| Public | `[{type: "externalGroup", value: "Account-TopLevel"}]` |
+| Private | `[{type: "externalGroup", value: "Account-GlobalUsers"}, ...]` + per-share group/user ACEs |
+| ControlledByParent | `[{type: "externalGroup", value: "Contact-GlobalUsers"}, {type: "user", value: "owner"}]` |
+
+### Incremental Content Crawl
+
+In continuous mode, the connector alternates between **full** and **incremental** content crawls:
+
+- **Full crawl** — re-fetches all records from Salesforce (default every 24 hours).
+- **Incremental crawl** — only fetches records modified since the last successful content crawl (default every 4 hours). Uses `WHERE LastModifiedDate >= <since>` in SOQL queries.
+
+Identity crawl always runs as full (no incremental for groups).
+
+| Parameter | Default | Min | Description |
+|-----------|---------|-----|-------------|
+| `--full-crawl-hours` | 24 | 12 | Interval between full content crawls |
+| `--incremental-hours` | 4 | 1 | Interval between incremental content crawls |
+
+Both parameters are optional — `--continuous` alone uses the defaults above.
+
+See [`acl_engine/README.md`](acl_engine/README.md) for detailed flowcharts, sequence diagrams, and group structure.
+
+---
+
+## SQLite State Database
+
+The connector maintains a local SQLite database at `data/{CONNECTOR_ID}_identity.db` (auto-created on first run). It tracks identity crawl group membership and content crawl history to minimize API calls and enable incremental sync.
+
+### Tables
+
+| Table | Purpose |
+|-------|---------|
+| **`groups`** | External groups published to Graph. Columns: `group_id` (PK), `connection_id`, `display_name`, `description`, `created_at`, `updated_at`. |
+| **`group_members`** | Members of each group. Columns: `group_id`, `member_id`, `member_type` (`"user"` or `"externalGroup"`), `identity_source` (`"external"` or `"azureActiveDirectory"`), `added_at`. PK: `(group_id, member_id)`. Cascades on group delete. |
+| **`sync_sessions`** | Audit log of every crawl run. Key columns: `crawl_type` (`"identity"`, `"content"`, `"identity-dry-run"`), `sync_type` (`"full"`, `"incremental"`), identity stats (`groups_created/updated/deleted/unchanged`, `members_added/removed`, `api_calls_made`), content stats (`content_total_fetched`, `content_success`, `content_failed`, `content_deleted`, `content_acl_engine`), `started_at`, `completed_at`, `status`. |
+
+### How it works
+
+- **Identity crawl**: before pushing groups to Graph, the publisher diffs the crawl result against `groups` + `group_members`. Only changed groups/members trigger API calls. After a successful publish, the store is updated.
+- **Content crawl**: after each content ingestion, a session is recorded in `sync_sessions`. The `started_at` timestamp of the last successful content session is used as the `since` parameter for incremental crawls.
+- **Dry run with `--save`**: writes groups and members to the store without calling Graph APIs. Useful for pre-populating the DB to test diff behavior.
 
 ---
 
@@ -305,7 +368,8 @@ Set these in `env/.env.local` to adjust behaviour:
 | `SALESFORCE_QUERY_LIMIT` | 10 | Max records per SOQL page (increase for production) |
 | `SALESFORCE_BATCH_SIZE` | 100 | Batch size for ingestion |
 | `ACL_MAX_PARENT_DEPTH` | 5 | Max recursion depth for ControlledByParent ACLs |
-| `USE_NEW_ACL_ENGINE` | false | Use the new ACL engine instead of legacy |
+| `USE_NEW_ACL_ENGINE` | false | Use the new user-only ACL engine instead of legacy |
+| `USE_GROUP_ACL` | false | Use group-based ACL engine (requires identity crawl) |
 | `OWD_OVERRIDES` | *(empty)* | Force OWD values for testing, JSON object e.g. `{"Account":"Private"}` |
 
 ---
@@ -322,16 +386,6 @@ pytest tests/ -v
 ## Known Limitations
 
 This connector is a **reference implementation / starter project**. It demonstrates how to bridge Salesforce CRM data into Microsoft Search but has several limitations you should be aware of before running it in production.
-
-### Full Sync Only (No Incremental / Delta Sync)
-
-Every run re-fetches and re-ingests **all records** from Salesforce. The codebase has infrastructure for a `since` parameter (the SOQL `WHERE LastModifiedDate >=` clause is already wired in `salesforce/api_client.py`), but all commands currently pass `since=None`. There is no persistent state store to track the last sync timestamp.
-
-**Impact:** For orgs with thousands of records, each run is slow and consumes API quota unnecessarily.
-
-### No Built-In Scheduling or Automation
-
-The connector is a CLI tool (`python run.py …`) that must be triggered manually. There is no timer, cron, Azure Functions wrapper, Dockerfile, or Kubernetes manifest included.
 
 ### No Resumability or Checkpointing
 
@@ -387,13 +441,11 @@ Logs are written to local files only. There is no integration with Application I
 
 The Graph API side handles 429 responses with exponential backoff, but the Salesforce API client has no throttle-aware retry logic for API quota exhaustion.
 
-### ACL Uses Per-Item Members Instead of Groups
+### ACL Group Mode Uses External Groups
 
-Microsoft Graph External Connectors support ACL resolution via **external groups** — you can create groups, add members to them, and reference the group in item ACLs. This connector does **not** use that approach. Instead, it resolves every principal (user, role, territory, queue, etc.) and attaches individual member entries directly to each item's ACL.
+When `USE_GROUP_ACL=true`, the connector creates external groups in Microsoft Graph and references them in item ACLs. This is more efficient than per-item user enumeration but requires the identity crawl to run before content ingestion. The SQLite-backed state store (`data/`) tracks group membership and only pushes changes to Graph, minimizing API calls on subsequent crawls.
 
-**Why:** Using external groups would require the connector to also **manage the full lifecycle** of those groups — creating, updating membership, and deleting them in sync with the source organisation's structure (role hierarchy changes, queue membership updates, group additions/removals). Correct group management depends on tight, ongoing integration with the organisation's identity and structure data. Since this is a reference implementation without that integration, per-item member ACLs are used to keep the connector self-contained and avoid stale or inconsistent group state in Graph.
-
-**Trade-off:** Per-item ACLs are simpler to implement but result in larger payloads per item and require re-ingesting items when a user's access changes. A group-based approach would centralise access changes to the group membership, reducing re-ingestion scope.
+When using the legacy or new user-only ACL modes, every principal (user, role, territory, queue, etc.) is resolved to individual user IDs and attached directly to each item's ACL. Per-item ACLs are simpler but result in larger payloads and require re-ingesting items when a user's access changes.
 
 ---
 
