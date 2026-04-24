@@ -148,7 +148,7 @@ def _run_full_deployment(args, since: datetime | None = None) -> bool:
         dashboard = None
         if use_dashboard:
             sync_label = f"Incremental (since {since.isoformat()})" if since else "Full sync"
-            acl_label = "NEW" if config.use_new_acl_engine else "LEGACY"
+            acl_label = "GROUP" if config.use_group_acl else ("NEW" if config.use_new_acl_engine else "LEGACY")
             try:
                 rel_log = log_file.relative_to(config.repo_root)
             except (AttributeError, ValueError):

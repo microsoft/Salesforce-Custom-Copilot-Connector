@@ -96,7 +96,7 @@ class IngestionDashboard:
         return self._stop_requested
 
     def start(self) -> None:
-        self._live = Live(self, console=self._console, refresh_per_second=4, transient=True, vertical_overflow="visible")
+        self._live = Live(self, console=self._console, refresh_per_second=4, transient=True, vertical_overflow="crop")
         self._live.start()
         self._start_key_monitor()
 
