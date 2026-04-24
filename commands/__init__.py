@@ -186,13 +186,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Print all log levels (INFO+) to console. Without this flag only WARNING and ERROR are shown on console; the log file always captures everything.",
-    )
-
     subparsers = parser.add_subparsers(dest="command", metavar="command")
     subparsers.required = False
 
@@ -225,12 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=4,
         help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
     )
-    p_deploy.add_argument(
-        "--full",
-        action="store_true",
-        default=False,
-        help="Force a full sync, ignoring delta timestamps and checkpoints.",
-    )
+    p_deploy.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_deploy.set_defaults(func=cmd_full_deployment)
 
     # ingest
@@ -256,12 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=4,
         help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
     )
-    p_ingest.add_argument(
-        "--full",
-        action="store_true",
-        default=False,
-        help="Force a full sync, ignoring delta timestamps and checkpoints.",
-    )
+    p_ingest.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_ingest.set_defaults(func=cmd_ingest)
 
     # ingest-item
@@ -274,6 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Salesforce record ID (e.g. 500f6000008iCNYAA2)",
     )
+    p_item.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_item.set_defaults(func=cmd_ingest_item)
 
     # ingest-object
@@ -286,6 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Salesforce object type (e.g. Case, Account, Opportunity)",
     )
+    p_obj.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_obj.set_defaults(func=cmd_ingest_object)
 
     # identity-dry-run
@@ -299,6 +284,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Write crawl results to the SQLite store (without calling Graph APIs).",
     )
+    p_identity.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_identity.set_defaults(func=cmd_identity_dry_run)
 
     return parser

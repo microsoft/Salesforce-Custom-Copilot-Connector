@@ -282,6 +282,10 @@ class IdentityPublisher:
         Synchronous fallback for flattening without AAD resolution.
         Used by identity-dry-run (no Graph client available).
 
+        Only emits user members whose identifier looks like a valid AAD GUID.
+        Non-GUID identifiers (emails, UPNs, SF IDs) are skipped because
+        the Graph external groups API rejects them.
+
         Returns ``{group_id: (display_name, {MemberEntry, ...})}``
         """
         groups: dict[str, tuple[str, set[MemberEntry]]] = {}
@@ -289,31 +293,17 @@ class IdentityPublisher:
         for membership in crawl_result.gathered_groups:
             members: set[MemberEntry] = set()
 
-            # Add user members
+            # Add user members — only GUIDs are valid for Graph
             for user in membership.users:
-                if user.federation_identifier:
+                # Try federation_identifier, then email, then user_name
+                candidate = user.federation_identifier or user.email or user.user_name
+                if candidate and _looks_like_guid(candidate):
                     members.add(MemberEntry(
-                        member_id=user.federation_identifier,
+                        member_id=candidate,
                         member_type="user",
                         identity_source="azureActiveDirectory",
                     ))
-                elif user.email:
-                    members.add(MemberEntry(
-                        member_id=user.email,
-                        member_type="user",
-                        identity_source="azureActiveDirectory",
-                    ))
-                elif user.user_name:
-                    members.add(MemberEntry(
-                        member_id=user.user_name,
-                        member_type="user",
-                        identity_source="azureActiveDirectory",
-                    ))
-                else:
-                    logger.warning(
-                        "[IdentityPublisher] Skipping user %s — no email/UPN/federation ID",
-                        user.id,
-                    )
+                # else: skip — non-GUID identifiers are rejected by Graph
 
             # Add child group members
             for child in membership.child_groups:

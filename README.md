@@ -214,18 +214,23 @@ python run.py full-deployment
 # Full deployment with detailed console output (no dashboard)
 python run.py full-deployment --verbose
 
-# Full deployment with continuous re-ingestion every 24 hours
-python run.py full-deployment --continuous --hours 24
+# Continuous mode (defaults: full every 24h, incremental every 4h)
+python run.py full-deployment --continuous
+
+# Continuous mode with custom schedule
+python run.py full-deployment --continuous --full-crawl-hours 48 --incremental-hours 2
 
 # Re-ingest items only (connection & schema must already exist)
-# Automatically uses delta sync if a previous run succeeded
 python run.py ingest
 
-# Force a full re-sync, ignoring the saved delta timestamp and checkpoint
-python run.py ingest --full
+# Continuous ingestion (defaults: full every 24h, incremental every 4h)
+python run.py ingest --continuous
 
-# Continuous re-ingestion every 12 hours (delta sync on subsequent runs)
-python run.py ingest --continuous --hours 12
+# Preview identity crawl changes without calling Graph APIs
+python run.py identity-dry-run --verbose
+
+# Preview and save crawl data to SQLite (no Graph calls)
+python run.py identity-dry-run --save --verbose
 
 # Debug: ingest a single record by Salesforce ID
 python run.py ingest-item --id 500f6000008iCNYAA2
@@ -305,10 +310,15 @@ Each error is prefixed with `[Graph]` or `[Salesforce]` to identify which API fa
 
 ## ACL Resolution
 
-The connector supports two ACL engines:
+The connector supports three ACL resolution modes:
 
-- **Legacy engine** (default) — `graph/legacy_acl_resolver.py`
-- **New engine** (opt-in) — `acl_engine/` — Set `USE_NEW_ACL_ENGINE=true` in your env config
+| Mode | Environment Variable | Description |
+|------|---------------------|-------------|
+| **Legacy** (default) | *(none)* | User-only ACL via `graph/legacy_acl_resolver.py` |
+| **New user-only** | `USE_NEW_ACL_ENGINE=true` | Modular user-only ACL via `acl_engine/resolver.py` |
+| **Group-based** | `USE_GROUP_ACL=true` | Group-reference ACLs via `acl_engine/group_acl_builder.py` (requires identity crawl) |
+
+### User-only modes (Legacy / New)
 
 Both engines resolve Salesforce's sharing model into Microsoft Graph ACL entries:
 
@@ -317,6 +327,10 @@ Both engines resolve Salesforce's sharing model into Microsoft Graph ACL entries
 3. For Private objects: fetch **owner** + **share table entries**
 4. Expand principals: **users**, **roles**, **territories**, **queues**, **public groups**, **managers**
 5. Map Salesforce User IDs to **Azure AD identities**
+
+### Group-based mode
+
+Instead of expanding groups into individual users, produces ACL entries referencing **external groups** created by the Identity Crawl. The identity crawl only runs on **full sync** cycles (not incremental). The SQLite diff engine ensures minimal Graph API calls.
 
 See [`acl_engine/README.md`](acl_engine/README.md) for detailed flowcharts and sequence diagrams.
 

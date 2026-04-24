@@ -14,10 +14,15 @@ COLLECTION_SCHEMA_TO_ODATA_TYPE = {
 }
 
 def _fallback_acl(tenant_id: str) -> list[dict[str, str]]:
-    """Return a default ACL granting access to everyone in the tenant."""
+    """Return a deny-everyone ACL when no ACL could be resolved.
+
+    Items ingested with this ACL will not appear in any user's search results.
+    This is the safe default — it prevents accidental data exposure when ACL
+    resolution fails.
+    """
     return [
         {
-            "accessType": "grant",
+            "accessType": "deny",
             "type": "everyone",
             "value": tenant_id,
         }

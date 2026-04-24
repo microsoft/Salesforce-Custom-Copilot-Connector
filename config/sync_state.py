@@ -134,15 +134,25 @@ def append_failed_records(
     failures: list[tuple[str, str]] | list[str],
     object_type: str,
     error: str = "",
+    request_bodies: dict[str, Any] | None = None,
+    response_bodies: dict[str, Any] | None = None,
 ) -> None:
     """Append failed items to the dead-letter JSONL file.
 
     *failures* is either:
     - a list of ``(item_id, error_detail)`` tuples (per-item errors), or
     - a plain list of item-ID strings (all share the same *error*).
+
+    *request_bodies* : optional ``{item_id: request_payload}`` dict.
+    *response_bodies* : optional ``{item_id: response_payload}`` dict.
+
+    When provided, the full request and response are included in the JSONL
+    entry for debugging failed Graph API calls.
     """
     if not failures:
         return
+    request_bodies = request_bodies or {}
+    response_bodies = response_bodies or {}
     timestamp = datetime.now(timezone.utc).isoformat()
     with open(file_path, "a", encoding="utf-8") as fh:
         for entry in failures:
@@ -150,12 +160,17 @@ def append_failed_records(
                 item_id, item_error = entry
             else:
                 item_id, item_error = entry, error
-            line = json.dumps({
+            record: dict[str, Any] = {
                 "item_id": item_id,
                 "object_type": object_type,
                 "error": item_error,
                 "timestamp": timestamp,
-            })
+            }
+            if item_id in request_bodies:
+                record["request_body"] = request_bodies[item_id]
+            if item_id in response_bodies:
+                record["response_body"] = response_bodies[item_id]
+            line = json.dumps(record, default=str)
             fh.write(line + "\n")
 
 

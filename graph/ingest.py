@@ -490,6 +490,8 @@ def _ingest_chunk_graph_batch(
             retry_payload: list[dict] = []
             id_to_item = {str(j): item for j, item in enumerate(cur_items)}
             id_to_req = {str(j): req for j, req in enumerate(cur_payload)}
+            failed_request_bodies: dict[str, Any] = {}
+            failed_response_bodies: dict[str, Any] = {}
 
             with stats_lock:
                 for resp in responses:
@@ -525,13 +527,17 @@ def _ingest_chunk_graph_batch(
                         logger.warning("Graph 503 on item %s — will retry", item.get("id", "?"))
 
                     else:
-                        # Permanent failure
+                        # Permanent failure — capture request + response for debugging
                         stats.failed_count += 1
                         fid = item.get("id", "unknown")
                         detail = _extract_error(status, resp)
                         all_failed.append((fid, detail))
                         if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
                             stats.failed_ids.append(fid)
+                        req = id_to_req.get(idx_str)
+                        if req:
+                            failed_request_bodies[fid] = req.get("body", {})
+                        failed_response_bodies[fid] = resp
                         logger.error("Graph batch item %s failed — %s", fid, detail)
 
             total_ok += ok_this_round
@@ -560,7 +566,11 @@ def _ingest_chunk_graph_batch(
             submitted += len(batch_items)
 
         if all_failed and dl_path:
-            append_failed_records(dl_path, all_failed, object_type)
+            append_failed_records(
+                dl_path, all_failed, object_type,
+                request_bodies=failed_request_bodies,
+                response_bodies=failed_response_bodies,
+            )
         if dashboard:
             dashboard.chunk_ingested(object_type, total_ok, len(all_failed))
             for fid, detail in all_failed:

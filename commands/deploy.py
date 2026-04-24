@@ -27,7 +27,7 @@ from graph.client import GraphClient
 from graph.ingest import ingest_content, IngestionStats
 from graph.schema import ensure_schema
 from salesforce.settings import load_config
-from config.sync_state import read_last_sync, write_last_sync, clear_checkpoint, failed_records_path
+from config.sync_state import clear_checkpoint, failed_records_path
 from dashboard import IngestionDashboard, HAS_RICH
 
 # Identity crawl imports (used when USE_GROUP_ACL=true)
@@ -49,13 +49,23 @@ def _clamp(value: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, value))
 
 
-def _run_full_deployment(args) -> bool:
-    """Execute a single full-deployment run. Returns True on success."""
+def _run_full_deployment(args, since: datetime | None = None) -> bool:
+    """Execute a single deployment run.
+
+    Parameters
+    ----------
+    args  : CLI arguments.
+    since : If set, only fetch SF records modified after this time (incremental).
+            None means full crawl.
+    """
     from commands import setup_logging, write_summary, restore_console_logging
+
+    sync_type = "incremental" if since else "full"
 
     verbose = getattr(args, "verbose", False)
     use_dashboard = not verbose and HAS_RICH
-    log_file, summary_file = setup_logging("deployment", verbose=verbose, dashboard_mode=use_dashboard)
+    prefix = "deployment" if sync_type == "full" else "incremental"
+    log_file, summary_file = setup_logging(prefix, verbose=verbose, dashboard_mode=use_dashboard)
     logger = logging.getLogger("deployment")
     progress = logging.getLogger("progress")
     start_time = time.monotonic()
@@ -71,13 +81,11 @@ def _run_full_deployment(args) -> bool:
 
         config = load_config()
 
-        # Delta sync: first deployment is full unless a prior sync exists
-        full_sync = getattr(args, "full", False)
-        since = None if full_sync else read_last_sync(config.connector.id)
-        if full_sync:
+        # Full or incremental based on 'since' parameter
+        if since is None:
             clear_checkpoint(config.connector.id)
 
-        progress.info("Starting full deployment for connector '%s'...", config.connector.id)
+        progress.info("Starting %s deployment for connector '%s'...", sync_type, config.connector.id)
         logger.info("Configuration loaded:")
         logger.info("  Connector ID: %s", config.connector.id)
         logger.info("  Connector Name: %s", config.connector.name)
@@ -154,8 +162,9 @@ def _run_full_deployment(args) -> bool:
             dashboard.start()
 
         try:
-            # Identity Crawl (group-based ACL only, always full)
-            if config.use_group_acl and run_identity_sync is not None:
+            # Identity Crawl: only on full sync, not incremental
+            # Groups don't change frequently, no need to re-crawl every incremental cycle
+            if sync_type == "full" and config.use_group_acl and run_identity_sync is not None:
                 progress.info("  Running identity sync (group-based ACL)...")
                 identity_stats = run_identity_sync(config, client)
                 logger.info(
@@ -164,17 +173,21 @@ def _run_full_deployment(args) -> bool:
                     identity_stats.groups_deleted, identity_stats.groups_unchanged,
                 )
 
-            sync_start = datetime.now(timezone.utc)
+            sync_start = datetime.now(timezone.utc)  # noqa: F841 — used by record_content_crawl via session
             stats = ingest_content(config, client, since=since, dashboard=dashboard)
-            # Only save sync timestamp if the run completed (not stopped by Ctrl+X)
-            if not (dashboard and dashboard.stop_requested):
-                write_last_sync(config.connector.id, sync_start)
         finally:
             if dashboard:
                 dashboard.stop()
                 restore_console_logging()
 
-        logger.info("✓ Ingestion completed")
+        logger.info("Ingestion completed (%s)", sync_type)
+
+        # Record content crawl stats in SQLite
+        if record_content_crawl is not None:
+            try:
+                record_content_crawl(config, stats, sync_type=sync_type)
+            except Exception as rec_err:
+                logger.warning("Could not record content crawl stats: %s", rec_err)
 
         elapsed = time.monotonic() - start_time
         write_summary(summary_file, log_file, stats, connection_status, config.connector.id, elapsed, "FULL DEPLOYMENT")
@@ -197,7 +210,8 @@ def cmd_full_deployment(args) -> bool:
     When ``--continuous`` is passed, the first iteration performs the full
     deployment and subsequent iterations re-ingest on a fixed schedule.
     """
-    success = _run_full_deployment(args)
+    # First run: always full
+    success = _run_full_deployment(args, since=None)
 
     continuous = getattr(args, "continuous", False)
     if not continuous:
@@ -230,8 +244,15 @@ def cmd_full_deployment(args) -> bool:
         elapsed_since_full = time.monotonic() - last_full_time
         if elapsed_since_full >= full_interval:
             progress.info("🔄 Starting scheduled FULL crawl...")
-            _run_full_deployment(args)
+            _run_full_deployment(args, since=None)
             last_full_time = time.monotonic()
         else:
             progress.info("🔄 Starting scheduled INCREMENTAL crawl...")
-            _run_full_deployment(args)
+            since = None
+            if get_last_content_crawl_time is not None:
+                try:
+                    config = load_config()
+                    since = get_last_content_crawl_time(config)
+                except Exception:
+                    pass
+            _run_full_deployment(args, since=since)

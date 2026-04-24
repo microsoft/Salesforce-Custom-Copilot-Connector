@@ -77,20 +77,20 @@ class TestAceFactories:
             "value": "AccountTopLevel",
         }
 
-    def test_user_ace_aad(self):
-        ace = _user_ace_aad("user@tenant.com")
-        assert ace == {
-            "accessType": "grant",
-            "type": "user",
-            "value": "user@tenant.com",
-        }
+    def test_user_ace_aad_with_guid(self):
+        guid = "f1126041-cb51-4f20-82d5-722b4cfcdfa1"
+        ace = _user_ace_aad(guid)
+        assert ace is not None
+        assert ace["value"] == guid
 
-    def test_user_ace_external(self):
+    def test_user_ace_aad_rejects_email(self):
+        ace = _user_ace_aad("user@tenant.com")
+        assert ace is None
+
+    def test_user_ace_external_returns_none(self):
         user = _make_sf_user(user_id="005ABC")
         ace = _user_ace_external(user)
-        assert ace["accessType"] == "grant"
-        assert ace["type"] == "user"
-        assert ace["value"] == "005ABC"
+        assert ace is None
 
 
 # ── PUBLIC OWD tests ─────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ class TestPrivateOwd:
     def test_user_share_adds_user_ace(self):
         user1 = _make_sf_user(
             user_id="005U1",
-            federation_id="user1@tenant.com",
+            federation_id="f1126041-cb51-4f20-82d5-722b4cfcdfa1",
             permission_sets=[{"Id": "ps1"}],
         )
         builder = _make_builder(
@@ -167,12 +167,12 @@ class TestPrivateOwd:
         acl = result["001X"]
         user_aces = [a for a in acl if a["type"] == "user"]
         assert len(user_aces) == 1
-        assert user_aces[0]["value"] == "user1@tenant.com"
+        assert user_aces[0]["value"] == "f1126041-cb51-4f20-82d5-722b4cfcdfa1"
 
     def test_user_share_with_parent_role_adds_role_group(self):
         user1 = _make_sf_user(
             user_id="005U1",
-            federation_id="user1@tenant.com",
+            federation_id="f1126041-cb51-4f20-82d5-722b4cfcdfa1",
             parent_role_id="00E_PARENT",
             permission_sets=[{"Id": "ps1"}],
         )
@@ -453,7 +453,7 @@ class TestControlledByParent:
         assert result["003C1"][0]["value"] == "ContactTopLevel"
 
     def test_controlled_by_parent_with_private_parent_uses_owner(self):
-        owner = _make_sf_user(user_id="005OWNER", federation_id="owner@t.com")
+        owner = _make_sf_user(user_id="005OWNER", federation_id="a2b3c4d5-e6f7-8901-2345-678901234567")
         builder = _make_builder(
             owd_map={
                 "Account": EntityVisibility.NONE,
@@ -466,7 +466,7 @@ class TestControlledByParent:
         result = asyncio.run(builder._build_acl_map("Contact", records, {}))
         acl = result["003C1"]
         assert any(a["value"] == "ContactGlobalUsers" for a in acl)
-        assert any(a["value"] == "owner@t.com" and a["type"] == "user" for a in acl)
+        assert any(a["value"] == "a2b3c4d5-e6f7-8901-2345-678901234567" and a["type"] == "user" for a in acl)
 
     def test_controlled_by_parent_without_owner(self):
         builder = _make_builder(

@@ -26,12 +26,24 @@ from acl_engine.identity_sync import (
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
+import hashlib
+
+
+def _user_guid(user_id: str) -> str:
+    """Return the deterministic GUID that _make_user generates for *user_id*."""
+    h = hashlib.md5(user_id.encode()).hexdigest()
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+
+
 def _make_user(user_id: str = "005A", federation_id: str = "", email: str = "") -> SfUser:
+    """Create a test user with a deterministic GUID-format federation_identifier
+    so the static _flatten_crawl_result (GUID-only filter) keeps the user."""
+    fake_guid = _user_guid(user_id)
     return SfUser(
         id=user_id,
         name="User",
         email=email or f"{user_id.lower()}@test.com",
-        federation_identifier=federation_id,
+        federation_identifier=federation_id or fake_guid,
     )
 
 
@@ -106,11 +118,25 @@ class TestFlattenCrawlResult:
         assert name == "Group One"
         assert len(members) == 2
         ids = {m.member_id for m in members}
-        assert ids == {"005a@test.com", "005b@test.com"}
+        assert ids == {_user_guid("005A"), _user_guid("005B")}
         # All user members should be azureActiveDirectory
         assert all(m.identity_source == "azureActiveDirectory" for m in members)
 
     def test_aad_users_use_federation_id(self):
+        aad_guid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        crawl = _make_crawl_result([
+            GroupMembership(
+                group_id="G1",
+                users=[_make_user("005A", federation_id=aad_guid)],
+            ),
+        ])
+        flat = IdentityPublisher._flatten_crawl_result(crawl)
+        members = flat["G1"][1]
+        m = next(iter(members))
+        assert m.member_id == aad_guid
+        assert m.identity_source == "azureActiveDirectory"
+
+    def test_non_guid_federation_id_is_skipped(self):
         crawl = _make_crawl_result([
             GroupMembership(
                 group_id="G1",
@@ -118,10 +144,8 @@ class TestFlattenCrawlResult:
             ),
         ])
         flat = IdentityPublisher._flatten_crawl_result(crawl)
-        members = flat["G1"][1]
-        m = next(iter(members))
-        assert m.member_id == "alice@tenant.com"
-        assert m.identity_source == "azureActiveDirectory"
+        user_members = [m for m in flat["G1"][1] if m.member_type == "user"]
+        assert len(user_members) == 0  # email filtered out
 
     def test_child_groups_become_external_group_members(self):
         crawl = _make_crawl_result([
@@ -186,7 +210,7 @@ class TestPublishUnchanged:
     def test_no_api_calls_when_unchanged(self, publisher, graph_client, store):
         # Pre-populate store with email-based member (matching what flatten produces)
         store.upsert_group("G1", "Group 1")
-        store.add_member("G1", MemberEntry("005a@test.com", "user", "azureActiveDirectory"))
+        store.add_member("G1", MemberEntry(_user_guid("005A"), "user", "azureActiveDirectory"))
 
         crawl = _make_crawl_result([
             GroupMembership(
@@ -211,8 +235,8 @@ class TestPublishUnchanged:
 class TestPublishUpdate:
     def test_adds_new_members_removes_stale(self, publisher, graph_client, store):
         store.upsert_group("G1")
-        store.add_member("G1", MemberEntry("005a@test.com", "user", "azureActiveDirectory"))
-        store.add_member("G1", MemberEntry("005b@test.com", "user", "azureActiveDirectory"))
+        store.add_member("G1", MemberEntry(_user_guid("005A"), "user", "azureActiveDirectory"))
+        store.add_member("G1", MemberEntry(_user_guid("005B"), "user", "azureActiveDirectory"))
 
         crawl = _make_crawl_result([
             GroupMembership(
@@ -228,7 +252,7 @@ class TestPublishUpdate:
 
         # Store should have the new membership
         member_ids = {m.member_id for m in store.get_members("G1")}
-        assert member_ids == {"005a@test.com", "005c@test.com"}
+        assert member_ids == {_user_guid("005A"), _user_guid("005C")}
 
 
 # ── Publish with stale groups ────────────────────────────────────────────────
@@ -374,7 +398,7 @@ class TestEndToEnd:
 
         # Final store state
         tl_members = {m.member_id for m in store.get_members("AccountTopLevel")}
-        assert tl_members == {"005a@test.com", "005c@test.com", "005d@test.com"}
+        assert tl_members == {_user_guid("005A"), _user_guid("005C"), _user_guid("005D")}
 
     def test_three_crawls_group_lifecycle(self, publisher, graph_client, store):
         """Group created in crawl 1, updated in crawl 2, deleted in crawl 3."""

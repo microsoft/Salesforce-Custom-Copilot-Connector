@@ -32,7 +32,7 @@ def test_full_deployment_sets_func(parser):
 
 
 def test_full_deployment_verbose(parser):
-    args = parser.parse_args(["--verbose", "full-deployment"])
+    args = parser.parse_args(["full-deployment", "--verbose"])
     assert args.verbose is True
     assert args.func is cmd_full_deployment
 
@@ -65,7 +65,8 @@ def test_ingest_object_requires_type(parser):
 
 
 def test_verbose_before_subcommand(parser):
-    args = parser.parse_args(["--verbose", "ingest"])
+    """--verbose after subcommand works."""
+    args = parser.parse_args(["ingest", "--verbose"])
     assert args.verbose is True
     assert args.command == "ingest"
 

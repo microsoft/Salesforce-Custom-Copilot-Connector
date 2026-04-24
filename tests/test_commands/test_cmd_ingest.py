@@ -11,7 +11,7 @@ from graph.ingest import IngestionStats
 
 @pytest.fixture
 def mock_args():
-    return argparse.Namespace(verbose=False, continuous=False, full_crawl_hours=24, incremental_hours=4, full=False)
+    return argparse.Namespace(verbose=False, continuous=False, full_crawl_hours=24, incremental_hours=4)
 
 
 @pytest.fixture

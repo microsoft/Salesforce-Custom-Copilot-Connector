@@ -192,21 +192,28 @@ class GroupAclBuilder:
             shares = record.get("Shares", {})
             share_records = shares.get("records", []) if isinstance(shares, dict) else []
             processed_roles: set[str] = set()
+            acl_failed = False
 
             for share in share_records:
                 uog_id = share.get("UserOrGroupId", "")
                 uog_type = (share.get("UserOrGroup") or {}).get("Type", "")
 
                 if uog_type == "User":
-                    self._process_user_share(
+                    ok = self._process_user_share(
                         acls, uog_id, object_type, processed_roles
                     )
+                    if not ok:
+                        acl_failed = True
+                        break
                 elif uog_type == "Queue":
                     await self._process_group_share(
                         acls, uog_id, object_type, processed_roles
                     )
 
-            acl_map[record_id] = acls
+            if acl_failed:
+                acl_map[record_id] = _deny_everyone_acl()
+            else:
+                acl_map[record_id] = acls
 
         return acl_map
 
@@ -216,19 +223,29 @@ class GroupAclBuilder:
         user_id: str,
         object_type: str,
         processed_roles: set[str],
-    ) -> None:
-        """Add ACEs for a direct user share."""
+    ) -> bool:
+        """Add ACEs for a direct user share.
+
+        Returns True on success, False if user ACE resolution failed
+        (caller should set the entire item ACL to deny-everyone).
+        """
         user = (self._users_by_id or {}).get(user_id)
         frozen = self._frozen_users or set()
 
         if not user or not user.permission_sets or user.id in frozen:
-            return
+            return True  # Skipped user, not a failure
 
-        # Direct user ACE
+        # Direct user ACE (only if resolvable to AAD GUID)
+        ace = None
         if user.federation_identifier:
-            acls.append(_user_ace_aad(user.federation_identifier))
+            ace = _user_ace_aad(user.federation_identifier)
         else:
-            acls.append(_user_ace_external(user))
+            ace = _user_ace_external(user)
+        if ace:
+            acls.append(ace)
+        else:
+            # Cannot resolve user to GUID — ACL resolution failed
+            return False
 
         # Parent role group ACE (hierarchy-based implicit sharing)
         if user.parent_role_id and user.parent_role_id not in processed_roles:
@@ -236,6 +253,8 @@ class GroupAclBuilder:
             acls.append(_group_ace(
                 SfGroupIdFormats.ROLE.format(object_type, user.parent_role_id)
             ))
+
+        return True
 
     async def _process_group_share(
         self,
@@ -318,10 +337,17 @@ class GroupAclBuilder:
             if owner_id:
                 owner = (self._users_by_id or {}).get(owner_id)
                 if owner:
+                    ace = None
                     if owner.federation_identifier:
-                        acls.append(_user_ace_aad(owner.federation_identifier))
+                        ace = _user_ace_aad(owner.federation_identifier)
                     else:
-                        acls.append(_user_ace_external(owner))
+                        ace = _user_ace_external(owner)
+                    if ace:
+                        acls.append(ace)
+                    else:
+                        # Cannot resolve owner to GUID — deny everyone
+                        acl_map[record_id] = _deny_everyone_acl()
+                        continue
 
             acl_map[record_id] = acls
 
@@ -339,6 +365,15 @@ class GroupAclBuilder:
 # ── Module-level ACE factories ────────────────────────────────────────────────
 
 
+def _deny_everyone_acl() -> list[dict[str, str]]:
+    """Return a deny-everyone ACL.
+
+    Used when ACL resolution fails for an item (e.g. user cannot be resolved
+    to an AAD GUID).  The item will be ingested but hidden from all users.
+    """
+    return [{"accessType": "deny", "type": "everyone", "value": "everyone"}]
+
+
 def _group_ace(group_id: str) -> dict[str, str]:
     """Create a Group ACE referencing an external group."""
     return {
@@ -348,8 +383,14 @@ def _group_ace(group_id: str) -> dict[str, str]:
     }
 
 
-def _user_ace_aad(federation_identifier: str) -> dict[str, str]:
-    """Create a User ACE using AAD mail mapping."""
+def _user_ace_aad(federation_identifier: str) -> dict[str, str] | None:
+    """Create a User ACE using AAD identity.
+
+    Returns None if the identifier is not a valid GUID — Graph API rejects
+    non-GUID values with ``InvalidGuid`` error.
+    """
+    if not _looks_like_guid(federation_identifier):
+        return None
     return {
         "accessType": "grant",
         "type": "user",
@@ -357,10 +398,23 @@ def _user_ace_aad(federation_identifier: str) -> dict[str, str]:
     }
 
 
-def _user_ace_external(user: SfUser) -> dict[str, str]:
-    """Create a User ACE with external identity source properties."""
-    return {
-        "accessType": "grant",
-        "type": "user",
-        "value": user.id,
-    }
+def _user_ace_external(user: SfUser) -> dict[str, str] | None:
+    """Create a User ACE with external identity.
+
+    Returns None — raw Salesforce IDs (005...) are never valid GUIDs and
+    Graph API rejects them.  Users without AAD GUIDs should be resolved
+    via the identity crawl group membership instead.
+    """
+    return None
+
+
+def _looks_like_guid(value: str) -> bool:
+    """Return True if *value* looks like an AAD Object GUID."""
+    parts = value.strip().split("-")
+    if len(parts) != 5:
+        return False
+    expected = (8, 4, 4, 4, 12)
+    return all(
+        len(p) == exp and all(c in "0123456789abcdefABCDEF" for c in p)
+        for p, exp in zip(parts, expected)
+    )
