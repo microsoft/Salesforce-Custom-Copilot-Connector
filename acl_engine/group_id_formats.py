@@ -8,6 +8,9 @@ Crawl (group creation) and Content ACL (group references).
 crawl and the content ACL builder.  Any mismatch causes silent authorization
 failures at search time.
 
+**Constraint**: Microsoft Graph external group IDs must contain only ASCII
+alphanumeric characters (no hyphens, underscores, or special characters).
+
 Format placeholders:
     {0} = object name  (e.g. "Account")
     {1} = related ID   (e.g. role ID, group ID, user ID)
@@ -22,45 +25,47 @@ class SfGroupIdFormats:
     Every constant uses ``str.format()`` placeholders:
         {0} = object name  (e.g. "Account")
         {1} = related Salesforce ID  (e.g. role ID, group ID, user ID)
+
+    All IDs are alphanumeric only (Graph API requirement).
     """
 
     # Top-level group (one per object, used in PUBLIC OWD ACLs)
-    TOP_LEVEL = "{0}-TopLevel"
-    # Example: "Account-TopLevel"
+    TOP_LEVEL = "{0}TopLevel"
+    # Example: "AccountTopLevel"
 
     # Global users with ViewAll/ModifyAll (PRIVATE OWD)
-    GLOBAL_USERS = "{0}-GlobalUsers"
-    # Example: "Account-GlobalUsers"
+    GLOBAL_USERS = "{0}GlobalUsers"
+    # Example: "AccountGlobalUsers"
 
     # All internal users (Organization-type share)
-    ALL_INTERNAL_USERS = "{0}-AllInternalUsers"
-    # Example: "Account-AllInternalUsers"
+    ALL_INTERNAL_USERS = "{0}AllInternalUsers"
+    # Example: "AccountAllInternalUsers"
 
     # Role-based groups (with parent role nesting)
-    ROLE = "{0}-{1}-Role"
-    # Example: "Account-00E5g000001ABC-Role"
+    ROLE = "{0}{1}Role"
+    # Example: "Account00E5g000001ABCRole"
 
-    ROLE_AND_SUBORDINATES = "{0}-{1}-RoleAndSubordinates"
-    # Example: "Account-00E5g000001ABC-RoleAndSubordinates"
+    ROLE_AND_SUBORDINATES = "{0}{1}RoleAndSubordinates"
+    # Example: "Account00E5g000001ABCRoleAndSubordinates"
 
     # Role groups WITHOUT parent nesting (used as child of RoleAndSub)
-    ROLE_NO_PARENTS = "{0}-{1}-RoleNoParents"
-    ROLE_AND_SUBORDINATES_NO_PARENTS = "{0}-{1}-RoleAndSubordinatesNoParents"
+    ROLE_NO_PARENTS = "{0}{1}RoleNoParents"
+    ROLE_AND_SUBORDINATES_NO_PARENTS = "{0}{1}RoleAndSubordinatesNoParents"
 
     # Public/Queue groups
-    PUBLIC_GROUP = "{0}-{1}-PublicGroup"
-    # Example: "Account-00G5g000001XYZ-PublicGroup"
+    PUBLIC_GROUP = "{0}{1}PublicGroup"
+    # Example: "Account00G5g000001XYZPublicGroup"
 
     # Manager groups
-    MANAGER = "{0}-{1}-Manager"
-    # Example: "Account-0055g000001DEF-Manager"
+    MANAGER = "{0}{1}Manager"
+    # Example: "Account0055g000001DEFManager"
 
-    MANAGER_AND_SUBORDINATES = "{0}-{1}-ManagerAndSubordinates"
-    # Example: "Account-0055g000001DEF-ManagerAndSubordinates"
+    MANAGER_AND_SUBORDINATES = "{0}{1}ManagerAndSubordinates"
+    # Example: "Account0055g000001DEFManagerAndSubordinates"
 
     # Territory groups
-    TERRITORY = "{0}-{1}-Territory"
-    # Example: "Account-0ML5g000000ABC-Territory"
+    TERRITORY = "{0}{1}Territory"
+    # Example: "Account0ML5g000000ABCTerritory"
 
-    TERRITORY_AND_SUBORDINATES = "{0}-{1}-TerritoryAndSubordinates"
-    # Example: "Account-0ML5g000000ABC-TerritoryAndSubordinates"
+    TERRITORY_AND_SUBORDINATES = "{0}{1}TerritoryAndSubordinates"
+    # Example: "Account0ML5g000000ABCTerritoryAndSubordinates"

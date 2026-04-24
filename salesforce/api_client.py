@@ -4,14 +4,12 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Iterator
 from urllib.parse import urlencode
-import hashlib
 import json
 import logging
 import os
 import queue
 import re
 import threading
-from pathlib import Path
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -44,46 +42,49 @@ def _build_sf_session() -> requests.Session:
 # Thread-safe: urllib3 connection pools are internally locked.
 _sf_session = _build_sf_session()
 
-# ── Per-org, per-object field-list disk cache ──────────────────────────────
+# ── Per-org, per-object field-list cache (SQLite-backed) ───────────────────
 # After the per-field retry loop discovers which fields work for a given org,
-# we persist the final list so subsequent runs skip the retry loop entirely.
-_FIELD_CACHE_DIR = Path("logs")
-
-
-def _field_cache_path(instance_url: str, object_type: str) -> Path:
-    """Return the path for the field-cache file for *instance_url* / *object_type*."""
-    org_hash = hashlib.md5(instance_url.encode()).hexdigest()[:8]
-    return _FIELD_CACHE_DIR / f"sf_fields_{org_hash}_{object_type}.json"
+# we persist the final list in the SQLite state store so subsequent runs skip
+# the retry loop entirely.  The store is located at data/{connection_id}_identity.db.
+#
+# We need a connection_id to open the store, but the cache functions only
+# receive instance_url.  We use a module-level variable that is set when
+# load_config() is called (via the first fetch_salesforce_records call).
+_active_connection_id: str | None = None
 
 
 def _load_field_cache(instance_url: str, object_type: str) -> tuple[str, ...] | None:
-    """Return cached field list or ``None`` if not found / invalid."""
-    path = _field_cache_path(instance_url, object_type)
+    """Return cached field list from SQLite, or ``None`` if not found."""
+    if not _active_connection_id:
+        return None
     try:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, list) and data:
+        from graph.identity_store import create_store
+        with create_store(_active_connection_id) as store:
+            result = store.get_cached_fields(instance_url, object_type)
+            if result:
                 logger.info(
-                    "[FieldCache] Loaded %d cached fields for %s from %s",
-                    len(data), object_type, path.name,
+                    "[FieldCache] Loaded %d cached fields for %s from SQLite",
+                    len(result), object_type,
                 )
-                return tuple(data)
-    except Exception as exc:  # pragma: no cover
+            return result
+    except Exception as exc:
         logger.warning("[FieldCache] Could not load cache for %s: %s", object_type, exc)
     return None
 
 
 def _save_field_cache(instance_url: str, object_type: str, fields: tuple[str, ...]) -> None:
-    """Persist *fields* to disk so the next run can skip the retry loop."""
+    """Persist working field list to SQLite so the next run skips the retry loop."""
+    if not _active_connection_id:
+        return
     try:
-        _FIELD_CACHE_DIR.mkdir(exist_ok=True)
-        path = _field_cache_path(instance_url, object_type)
-        path.write_text(json.dumps(list(fields)), encoding="utf-8")
-        logger.info(
-            "[FieldCache] Saved %d working fields for %s → %s",
-            len(fields), object_type, path.name,
-        )
-    except Exception as exc:  # pragma: no cover
+        from graph.identity_store import create_store
+        with create_store(_active_connection_id) as store:
+            store.save_cached_fields(instance_url, object_type, fields)
+            logger.info(
+                "[FieldCache] Saved %d working fields for %s to SQLite",
+                len(fields), object_type,
+            )
+    except Exception as exc:
         logger.warning("[FieldCache] Could not save cache for %s: %s", object_type, exc)
 
 
@@ -364,6 +365,9 @@ def fetch_salesforce_records(
     since: datetime | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Fetch records for a single Salesforce object, retrying on unsupported-field errors."""
+    global _active_connection_id
+    _active_connection_id = config.connector.id
+
     base_url = config.connector.salesforce.instance_url
     api_version = config.connector.salesforce.api_version
 

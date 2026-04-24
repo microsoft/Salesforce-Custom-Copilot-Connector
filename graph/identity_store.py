@@ -34,6 +34,8 @@ single-writer / multiple-reader pattern used by the connector.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import sqlite3
 import uuid
@@ -175,6 +177,14 @@ CREATE TABLE IF NOT EXISTS sync_sessions (
     content_failed   INTEGER NOT NULL DEFAULT 0,
     content_deleted  INTEGER NOT NULL DEFAULT 0,
     content_acl_engine TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS field_cache (
+    object_type    TEXT NOT NULL,
+    instance_hash  TEXT NOT NULL,
+    fields         TEXT NOT NULL,
+    cached_at      TEXT NOT NULL,
+    PRIMARY KEY (object_type, instance_hash)
 );
 """
 
@@ -531,6 +541,71 @@ class IdentityStore:
         except (ValueError, TypeError):
             return None
 
+    # ── Field cache ─────────────────────────────────────────────────────────
+
+    def get_cached_fields(self, instance_url: str, object_type: str) -> tuple[str, ...] | None:
+        """
+        Return the cached field list for *object_type* at *instance_url*,
+        or ``None`` if no cache entry exists.
+
+        Used by ``salesforce/api_client.py`` to skip the INVALID_FIELD retry
+        loop on subsequent runs.
+        """
+        inst_hash = _instance_hash(instance_url)
+        row = self._conn.execute(
+            "SELECT fields FROM field_cache WHERE object_type = ? AND instance_hash = ?",
+            (object_type, inst_hash),
+        ).fetchone()
+        if row:
+            try:
+                data = json.loads(row[0])
+                if isinstance(data, list) and data:
+                    return tuple(data)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return None
+
+    def save_cached_fields(self, instance_url: str, object_type: str, fields: tuple[str, ...]) -> None:
+        """
+        Persist the working field list for *object_type* so the next run
+        skips the INVALID_FIELD retry loop.
+        """
+        inst_hash = _instance_hash(instance_url)
+        self._conn.execute(
+            """
+            INSERT INTO field_cache (object_type, instance_hash, fields, cached_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(object_type, instance_hash) DO UPDATE SET
+                fields    = excluded.fields,
+                cached_at = excluded.cached_at
+            """,
+            (object_type, inst_hash, json.dumps(list(fields)), _now_iso()),
+        )
+
+    def clear_field_cache(self, instance_url: str | None = None, object_type: str | None = None) -> int:
+        """
+        Clear cached field entries.
+
+        * No args → clear all entries.
+        * *instance_url* only → clear all objects for that org.
+        * Both → clear a specific object.
+
+        Returns the number of entries deleted.
+        """
+        if instance_url and object_type:
+            cur = self._conn.execute(
+                "DELETE FROM field_cache WHERE object_type = ? AND instance_hash = ?",
+                (object_type, _instance_hash(instance_url)),
+            )
+        elif instance_url:
+            cur = self._conn.execute(
+                "DELETE FROM field_cache WHERE instance_hash = ?",
+                (_instance_hash(instance_url),),
+            )
+        else:
+            cur = self._conn.execute("DELETE FROM field_cache")
+        return cur.rowcount
+
     # ── Utility ───────────────────────────────────────────────────────────────
 
     @property
@@ -581,3 +656,8 @@ def create_store(connection_id: str, data_dir: str | Path | None = None) -> Iden
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _instance_hash(instance_url: str) -> str:
+    """Return a short hash of the Salesforce instance URL for cache keying."""
+    return hashlib.md5(instance_url.encode()).hexdigest()[:8]

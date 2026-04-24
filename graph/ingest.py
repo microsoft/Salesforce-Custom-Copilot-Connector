@@ -600,6 +600,7 @@ def _ingest_single_object_type(
     legacy_resolver: LegacyAclResolver | None,
     new_acl_resolver,
     new_acl_mapper,
+    group_acl_builder,
     stats: IngestionStats,
     concurrency: _AdaptiveConcurrency,
     since: datetime | None,
@@ -619,6 +620,7 @@ def _ingest_single_object_type(
     """
     progress = logging.getLogger("progress")
     _USE_NEW_ACL_ENGINE = config.use_new_acl_engine
+    _USE_GROUP_ACL = config.use_group_acl
     chunk_size = config.tuning.ingest_chunk_size
     graph_batch_size = config.tuning.ingest_graph_batch_size
     _connector_id = config.connector.id
@@ -691,7 +693,11 @@ def _ingest_single_object_type(
                 )
                 if dashboard:
                     dashboard.acl_started(object_type, chunk_index, batch_size)
-                if _USE_NEW_ACL_ENGINE:
+                if _USE_GROUP_ACL:
+                    acl_map_by_object = group_acl_builder.resolve({object_type: records})  # type: ignore[union-attr]
+                    acl_map_for_chunk = acl_map_by_object.get(object_type, {})
+                    acl_map_by_object.clear()
+                elif _USE_NEW_ACL_ENGINE:
                     acl_map_by_object = asyncio.run(
                         _resolve_acl_new_engine(
                             config, client, {object_type: records},
@@ -783,7 +789,13 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         logger.info("Full sync (all items)")
 
     _USE_NEW_ACL_ENGINE: bool = config.use_new_acl_engine
-    stats.acl_engine = "NEW (acl_engine)" if _USE_NEW_ACL_ENGINE else "LEGACY"
+    _USE_GROUP_ACL: bool = config.use_group_acl
+    if _USE_GROUP_ACL:
+        stats.acl_engine = "GROUP (group_acl_builder)"
+    elif _USE_NEW_ACL_ENGINE:
+        stats.acl_engine = "NEW (acl_engine)"
+    else:
+        stats.acl_engine = "LEGACY"
 
     chunk_size = config.tuning.ingest_chunk_size
     graph_batch_size = config.tuning.ingest_graph_batch_size
@@ -829,10 +841,30 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         )
         logger.info("New ACL engine initialised (identity cache persists across chunks)")
 
+    # Group ACL builder — initialise once (when USE_GROUP_ACL=true)
+    _group_acl_builder = None
+    if _USE_GROUP_ACL:
+        from acl_engine.group_acl_builder import GroupAclBuilder
+        from acl_engine.salesforce_client import SalesforceClient as _GrpSfClient
+        from salesforce.api_client import get_salesforce_access_token as _grp_get_token
+
+        _grp_sf_client = _GrpSfClient(
+            instance_url=config.connector.salesforce.instance_url,
+            api_version=config.connector.salesforce.api_version,
+            access_token=_grp_get_token(config),
+        )
+        _group_acl_builder = GroupAclBuilder(
+            sf_client=_grp_sf_client,
+            owd_overrides=config.owd_overrides,
+            parent_map=config.parent_map,
+            owd_field_map=config.owd_field_map,
+        )
+        logger.info("Group ACL builder initialised")
+
     # Legacy resolver — initialise once and pre-warm caches before workers start
     legacy_resolver = (
         None
-        if _USE_NEW_ACL_ENGINE
+        if _USE_NEW_ACL_ENGINE or _USE_GROUP_ACL
         else LegacyAclResolver(config, transformer.handlers, graph_client=client)
     )
     if legacy_resolver:
@@ -890,6 +922,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
                 legacy_resolver,
                 _new_acl_resolver,
                 _new_acl_mapper,
+                _group_acl_builder,
                 stats,
                 _concurrency,
                 since,

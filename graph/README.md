@@ -11,19 +11,26 @@ Handles all interactions with the **Microsoft Graph External Connectors API** �
 | `schema.py` | Schema registration via `PATCH /external/connections/{id}/schema` with idempotent creation and retry logic. |
 | `ingest.py` | Main ingestion orchestrator: fetches Salesforce records, resolves ACLs, transforms items, and upserts/deletes via Graph API. Returns `IngestionStats` with success/fail/delete counts. |
 | `legacy_acl_resolver.py` | Legacy ACL resolution pipeline (default) handling OWD, ownership, role hierarchy, sharing rules, groups, territories, and parent inheritance. |
+| `identity.py` | Top-level orchestrator for identity crawl + publish pipeline. Provides `run_identity_sync()`, `record_content_crawl()`, and `get_last_content_crawl_time()`. |
+| `identity_store.py` | SQLite-backed state store for identity crawl group membership, content crawl stats, and sync session history. Computes diffs to minimize Graph API calls. |
+| `identity_publisher.py` | Publishes identity crawl results to Microsoft Graph. Uses PrincipalMapper to resolve SF user IDs → AAD GUIDs, and SQLite diff to only push changes. |
 
 ## Architecture
 
 ```
 run.py → commands/deploy.py
            │
-           ├─ connection.py   → Create/verify external connection
-           ├─ schema.py       → Register connector schema
-           ├─ connection.py   → Configure search result template
-           └─ ingest.py       → Fetch SF records → Resolve ACLs → Transform → PUT items
+           ├─ connection.py          → Create/verify external connection
+           ├─ schema.py              → Register connector schema
+           ├─ connection.py          → Configure search result template
+           ├─ identity.py            → Identity crawl (when USE_GROUP_ACL=true)
+           │    ├─ identity_store.py → SQLite diff (minimize Graph calls)
+           │    └─ identity_publisher.py → PUT/POST/DELETE groups + members
+           └─ ingest.py              → Fetch SF records → Resolve ACLs → Transform → PUT items
                 │
                 ├─ legacy_acl_resolver.py  (default ACL engine)
-                └─ acl_engine/             (new engine, opt-in via USE_NEW_ACL_ENGINE=true)
+                ├─ acl_engine/             (new user-only engine, USE_NEW_ACL_ENGINE=true)
+                └─ acl_engine/group_acl_builder.py  (group ACL, USE_GROUP_ACL=true)
 ```
 
 ## Key Classes

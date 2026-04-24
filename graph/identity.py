@@ -22,6 +22,7 @@ from graph.client import GraphClient
 from graph.identity_publisher import IdentityPublisher
 from graph.identity_store import SyncSessionStats, create_store
 from acl_engine.identity_sync import IdentitySyncHandler
+from acl_engine.principal_mapper import PrincipalMapper
 from acl_engine.salesforce_client import SalesforceClient
 from salesforce.api_client import get_salesforce_access_token
 from salesforce.settings import AppConfig
@@ -89,13 +90,20 @@ def run_identity_sync(config: AppConfig, graph_client: GraphClient) -> SyncSessi
         crawl_result.total_users_emitted,
     )
 
-    # 4. Publish to Graph (diff-based)
+    # 4. Publish to Graph (diff-based, with AAD resolution)
     progress.info("  Publishing identity changes to Graph...")
+    mapper = PrincipalMapper(
+        sf_client=sf_client,
+        graph_client=graph_client,
+        tenant_id=config.tenant_id,
+        batch_size=config.tuning.salesforce_batch_size,
+    )
     with create_store(config.connector.id) as store:
         publisher = IdentityPublisher(
             graph_client=graph_client,
             connection_id=config.connector.id,
             store=store,
+            principal_mapper=mapper,
         )
         stats = publisher.publish(crawl_result)
 

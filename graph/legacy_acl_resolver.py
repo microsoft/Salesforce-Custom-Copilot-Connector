@@ -1073,23 +1073,6 @@ class AclResolver:
                 return False
         return True
 
-
-def _strip_sf_username_suffix(username: str) -> str | None:
-    """
-    Salesforce appends an extra label to the domain to make usernames globally
-    unique (e.g. ``rohith.kakumani.ext@nokia.com.cape2104``).  Strip the trailing
-    label so the result can be matched against a normal AAD UPN / mail address.
-
-    Returns ``None`` when stripping is not applicable (domain has ≤ 2 labels).
-    """
-    if "@" not in username:
-        return None
-    local, domain = username.rsplit("@", 1)
-    labels = domain.split(".")
-    if len(labels) <= 2:
-        return None
-    return f"{local}@{'.' .join(labels[:-1])}"
-
     def _public_acl(self) -> list[dict[str, str]]:
         """Return an ACL list granting access to everyone in the tenant."""
         return [
@@ -1162,3 +1145,20 @@ def _strip_sf_username_suffix(username: str) -> str | None:
         """Return True if the OWD visibility is ControlledByParent."""
         value = visibility.value if isinstance(visibility, EntityVisibility) else str(visibility)
         return value == EntityVisibility.CONTROLLED_BY_PARENT.value
+
+
+def _strip_sf_username_suffix(username: str) -> str | None:
+    """
+    Salesforce appends an extra label to the domain to make usernames globally
+    unique (e.g. ``rohith.kakumani.ext@nokia.com.cape2104``).  Strip the trailing
+    label so the result can be matched against a normal AAD UPN / mail address.
+
+    Returns ``None`` when stripping is not applicable (domain has ≤ 2 labels).
+    """
+    if "@" not in username:
+        return None
+    local, domain = username.rsplit("@", 1)
+    labels = domain.split(".")
+    if len(labels) <= 2:
+        return None
+    return f"{local}@{'.' .join(labels[:-1])}"

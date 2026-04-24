@@ -63,6 +63,7 @@ from acl_engine.identity_sync import (
     IdentityCrawlResult,
 )
 from acl_engine.identity_models import SfUser
+from acl_engine.principal_mapper import PrincipalMapper, _looks_like_guid
 
 logger = logging.getLogger("salesforce_connector.identity_publisher")
 
@@ -80,6 +81,9 @@ class IdentityPublisher:
     connection_id  : The external connection ID in Microsoft Graph.
     store          : ``IdentityStore`` for state tracking.  If None, one is
                      created automatically using ``connection_id``.
+    principal_mapper : ``PrincipalMapper`` for resolving Salesforce User IDs
+                       to AAD GUIDs / UPNs.  Required for user members to be
+                       accepted by the Graph external groups API.
     """
 
     def __init__(
@@ -87,11 +91,14 @@ class IdentityPublisher:
         graph_client: GraphClient,
         connection_id: str,
         store: IdentityStore | None = None,
+        principal_mapper: PrincipalMapper | None = None,
     ) -> None:
         self._client = graph_client
         self._connection_id = connection_id
         self._store = store or create_store(connection_id)
+        # External groups API endpoint
         self._base_path = f"{EXTERNAL_CONNECTIONS_PATH}/{quote(connection_id, safe='')}"
+        self._principal_mapper = principal_mapper
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -108,8 +115,9 @@ class IdentityPublisher:
         stats = SyncSessionStats(session_id=session_id)
 
         try:
-            # Step 1: Convert crawl result to flat map
-            new_groups = self._flatten_crawl_result(crawl_result)
+            # Step 1: Convert crawl result to flat map, resolving SF user IDs → AAD
+            import asyncio
+            new_groups = asyncio.run(self._flatten_crawl_result_async(crawl_result))
 
             logger.info(
                 "[IdentityPublisher] Crawl produced %d group(s) with members",
@@ -134,15 +142,33 @@ class IdentityPublisher:
                 total_api_calls,
             )
 
-            # Step 3: Apply diffs
+            # Step 3: Apply diffs in two passes
+            # Pass 1: Create all new groups and delete stale ones (no members yet)
+            # This ensures child groups exist before parents try to reference them.
             for diff in diffs:
                 if diff.action == "create":
-                    self._apply_create(diff, stats, new_groups)
-                elif diff.action == "update":
-                    self._apply_update(diff, stats, new_groups)
+                    if self._create_group_only(diff.group_id, diff.display_name):
+                        stats.groups_created += 1
+                        stats.api_calls_made += 1
+                    else:
+                        stats.errors += 1
                 elif diff.action == "delete":
                     self._apply_delete(diff, stats)
-                # "unchanged" → skip
+
+            # Pass 2: Add/remove members for created and updated groups
+            for diff in diffs:
+                if diff.action == "create":
+                    all_members = new_groups[diff.group_id][1]
+                    added = self._add_members(diff.group_id, diff.members_to_add)
+                    stats.members_added += added
+                    stats.api_calls_made += len(diff.members_to_add)
+                    if added < len(diff.members_to_add):
+                        stats.errors += len(diff.members_to_add) - added
+                    self._store.upsert_group(diff.group_id, diff.display_name)
+                    self._store.replace_members(diff.group_id, all_members)
+                elif diff.action == "update":
+                    self._apply_update(diff, stats, new_groups)
+                # "unchanged" and "delete" → skip in pass 2
 
             # Step 4: Complete session
             self._store.complete_session(session_id, stats, status="completed")
@@ -166,13 +192,95 @@ class IdentityPublisher:
 
     # ── Crawl result conversion ───────────────────────────────────────────────
 
+    async def _flatten_crawl_result_async(
+        self,
+        crawl_result: IdentityCrawlResult,
+    ) -> dict[str, tuple[str, set[MemberEntry]]]:
+        """
+        Convert an ``IdentityCrawlResult`` into a flat dict suitable for
+        diff computation, resolving Salesforce User IDs to AAD identifiers.
+
+        Uses ``PrincipalMapper`` (when available) to resolve each SF user ID
+        to an AAD GUID, UPN, or email.  The Graph external groups API requires
+        ``identitySource: azureActiveDirectory`` for user members — raw
+        Salesforce IDs (``005...``) are not accepted.
+
+        Returns ``{group_id: (display_name, {MemberEntry, ...})}``
+        """
+        # If no PrincipalMapper, fall back to static method (dry-run / tests)
+        if not self._principal_mapper:
+            return self._flatten_crawl_result(crawl_result)
+
+        # Collect all unique SF user IDs across all groups
+        all_user_ids: set[str] = set()
+        for membership in crawl_result.gathered_groups:
+            for user in membership.users:
+                all_user_ids.add(user.id)
+
+        # Bulk-resolve SF user IDs → AAD identifiers via PrincipalMapper
+        resolved_map: dict[str, str] = {}
+        if self._principal_mapper and all_user_ids:
+            # Pre-warm the mapper's cache with all user IDs at once
+            await self._principal_mapper.prewarm_users(all_user_ids)
+
+            # Resolve each user to an AAD identifier
+            for uid in all_user_ids:
+                details = self._principal_mapper._user_details_cache.get(uid)
+                if details:
+                    import asyncio
+                    aad_id = await asyncio.to_thread(
+                        self._principal_mapper._resolve_principal, details
+                    )
+                    if aad_id:
+                        resolved_map[uid] = aad_id
+
+            logger.info(
+                "[IdentityPublisher] Resolved %d/%d SF user IDs to AAD identifiers",
+                len(resolved_map), len(all_user_ids),
+            )
+
+        # Build the flat group map
+        groups: dict[str, tuple[str, set[MemberEntry]]] = {}
+
+        for membership in crawl_result.gathered_groups:
+            members: set[MemberEntry] = set()
+
+            for user in membership.users:
+                aad_id = resolved_map.get(user.id)
+                if aad_id and _looks_like_guid(aad_id):
+                    # Resolved to AAD GUID — the only format Graph accepts for users
+                    members.add(MemberEntry(
+                        member_id=aad_id,
+                        member_type="user",
+                        identity_source="azureActiveDirectory",
+                    ))
+                else:
+                    # Could not resolve to GUID — skip this user
+                    # Graph rejects emails/UPNs with "InvalidGuidForAadMemberType"
+                    logger.debug(
+                        "[IdentityPublisher] Skipping user %s — no AAD GUID resolved (got: %s)",
+                        user.id, aad_id,
+                    )
+
+            # Add child group members (always external identity source)
+            for child in membership.child_groups:
+                members.add(MemberEntry(
+                    member_id=child.group_id,
+                    member_type="externalGroup",
+                    identity_source="external",
+                ))
+
+            groups[membership.group_id] = (membership.display_name, members)
+
+        return groups
+
     @staticmethod
     def _flatten_crawl_result(
         crawl_result: IdentityCrawlResult,
     ) -> dict[str, tuple[str, set[MemberEntry]]]:
         """
-        Convert an ``IdentityCrawlResult`` into a flat dict suitable for
-        diff computation.
+        Synchronous fallback for flattening without AAD resolution.
+        Used by identity-dry-run (no Graph client available).
 
         Returns ``{group_id: (display_name, {MemberEntry, ...})}``
         """
@@ -189,12 +297,23 @@ class IdentityPublisher:
                         member_type="user",
                         identity_source="azureActiveDirectory",
                     ))
-                else:
+                elif user.email:
                     members.add(MemberEntry(
-                        member_id=user.id,
+                        member_id=user.email,
                         member_type="user",
-                        identity_source="external",
+                        identity_source="azureActiveDirectory",
                     ))
+                elif user.user_name:
+                    members.add(MemberEntry(
+                        member_id=user.user_name,
+                        member_type="user",
+                        identity_source="azureActiveDirectory",
+                    ))
+                else:
+                    logger.warning(
+                        "[IdentityPublisher] Skipping user %s — no email/UPN/federation ID",
+                        user.id,
+                    )
 
             # Add child group members
             for child in membership.child_groups:
@@ -283,24 +402,38 @@ class IdentityPublisher:
 
     # ── Graph API wrappers ────────────────────────────────────────────────────
 
+    def _create_group_only(self, group_id: str, display_name: str) -> bool:
+        """
+        Create an external group (without adding members).
+
+        ``POST /external/connections/{connId}/groups``
+
+        Called in Pass 1 to ensure all groups exist before Pass 2 adds
+        members (child group references require the target group to exist).
+        """
+        return self._put_group(group_id, display_name)
+
     def _put_group(self, group_id: str, display_name: str) -> bool:
         """
-        Create or replace an external group.
+        Create an external group.
 
-        ``PUT /external/connections/{connId}/groups/{groupId}``
+        ``POST /external/connections/{connId}/groups``
         """
-        url = f"{self._base_path}/groups/{quote(group_id, safe='')}"
+        url = f"{self._base_path}/groups"
         payload = {
             "id": group_id,
             "displayName": display_name or group_id,
-            "description": f"Salesforce sharing group: {group_id}",
         }
         try:
-            self._client.put(url, json_body=payload)
-            logger.info("[IdentityPublisher] PUT group %s", group_id)
+            self._client.post(url, json_body=payload)
+            logger.info("[IdentityPublisher] POST group %s", group_id)
             return True
         except GraphApiError as e:
-            logger.error("[IdentityPublisher] PUT group %s failed: %s", group_id, e)
+            if e.status_code == 409:
+                # Group already exists — treat as success
+                logger.info("[IdentityPublisher] Group %s already exists (409)", group_id)
+                return True
+            logger.error("[IdentityPublisher] POST group %s failed [%s]: %s", group_id, e.status_code, e)
             return False
 
     def _delete_group(self, group_id: str) -> bool:
@@ -401,22 +534,38 @@ class IdentityPublisher:
 
 def _build_member_payload(member: MemberEntry) -> dict[str, str]:
     """
-    Build the JSON payload for a POST member call.
+    Build the JSON payload for adding a member to an external group.
 
-    External users::
+    The Microsoft Graph external groups API accepts these formats:
 
-        {"id": "<sf_user_id>", "type": "user", "identitySource": "external"}
+    AAD users (id MUST be an AAD Object GUID)::
 
-    AAD users::
+        {
+            "id": "<aad-object-guid>",
+            "type": "user",
+            "identitySource": "azureActiveDirectory"
+        }
 
-        {"id": "<email>", "type": "user", "identitySource": "azureActiveDirectory"}
+    External groups (nested)::
 
-    Nested groups::
+        {
+            "id": "<group_id>",
+            "type": "externalGroup",
+            "identitySource": "external"
+        }
 
-        {"id": "<group_format_id>", "type": "externalGroup", "identitySource": "external"}
+    Note: ``@odata.type`` is NOT needed.  AAD users require the GUID — emails
+    and UPNs are rejected with ``InvalidGuidForAadMemberType``.
     """
-    return {
-        "id": member.member_id,
-        "type": member.member_type,
-        "identitySource": member.identity_source,
-    }
+    if member.member_type == "externalGroup":
+        return {
+            "id": member.member_id,
+            "type": "externalGroup",
+            "identitySource": "external",
+        }
+    else:
+        return {
+            "id": member.member_id,
+            "type": member.member_type,
+            "identitySource": member.identity_source,
+        }

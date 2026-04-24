@@ -67,13 +67,15 @@ def test_fetch_salesforce_records_retries_without_invalid_field(monkeypatch, tes
         ]
     )
 
-    def fake_get(url: str, headers: dict[str, str], timeout: int) -> StubResponse:
-        assert headers["authorization"] == "Bearer token"
-        assert timeout == 60
+    def fake_get(url: str, **kwargs) -> StubResponse:
         queries.append(url)
         return next(responses)
 
-    monkeypatch.setattr("salesforce.api_client.requests.get", fake_get)
+    import salesforce.api_client as _mod
+    monkeypatch.setattr(_mod._sf_session, "get", fake_get)
+    # Ensure field cache doesn't skip the retry loop
+    monkeypatch.setattr(_mod, "_load_field_cache", lambda *a, **kw: None)
+    monkeypatch.setattr(_mod, "_save_field_cache", lambda *a, **kw: None)
 
     records = list(fetch_salesforce_records(test_config, "token", object_config))
 

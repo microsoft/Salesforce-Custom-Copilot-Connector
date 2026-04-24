@@ -30,10 +30,23 @@ from salesforce.settings import load_config
 from config.sync_state import read_last_sync, write_last_sync, clear_checkpoint, failed_records_path
 from dashboard import IngestionDashboard, HAS_RICH
 
+# Identity crawl imports (used when USE_GROUP_ACL=true)
+try:
+    from graph.identity import run_identity_sync, record_content_crawl, get_last_content_crawl_time
+except ImportError:
+    run_identity_sync = None  # type: ignore[assignment]
+    record_content_crawl = None  # type: ignore[assignment]
+    get_last_content_crawl_time = None  # type: ignore[assignment]
+
 
 def _clamp_hours(hours: int) -> int:
     """Clamp hours to the valid range [12, 168]."""
     return max(12, min(168, hours))
+
+
+def _clamp(value: int, lo: int, hi: int) -> int:
+    """Clamp *value* to [lo, hi]."""
+    return max(lo, min(hi, value))
 
 
 def _run_full_deployment(args) -> bool:
@@ -141,6 +154,16 @@ def _run_full_deployment(args) -> bool:
             dashboard.start()
 
         try:
+            # Identity Crawl (group-based ACL only, always full)
+            if config.use_group_acl and run_identity_sync is not None:
+                progress.info("  Running identity sync (group-based ACL)...")
+                identity_stats = run_identity_sync(config, client)
+                logger.info(
+                    "Identity sync: created=%d updated=%d deleted=%d unchanged=%d",
+                    identity_stats.groups_created, identity_stats.groups_updated,
+                    identity_stats.groups_deleted, identity_stats.groups_unchanged,
+                )
+
             sync_start = datetime.now(timezone.utc)
             stats = ingest_content(config, client, since=since, dashboard=dashboard)
             # Only save sync timestamp if the run completed (not stopped by Ctrl+X)
@@ -182,15 +205,33 @@ def cmd_full_deployment(args) -> bool:
 
     from commands import reset_logging
 
-    hours = _clamp_hours(getattr(args, "hours", 12))
-    interval_seconds = hours * 3600
+    full_hours = _clamp(getattr(args, "full_crawl_hours", 24), 12, 168)
+    incr_hours = _clamp(getattr(args, "incremental_hours", 4), 1, 168)
+    incr_interval = incr_hours * 3600
+    full_interval = full_hours * 3600
+
     progress = logging.getLogger("progress")
-    progress.info("\n🔁 Continuous mode enabled — re-ingesting every %d hour(s). Press Ctrl+C to stop.\n", hours)
+    progress.info(
+        "\n🔁 Continuous mode enabled:\n"
+        "   Full crawl every %d hour(s)\n"
+        "   Incremental crawl every %d hour(s)\n"
+        "   Press Ctrl+C to stop.\n",
+        full_hours, incr_hours,
+    )
+
+    last_full_time = time.monotonic()
 
     while True:
-        progress.info("⏳ Next ingestion in %d hour(s)...", hours)
-        time.sleep(interval_seconds)
+        progress.info("⏳ Next incremental crawl in %d hour(s)...", incr_hours)
+        time.sleep(incr_interval)
 
         reset_logging()
-        progress.info("🔄 Starting scheduled re-ingestion...")
-        _run_full_deployment(args)
+
+        elapsed_since_full = time.monotonic() - last_full_time
+        if elapsed_since_full >= full_interval:
+            progress.info("🔄 Starting scheduled FULL crawl...")
+            _run_full_deployment(args)
+            last_full_time = time.monotonic()
+        else:
+            progress.info("🔄 Starting scheduled INCREMENTAL crawl...")
+            _run_full_deployment(args)

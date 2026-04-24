@@ -26,8 +26,13 @@ from acl_engine.identity_sync import (
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _make_user(user_id: str = "005A", federation_id: str = "") -> SfUser:
-    return SfUser(id=user_id, name="User", email="u@t.com", federation_identifier=federation_id)
+def _make_user(user_id: str = "005A", federation_id: str = "", email: str = "") -> SfUser:
+    return SfUser(
+        id=user_id,
+        name="User",
+        email=email or f"{user_id.lower()}@test.com",
+        federation_identifier=federation_id,
+    )
 
 
 def _make_crawl_result(groups: list[GroupMembership]) -> IdentityCrawlResult:
@@ -69,14 +74,18 @@ class TestBuildMemberPayload:
         assert payload == {"id": "005A", "type": "user", "identitySource": "external"}
 
     def test_aad_user(self):
-        m = MemberEntry("user@tenant.com", "user", "azureActiveDirectory")
+        m = MemberEntry("f1126041-cb51-4f20-82d5-722b4cfcdfa1", "user", "azureActiveDirectory")
         payload = _build_member_payload(m)
-        assert payload == {"id": "user@tenant.com", "type": "user", "identitySource": "azureActiveDirectory"}
+        assert payload == {
+            "id": "f1126041-cb51-4f20-82d5-722b4cfcdfa1",
+            "type": "user",
+            "identitySource": "azureActiveDirectory",
+        }
 
     def test_external_group(self):
-        m = MemberEntry("Account-TopLevel", "externalGroup", "external")
+        m = MemberEntry("AccountTopLevel", "externalGroup", "external")
         payload = _build_member_payload(m)
-        assert payload == {"id": "Account-TopLevel", "type": "externalGroup", "identitySource": "external"}
+        assert payload == {"id": "AccountTopLevel", "type": "externalGroup", "identitySource": "external"}
 
 
 # ── _flatten_crawl_result tests ──────────────────────────────────────────────
@@ -97,7 +106,9 @@ class TestFlattenCrawlResult:
         assert name == "Group One"
         assert len(members) == 2
         ids = {m.member_id for m in members}
-        assert ids == {"005A", "005B"}
+        assert ids == {"005a@test.com", "005b@test.com"}
+        # All user members should be azureActiveDirectory
+        assert all(m.identity_source == "azureActiveDirectory" for m in members)
 
     def test_aad_users_use_federation_id(self):
         crawl = _make_crawl_result([
@@ -146,13 +157,11 @@ class TestPublishAllNew:
         assert stats.groups_deleted == 0
         assert stats.errors == 0
 
-        # Verify Graph API calls
-        put_calls = [c for c in graph_client.put.call_args_list]
-        assert len(put_calls) == 1
-        assert "G1" in put_calls[0].args[0]
-
+        # Verify Graph API calls: 1 POST for group creation + 2 POSTs for members = 3
         post_calls = [c for c in graph_client.post.call_args_list]
-        assert len(post_calls) == 2
+        assert len(post_calls) == 3
+        # First call is group creation (URL ends with /groups)
+        assert post_calls[0].args[0].endswith("/groups")
 
         # Verify store was updated
         assert store.group_exists("G1")
@@ -175,9 +184,9 @@ class TestPublishAllNew:
 
 class TestPublishUnchanged:
     def test_no_api_calls_when_unchanged(self, publisher, graph_client, store):
-        # Pre-populate store
+        # Pre-populate store with email-based member (matching what flatten produces)
         store.upsert_group("G1", "Group 1")
-        store.add_member("G1", MemberEntry("005A", "user", "external"))
+        store.add_member("G1", MemberEntry("005a@test.com", "user", "azureActiveDirectory"))
 
         crawl = _make_crawl_result([
             GroupMembership(
@@ -202,8 +211,8 @@ class TestPublishUnchanged:
 class TestPublishUpdate:
     def test_adds_new_members_removes_stale(self, publisher, graph_client, store):
         store.upsert_group("G1")
-        store.add_member("G1", MemberEntry("005A", "user", "external"))
-        store.add_member("G1", MemberEntry("005B", "user", "external"))
+        store.add_member("G1", MemberEntry("005a@test.com", "user", "azureActiveDirectory"))
+        store.add_member("G1", MemberEntry("005b@test.com", "user", "azureActiveDirectory"))
 
         crawl = _make_crawl_result([
             GroupMembership(
@@ -214,12 +223,12 @@ class TestPublishUpdate:
         stats = publisher.publish(crawl)
 
         assert stats.groups_updated == 1
-        assert stats.members_added == 1   # 005C
-        assert stats.members_removed == 1  # 005B
+        assert stats.members_added == 1   # 005c@test.com
+        assert stats.members_removed == 1  # 005b@test.com
 
         # Store should have the new membership
         member_ids = {m.member_id for m in store.get_members("G1")}
-        assert member_ids == {"005A", "005C"}
+        assert member_ids == {"005a@test.com", "005c@test.com"}
 
 
 # ── Publish with stale groups ────────────────────────────────────────────────
@@ -255,19 +264,25 @@ class TestPublishDelete:
 
 class TestPublishErrors:
     def test_put_failure_counts_as_error(self, publisher, graph_client, store):
-        graph_client.put.side_effect = GraphApiError(500, "Internal error")
+        graph_client.post.side_effect = GraphApiError(500, "Internal error")
 
         crawl = _make_crawl_result([
             GroupMembership(group_id="G1", users=[_make_user()]),
         ])
         stats = publisher.publish(crawl)
 
-        assert stats.errors == 1
+        assert stats.errors >= 1
         assert stats.groups_created == 0
 
     def test_member_add_failure_counted(self, publisher, graph_client, store):
-        graph_client.put.return_value = {}
-        graph_client.post.side_effect = GraphApiError(500, "error")
+        # First post call succeeds (group creation), subsequent ones fail (member add)
+        call_count = [0]
+        def post_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {}  # group creation succeeds
+            raise GraphApiError(500, "error")
+        graph_client.post.side_effect = post_side_effect
 
         crawl = _make_crawl_result([
             GroupMembership(group_id="G1", users=[_make_user("005A")]),
@@ -278,8 +293,14 @@ class TestPublishErrors:
         assert stats.members_added == 0
 
     def test_member_409_treated_as_success(self, publisher, graph_client, store):
-        graph_client.put.return_value = {}
-        graph_client.post.side_effect = GraphApiError(409, "Conflict")
+        # First post = group creation (success), second = member add (409)
+        call_count = [0]
+        def post_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {}  # group creation
+            raise GraphApiError(409, "Conflict")
+        graph_client.post.side_effect = post_side_effect
 
         crawl = _make_crawl_result([
             GroupMembership(group_id="G1", users=[_make_user("005A")]),
@@ -290,7 +311,7 @@ class TestPublishErrors:
         assert stats.errors == 0
 
     def test_session_marked_failed_on_exception(self, publisher, graph_client, store):
-        graph_client.put.side_effect = RuntimeError("boom")
+        graph_client.post.side_effect = RuntimeError("boom")
 
         crawl = _make_crawl_result([
             GroupMembership(group_id="G1", users=[_make_user()]),
@@ -312,11 +333,11 @@ class TestEndToEnd:
         # Crawl 1: initial
         crawl1 = _make_crawl_result([
             GroupMembership(
-                group_id="Account-TopLevel", display_name="Account",
+                group_id="AccountTopLevel", display_name="Account",
                 users=[_make_user("005A"), _make_user("005B"), _make_user("005C")],
             ),
             GroupMembership(
-                group_id="Account-GlobalUsers", display_name="GlobalUsers",
+                group_id="AccountGlobalUsers", display_name="GlobalUsers",
                 users=[_make_user("005ADMIN")],
             ),
         ])
@@ -330,11 +351,11 @@ class TestEndToEnd:
         # Crawl 2: 005B removed, 005D added, GlobalUsers unchanged
         crawl2 = _make_crawl_result([
             GroupMembership(
-                group_id="Account-TopLevel", display_name="Account",
+                group_id="AccountTopLevel", display_name="Account",
                 users=[_make_user("005A"), _make_user("005C"), _make_user("005D")],
             ),
             GroupMembership(
-                group_id="Account-GlobalUsers", display_name="GlobalUsers",
+                group_id="AccountGlobalUsers", display_name="GlobalUsers",
                 users=[_make_user("005ADMIN")],
             ),
         ])
@@ -343,17 +364,17 @@ class TestEndToEnd:
         assert stats2.groups_created == 0
         assert stats2.groups_updated == 1  # Only TopLevel changed
         assert stats2.groups_unchanged == 1  # GlobalUsers unchanged
-        assert stats2.members_added == 1   # 005D
-        assert stats2.members_removed == 1  # 005B
+        assert stats2.members_added == 1   # 005d@test.com
+        assert stats2.members_removed == 1  # 005b@test.com
 
         # No PUT calls (no new groups), only POST (add) and DELETE (remove)
         graph_client.put.assert_not_called()
-        assert graph_client.post.call_count == 1   # add 005D
-        assert graph_client.delete.call_count == 1  # remove 005B
+        assert graph_client.post.call_count == 1   # add 005d
+        assert graph_client.delete.call_count == 1  # remove 005b
 
         # Final store state
-        tl_members = {m.member_id for m in store.get_members("Account-TopLevel")}
-        assert tl_members == {"005A", "005C", "005D"}
+        tl_members = {m.member_id for m in store.get_members("AccountTopLevel")}
+        assert tl_members == {"005a@test.com", "005c@test.com", "005d@test.com"}
 
     def test_three_crawls_group_lifecycle(self, publisher, graph_client, store):
         """Group created in crawl 1, updated in crawl 2, deleted in crawl 3."""

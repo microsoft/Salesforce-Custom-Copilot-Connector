@@ -70,11 +70,11 @@ def _make_builder(
 
 class TestAceFactories:
     def test_group_ace(self):
-        ace = _group_ace("Account-TopLevel")
+        ace = _group_ace("AccountTopLevel")
         assert ace == {
             "accessType": "grant",
             "type": "externalGroup",
-            "value": "Account-TopLevel",
+            "value": "AccountTopLevel",
         }
 
     def test_user_ace_aad(self):
@@ -105,20 +105,20 @@ class TestPublicOwd:
 
         assert "001ABC" in result
         assert len(result["001ABC"]) == 1
-        assert result["001ABC"][0]["value"] == "Account-TopLevel"
+        assert result["001ABC"][0]["value"] == "AccountTopLevel"
         assert result["001ABC"][0]["type"] == "externalGroup"
 
     def test_edit_owd_is_public(self):
         builder = _make_builder(owd_map={"Lead": EntityVisibility.EDIT})
         records = [{"Id": "00Q001"}]
         result = asyncio.run(builder._build_acl_map("Lead", records, {}))
-        assert result["00Q001"][0]["value"] == "Lead-TopLevel"
+        assert result["00Q001"][0]["value"] == "LeadTopLevel"
 
     def test_read_edit_transfer_owd_is_public(self):
         builder = _make_builder(owd_map={"Case": EntityVisibility.READ_EDIT_TRANSFER})
         records = [{"Id": "500001"}]
         result = asyncio.run(builder._build_acl_map("Case", records, {}))
-        assert result["500001"][0]["value"] == "Case-TopLevel"
+        assert result["500001"][0]["value"] == "CaseTopLevel"
 
     def test_multiple_records_all_get_same_acl(self):
         builder = _make_builder(owd_map={"Account": EntityVisibility.READ})
@@ -126,7 +126,7 @@ class TestPublicOwd:
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         assert len(result) == 3
         for record_id in ("001A", "001B", "001C"):
-            assert result[record_id][0]["value"] == "Account-TopLevel"
+            assert result[record_id][0]["value"] == "AccountTopLevel"
 
 
 # ── PRIVATE OWD tests ────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ class TestPrivateOwd:
         records = [{"Id": "001X", "Shares": {"records": []}}]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         acl = result["001X"]
-        assert any(a["value"] == "Account-GlobalUsers" for a in acl)
+        assert any(a["value"] == "AccountGlobalUsers" for a in acl)
 
     def test_user_share_adds_user_ace(self):
         user1 = _make_sf_user(
@@ -192,7 +192,7 @@ class TestPrivateOwd:
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         acl = result["001X"]
         group_values = [a["value"] for a in acl if a["type"] == "externalGroup"]
-        assert "Account-00E_PARENT-Role" in group_values
+        assert "Account00E_PARENTRole" in group_values
 
     def test_frozen_user_share_is_skipped(self):
         user1 = _make_sf_user(user_id="005FROZEN", permission_sets=[{"Id": "ps1"}])
@@ -257,7 +257,7 @@ class TestPrivateOwd:
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         acl = result["001X"]
         group_values = [a["value"] for a in acl if a["type"] == "externalGroup"]
-        assert "Account-00E_ROLE1-Role" in group_values
+        assert "Account00E_ROLE1Role" in group_values
 
     def test_group_share_organization_adds_all_internal_users(self):
         group = SfGroup(
@@ -280,7 +280,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account-AllInternalUsers" in group_values
+        assert "AccountAllInternalUsers" in group_values
 
     def test_group_share_manager_adds_manager_group(self):
         group = SfGroup(
@@ -304,7 +304,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account-005MGR1-Manager" in group_values
+        assert "Account005MGR1Manager" in group_values
 
     def test_group_share_role_and_subordinates(self):
         group = SfGroup(
@@ -328,7 +328,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account-00E_RAS_ROLE-RoleAndSubordinates" in group_values
+        assert "Account00E_RAS_ROLERoleAndSubordinates" in group_values
 
     def test_group_share_public_group(self):
         group = SfGroup(
@@ -351,7 +351,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account-00G_PG-PublicGroup" in group_values
+        assert "Account00G_PGPublicGroup" in group_values
 
     def test_no_shares_still_has_global_users(self):
         builder = _make_builder(
@@ -361,7 +361,7 @@ class TestPrivateOwd:
         records = [{"Id": "001EMPTY", "Shares": {"records": []}}]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         assert len(result["001EMPTY"]) == 1
-        assert result["001EMPTY"][0]["value"] == "Account-GlobalUsers"
+        assert result["001EMPTY"][0]["value"] == "AccountGlobalUsers"
 
     def test_group_share_territory(self):
         group = SfGroup(
@@ -385,7 +385,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account-0ML_TERR1-Territory" in group_values
+        assert "Account0ML_TERR1Territory" in group_values
 
     def test_group_share_territory_and_subordinates(self):
         group = SfGroup(
@@ -409,7 +409,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account-0ML_TERR2-TerritoryAndSubordinates" in group_values
+        assert "Account0ML_TERR2TerritoryAndSubordinates" in group_values
 
     def test_group_share_territory_and_subordinates_internal(self):
         group = SfGroup(
@@ -433,7 +433,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account-0ML_TERR3-TerritoryAndSubordinates" in group_values
+        assert "Account0ML_TERR3TerritoryAndSubordinates" in group_values
 
 
 # ── CONTROLLED BY PARENT tests ───────────────────────────────────────────────
@@ -450,7 +450,7 @@ class TestControlledByParent:
         )
         records = [{"Id": "003C1"}]
         result = asyncio.run(builder._build_acl_map("Contact", records, {}))
-        assert result["003C1"][0]["value"] == "Contact-TopLevel"
+        assert result["003C1"][0]["value"] == "ContactTopLevel"
 
     def test_controlled_by_parent_with_private_parent_uses_owner(self):
         owner = _make_sf_user(user_id="005OWNER", federation_id="owner@t.com")
@@ -465,7 +465,7 @@ class TestControlledByParent:
         records = [{"Id": "003C1", "OwnerId": "005OWNER"}]
         result = asyncio.run(builder._build_acl_map("Contact", records, {}))
         acl = result["003C1"]
-        assert any(a["value"] == "Contact-GlobalUsers" for a in acl)
+        assert any(a["value"] == "ContactGlobalUsers" for a in acl)
         assert any(a["value"] == "owner@t.com" and a["type"] == "user" for a in acl)
 
     def test_controlled_by_parent_without_owner(self):
@@ -482,7 +482,7 @@ class TestControlledByParent:
         acl = result["003C1"]
         # Only GlobalUsers, no owner
         assert len(acl) == 1
-        assert acl[0]["value"] == "Contact-GlobalUsers"
+        assert acl[0]["value"] == "ContactGlobalUsers"
 
 
 # ── OWD override tests ──────────────────────────────────────────────────────
@@ -499,7 +499,7 @@ class TestOWDOverrides:
         records = [{"Id": "001X", "Shares": {"records": []}}]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         # Should get GlobalUsers (private) not TopLevel (public)
-        assert result["001X"][0]["value"] == "Account-GlobalUsers"
+        assert result["001X"][0]["value"] == "AccountGlobalUsers"
 
 
 # ── Group ID consistency test ────────────────────────────────────────────────

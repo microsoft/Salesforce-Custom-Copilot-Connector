@@ -413,3 +413,60 @@ class TestStats:
 
         stats = store.get_stats()
         assert stats == {"groups": 2, "members": 3}
+
+
+# ── Field cache tests ────────────────────────────────────────────────────────
+
+
+class TestFieldCache:
+    def test_no_cache_returns_none(self, store):
+        assert store.get_cached_fields("https://org.salesforce.com", "Account") is None
+
+    def test_save_and_load(self, store):
+        url = "https://myorg.my.salesforce.com"
+        store.save_cached_fields(url, "Account", ("Id", "Name", "Industry"))
+        result = store.get_cached_fields(url, "Account")
+        assert result == ("Id", "Name", "Industry")
+
+    def test_different_objects_isolated(self, store):
+        url = "https://org.salesforce.com"
+        store.save_cached_fields(url, "Account", ("Id", "Name"))
+        store.save_cached_fields(url, "Lead", ("Id", "Email"))
+        assert store.get_cached_fields(url, "Account") == ("Id", "Name")
+        assert store.get_cached_fields(url, "Lead") == ("Id", "Email")
+
+    def test_different_orgs_isolated(self, store):
+        store.save_cached_fields("https://org1.salesforce.com", "Account", ("Id", "Name"))
+        store.save_cached_fields("https://org2.salesforce.com", "Account", ("Id", "Website"))
+        assert store.get_cached_fields("https://org1.salesforce.com", "Account") == ("Id", "Name")
+        assert store.get_cached_fields("https://org2.salesforce.com", "Account") == ("Id", "Website")
+
+    def test_upsert_overwrites(self, store):
+        url = "https://org.salesforce.com"
+        store.save_cached_fields(url, "Account", ("Id", "Name", "Phone"))
+        store.save_cached_fields(url, "Account", ("Id", "Name"))
+        assert store.get_cached_fields(url, "Account") == ("Id", "Name")
+
+    def test_clear_specific_object(self, store):
+        url = "https://org.salesforce.com"
+        store.save_cached_fields(url, "Account", ("Id",))
+        store.save_cached_fields(url, "Lead", ("Id",))
+        deleted = store.clear_field_cache(url, "Account")
+        assert deleted == 1
+        assert store.get_cached_fields(url, "Account") is None
+        assert store.get_cached_fields(url, "Lead") == ("Id",)
+
+    def test_clear_all_for_org(self, store):
+        url = "https://org.salesforce.com"
+        store.save_cached_fields(url, "Account", ("Id",))
+        store.save_cached_fields(url, "Lead", ("Id",))
+        deleted = store.clear_field_cache(url)
+        assert deleted == 2
+        assert store.get_cached_fields(url, "Account") is None
+        assert store.get_cached_fields(url, "Lead") is None
+
+    def test_clear_all(self, store):
+        store.save_cached_fields("https://org1.salesforce.com", "Account", ("Id",))
+        store.save_cached_fields("https://org2.salesforce.com", "Lead", ("Id",))
+        deleted = store.clear_field_cache()
+        assert deleted == 2
