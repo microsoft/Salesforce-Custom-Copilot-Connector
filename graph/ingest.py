@@ -406,6 +406,12 @@ def _ingest_chunk_graph_batch(
                     "id": str(idx), "method": "PUT", "url": item_url,
                     "headers": {"Content-Type": "application/json"}, "body": body,
                 })
+                logger.info(
+                    "\n%s\nITEM REQUEST — PUT %s\n%s\n%s\n%s",
+                    "=" * 70, item_url, "=" * 70,
+                    json.dumps(body, indent=2),
+                    "=" * 70,
+                )
         sub_batches.append((batch_items, payload))
 
     # 3. Send sub-batches concurrently with adaptive throttling
@@ -467,6 +473,12 @@ def _ingest_chunk_graph_batch(
 
             try:
                 responses = client.batch_requests(cur_payload)
+                logger.info(
+                    "\n%s\nITEM RESPONSE (attempt %d)\n%s\n%s\n%s",
+                    "=" * 70, attempt, "=" * 70,
+                    json.dumps(responses, indent=2),
+                    "=" * 70,
+                )
             except Exception as exc:
                 logger.error("Graph $batch call failed for %d items: %s", len(cur_items), exc)
                 failed_ids: list[str] = []
@@ -856,6 +868,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     if _USE_GROUP_ACL:
         from acl_engine.group_acl_builder import GroupAclBuilder
         from acl_engine.salesforce_client import SalesforceClient as _GrpSfClient
+        from acl_engine import PrincipalMapper as _PrincipalMapper
         from salesforce.api_client import get_salesforce_access_token as _grp_get_token
 
         _grp_sf_client = _GrpSfClient(
@@ -863,11 +876,18 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             api_version=config.connector.salesforce.api_version,
             access_token=_grp_get_token(config),
         )
+        _grp_principal_mapper = _PrincipalMapper(
+            sf_client=_grp_sf_client,
+            graph_client=client,
+            tenant_id=config.tenant_id,
+            batch_size=config.tuning.salesforce_batch_size,
+        )
         _group_acl_builder = GroupAclBuilder(
             sf_client=_grp_sf_client,
             owd_overrides=config.owd_overrides,
             parent_map=config.parent_map,
             owd_field_map=config.owd_field_map,
+            principal_mapper=_grp_principal_mapper,
         )
         logger.info("Group ACL builder initialised")
 

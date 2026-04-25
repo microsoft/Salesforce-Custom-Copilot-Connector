@@ -136,8 +136,23 @@ class IdentityQueryClient:
             "AND (NOT Assignee.Name LIKE '%User%') "
             "ORDER BY Id ASC"
         )
+        logger.info("[IdentityQuery] get_users_with_roles — hitting Salesforce User endpoint for '%s'", object_name)
+        logger.info("[IdentityQuery] SOQL: %s", soql)
         records = await self._sf.query_all(soql)
-        return self._parse_psa_users(records)
+        logger.info("[IdentityQuery] Fetched %d user record(s) for '%s'", len(records), object_name)
+        users = self._parse_full_users(records)
+        for u in users:
+            if u.federation_identifier:
+                logger.info(
+                    "[IdentityQuery] User %s (%s) — FederationIdentifier: '%s' ✓",
+                    u.id, u.name, u.federation_identifier,
+                )
+            else:
+                logger.warning(
+                    "[IdentityQuery] User %s (%s) — FederationIdentifier: MISSING",
+                    u.id, u.name,
+                )
+        return users
 
     # ── 3.3  Global Access Users (ViewAll/ModifyAll) ─────────────────────────
 
@@ -278,8 +293,17 @@ class IdentityQueryClient:
             "WHERE IsActive = True AND (NOT Name LIKE '%User%') "
             "ORDER BY Id ASC"
         )
+        logger.info("[IdentityQuery] get_users_with_roles — querying Salesforce users for '%s'", object_name)
         records = await self._sf.query_all(soql)
-        return self._parse_full_users(records)
+        users = self._parse_full_users(records)
+        missing = [u for u in users if not u.federation_identifier]
+        if missing:
+            logger.warning(
+                "[IdentityQuery] %d/%d user(s) missing FederationIdentifier for '%s': %s",
+                len(missing), len(users), object_name,
+                ", ".join(f"{u.name} ({u.id})" for u in missing),
+            )
+        return users
 
     # ── 3.11  Frozen Users ──────────────────────────────────────────────────
 

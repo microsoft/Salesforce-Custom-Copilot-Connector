@@ -60,11 +60,13 @@ class GroupAclBuilder:
         owd_overrides: dict[str, str] | None = None,
         parent_map: dict[str, tuple[str, str]] | None = None,
         owd_field_map: dict[str, str] | None = None,
+        principal_mapper: Any | None = None,
     ) -> None:
         self._sf = sf_client
         self._query_client = IdentityQueryClient(sf_client, owd_field_map=owd_field_map)
         self._owd_overrides = owd_overrides or {}
         self._parent_map = parent_map or {}
+        self._principal_mapper = principal_mapper
         # Caches populated on first use
         self._owd_map: dict[str, EntityVisibility] | None = None
         self._users_by_id: dict[str, SfUser] | None = None
@@ -337,17 +339,48 @@ class GroupAclBuilder:
             if owner_id:
                 owner = (self._users_by_id or {}).get(owner_id)
                 if owner:
-                    ace = None
-                    if owner.federation_identifier:
-                        ace = _user_ace_aad(owner.federation_identifier)
+                    # Mirror PrincipalMapper._resolve_principal:
+                    # try FederationIdentifier → UserName (stripped) → Email in order
+                    identifier = _best_user_identifier(owner)
+                    if identifier:
+                        source = (
+                            "FederationIdentifier" if identifier == owner.federation_identifier
+                            else "Email" if identifier == owner.email
+                            else "UserName (stripped)"
+                        )
+                        # If a PrincipalMapper is available, resolve identifier → AAD GUID
+                        if self._principal_mapper is not None:
+                            resolved = self._principal_mapper._resolve_identifier(identifier)
+                            if resolved:
+                                logger.info(
+                                    "[GroupACL] Owner %s (%s) — resolved via %s '%s' → AAD GUID '%s'",
+                                    owner_id, owner.name, source, identifier, resolved,
+                                )
+                                acls.append(_user_ace_aad(resolved))
+                            else:
+                                logger.warning(
+                                    "[GroupACL] Owner %s (%s) — PrincipalMapper could not resolve '%s' to AAD GUID → skipping user ACE",
+                                    owner_id, owner.name, identifier,
+                                )
+                        else:
+                            logger.info(
+                                "[GroupACL] Owner %s (%s) — resolved via %s: '%s' → adding as user ACE (no PrincipalMapper)",
+                                owner_id, owner.name, source, identifier,
+                            )
+                            acls.append(_user_ace_aad(identifier))
                     else:
-                        ace = _user_ace_external(owner)
-                    if ace:
-                        acls.append(ace)
-                    else:
-                        # Cannot resolve owner to GUID — deny everyone
+                        logger.warning(
+                            "[GroupACL] Owner %s (%s) — no identifier available "
+                            "(FederationIdentifier/UserName/Email all missing) → applying deny-everyone ACL for record %s",
+                            owner_id, owner.name, record_id,
+                        )
                         acl_map[record_id] = _deny_everyone_acl()
                         continue
+                else:
+                    logger.warning(
+                        "[GroupACL] Owner %s not found in user cache — no user ACE added for record %s",
+                        owner_id, record_id,
+                    )
 
             acl_map[record_id] = acls
 
@@ -360,6 +393,33 @@ class GroupAclBuilder:
         if self._owd_map and object_type in self._owd_map:
             return self._owd_map[object_type]
         return EntityVisibility.NONE  # Safe default
+
+
+# ── Identifier resolution helper ────────────────────────────────────────────
+
+
+def _best_user_identifier(user: "SfUser") -> str | None:
+    """
+    Return the best identifier to use as an AAD ACE value.
+
+    Priority: FederationIdentifier → UserName (stripped of SF suffix) → Email
+    Returns None if none are available.
+    """
+    import re
+
+    def _strip_sf_suffix(username: str) -> str:
+        """Strip the Salesforce-appended org suffix from a username."""
+        # e.g. john@contoso.com.sandbox123 → john@contoso.com
+        return re.sub(r'(\.[a-z0-9]+)+$', '', username, flags=re.IGNORECASE)
+
+    for identifier in (
+        user.federation_identifier,
+        _strip_sf_suffix(user.user_name) if user.user_name else "",
+        user.email,
+    ):
+        if identifier and identifier.strip():
+            return identifier.strip()
+    return None
 
 
 # ── Module-level ACE factories ────────────────────────────────────────────────
