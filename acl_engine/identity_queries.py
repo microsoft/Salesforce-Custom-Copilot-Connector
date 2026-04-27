@@ -76,6 +76,7 @@ class IdentityQueryClient:
         self._sf = sf_client
         self._batch_size = batch_size
         self._owd_field_map = owd_field_map if owd_field_map is not None else self._load_owd_field_map()
+        self._no_share_table_types: set[str] = set()
 
     @staticmethod
     def _load_owd_field_map() -> dict[str, str]:
@@ -180,14 +181,14 @@ class IdentityQueryClient:
         records = await self._sf.query_all(soql)
         logger.info("[IdentityQuery] Fetched %d user record(s) for '%s'", len(records), object_name)
         users = self._parse_full_users(records)
-        for u in users:
-            if u.federation_identifier:
-                logger.info(
-                    "[IdentityQuery] User %s (%s) — FederationIdentifier: '%s' ✓",
-                    u.id, u.name, u.federation_identifier,
-                )
-            else:
-                logger.warning(
+        missing = [u for u in users if not u.federation_identifier]
+        if missing:
+            logger.warning(
+                "[IdentityQuery] %d of %d user(s) for '%s' have no FederationIdentifier",
+                len(missing), len(users), object_name,
+            )
+            for u in missing:
+                logger.debug(
                     "[IdentityQuery] User %s (%s) — FederationIdentifier: MISSING",
                     u.id, u.name,
                 )
@@ -235,10 +236,22 @@ class IdentityQueryClient:
         )
         try:
             records = await self._sf.query_all(soql)
-        except RuntimeError:
-            logger.warning("[IdentityQuery] Could not query %s group shares", share_table)
+        except RuntimeError as exc:
+            exc_str = str(exc)
+            if "INVALID_TYPE" in exc_str or "is not supported" in exc_str:
+                logger.info(
+                    "[IdentityQuery] Share table %s does not exist — %s uses non-standard sharing",
+                    share_table, object_name,
+                )
+                self._no_share_table_types.add(object_name)
+            else:
+                logger.warning("[IdentityQuery] Could not query %s group shares: %s", share_table, exc)
             return []
         return [r["UserOrGroupId"] for r in records if r.get("UserOrGroupId")]
+
+    def has_share_table(self, object_name: str) -> bool:
+        """Return False if a prior query proved the share table doesn't exist."""
+        return object_name not in self._no_share_table_types
 
     # ── 3.7  Group Details ───────────────────────────────────────────────────
 

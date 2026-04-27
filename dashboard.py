@@ -73,6 +73,7 @@ class IngestionDashboard:
         self._failed_log = str(failed_file)
         self._objs: dict[str, _Obj] = {}
         self._order: list[str] = []
+        self._acl_types: dict[str, str] = {}  # {object_type: "Private", ...}
         self._activity = "Initializing..."
         self._activity_t0 = time.monotonic()
         self._errors: list[str] = []
@@ -137,6 +138,11 @@ class IngestionDashboard:
             self._total_counts = dict(counts)
             for name, count in counts.items():
                 self._obj(name).expected = count
+
+    def set_acl_types(self, acl_map: dict[str, str]) -> None:
+        """Set the OWD / ACL visibility label for each object type."""
+        with self._lock:
+            self._acl_types.update(acl_map)
 
     def chunk_fetched(self, obj_type: str, chunk_idx: int, count: int) -> None:
         with self._lock:
@@ -324,6 +330,7 @@ class IngestionDashboard:
             pad_edge=False, padding=(0, 1), expand=True,
         )
         tbl.add_column("Object", style="cyan", min_width=18, no_wrap=True)
+        tbl.add_column("ACL", min_width=10, no_wrap=True)
         tbl.add_column("Ingested / Total", justify="right", min_width=18, no_wrap=True)
         tbl.add_column("Failed", justify="right", min_width=8, no_wrap=True)
         tbl.add_column("ETA", justify="right", min_width=10, no_wrap=True)
@@ -374,9 +381,20 @@ class IngestionDashboard:
             else:
                 status = "[dim]- Pending[/]"
 
+            # -- ACL type label --
+            _ACL_STYLES = {
+                "Private": "red", "Public Read": "green",
+                "Public Read/Write": "green", "Public Read/Write/Transfer": "green",
+                "ControlledByParent": "yellow", "None": "dim",
+            }
+            acl_label = self._acl_types.get(name, "")
+            acl_style = _ACL_STYLES.get(acl_label, "dim")
+            acl_cell = f"[{acl_style}]{acl_label}[/{acl_style}]" if acl_label else "[dim]-[/]"
+
             fail_style = "red" if o.failed else "dim"
             tbl.add_row(
                 name,
+                acl_cell,
                 count_cell,
                 Text(str(o.failed) if not is_pending else "-", style=fail_style),
                 obj_eta,
@@ -387,6 +405,7 @@ class IngestionDashboard:
         tbl.add_section()
         tbl.add_row(
             "[bold]Total[/]",
+            "",
             f"[bold]{tot_i:,} / {grand_total:,}[/]" if grand_total else f"[bold]{tot_i:,}[/]",
             Text(str(tot_fail), style="bold red" if tot_fail else "bold dim"),
             "",

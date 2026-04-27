@@ -39,6 +39,7 @@ import logging
 import threading
 import time
 
+from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
 import requests
 
@@ -56,6 +57,9 @@ GRAPH_BATCH_MAX_SIZE = 20
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 logger = logging.getLogger("salesforce_connector")
+
+# Suppress noisy Azure Identity token-acquisition logs
+logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
 
 class GraphApiError(RuntimeError):
@@ -96,6 +100,8 @@ class GraphClient:
     ):
         """Initialize the Graph client with authentication, retry, and polling settings."""
         self._credential = DefaultAzureCredential()
+        self._token: AccessToken | None = None
+        self._token_lock = threading.Lock()
         self._local = threading.local()
         self._base_url = f"{GRAPH_BASE_URL}/{api_version}"
         self._delay_seconds = delay_seconds
@@ -279,10 +285,13 @@ class GraphClient:
         self._local.session = value
 
     def _get_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
-        """Build request headers with a fresh Bearer token, merged with any extra headers."""
-        token = self._credential.get_token(GRAPH_SCOPE).token
+        """Build request headers with a cached Bearer token, refreshed 5 min before expiry."""
+        _REFRESH_BUFFER = 300  # refresh 5 minutes before expiry
+        with self._token_lock:
+            if self._token is None or self._token.expires_on - time.time() < _REFRESH_BUFFER:
+                self._token = self._credential.get_token(GRAPH_SCOPE)
         base_headers = {
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {self._token.token}",
             "Accept": "application/json",
         }
         if headers:

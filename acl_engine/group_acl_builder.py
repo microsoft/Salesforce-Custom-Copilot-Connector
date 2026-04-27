@@ -38,6 +38,13 @@ from acl_engine.salesforce_client import SalesforceClient
 logger = logging.getLogger("salesforce_connector.acl_engine.group_acl")
 
 
+def _share_table_name(object_type: str) -> str:
+    """Derive the share table API name for a given sObject type."""
+    if object_type.endswith("__c"):
+        return object_type[:-3] + "__Share"
+    return object_type + "Share"
+
+
 class GroupAclBuilder:
     """
     Builds group-based ACLs for content items.
@@ -72,8 +79,32 @@ class GroupAclBuilder:
         self._users_by_id: dict[str, SfUser] | None = None
         self._groups_by_id: dict[str, SfGroup] | None = None
         self._frozen_users: set[str] | None = None
+        self._no_share_table_types: set[str] = set()
 
     # ── Public API ────────────────────────────────────────────────────────────
+
+    async def prewarm_owd(self) -> dict[str, str]:
+        """Pre-fetch the OWD map and return human-readable labels.
+
+        Returns ``{object_type: "Private" | "Public Read" | ...}``.
+        """
+        _LABELS = {
+            "None": "Private",
+            "Read": "Public Read",
+            "Edit": "Public Read/Write",
+            "ReadEditTransfer": "Public Read/Write/Transfer",
+            "ControlledByParent": "ControlledByParent",
+            "ControlledByLeadOrContact": "ControlledByParent",
+            "ControlledByCampaign": "ControlledByParent",
+        }
+        if self._owd_map is None:
+            self._owd_map = await self._query_client.get_org_wide_defaults()
+            for obj_name, raw_owd in self._owd_overrides.items():
+                self._owd_map[obj_name] = parse_visibility(raw_owd)
+        return {
+            obj: _LABELS.get(vis.value, vis.value)
+            for obj, vis in self._owd_map.items()
+        }
 
     def resolve(
         self,
@@ -188,6 +219,11 @@ class GroupAclBuilder:
             self._frozen_users = await self._query_client.get_frozen_user_ids()
             logger.info("[GroupACL][TIMING] Load frozen users: %.1fs (%d frozen)", _time.monotonic() - _t0, len(self._frozen_users))
 
+        # Bulk-fetch shares so the per-record loop has data to process
+        _share_t0 = _time.monotonic()
+        await self._fetch_and_inject_shares(object_type, records)
+        logger.info("[GroupACL][TIMING] Share fetch for %s: %.1fs", object_type, _time.monotonic() - _share_t0)
+
         acl_map: dict[str, list[dict[str, str]]] = {}
         _group_query_count = 0
         _group_query_time = 0.0
@@ -241,6 +277,79 @@ class GroupAclBuilder:
             )
 
         return acl_map
+
+    async def _fetch_and_inject_shares(
+        self,
+        object_type: str,
+        records: list[dict[str, Any]],
+        batch_size: int = 100,
+    ) -> None:
+        """Bulk-fetch share records from Salesforce and inject into record dicts.
+
+        Queries ``{Object}Share`` in batches of *batch_size* so
+        ``_build_private_acls`` can read ``record["Shares"]["records"]``
+        without per-record SOQL.
+
+        Skips records that already have ``Shares`` populated (e.g. tests).
+        """
+        # Skip if all records already have shares injected
+        needs_fetch = [r for r in records if r.get("Id") and "Shares" not in r]
+        if not needs_fetch:
+            return
+
+        # Skip objects whose share table doesn't exist (e.g. Product2, Pricebook2)
+        if object_type in self._no_share_table_types:
+            return
+
+        share_table = _share_table_name(object_type)
+        parent_field = "ParentId" if object_type.endswith("__c") else f"{object_type}Id"
+
+        record_ids = [str(r["Id"]) for r in needs_fetch]
+        shares_by_record: dict[str, list[dict]] = {rid: [] for rid in record_ids}
+        total_shares = 0
+
+        for i in range(0, len(record_ids), batch_size):
+            batch = record_ids[i : i + batch_size]
+            ids_in = ", ".join(f"'{rid}'" for rid in batch)
+            soql = (
+                f"SELECT {parent_field}, UserOrGroupId, UserOrGroup.Type "
+                f"FROM {share_table} "
+                f"WHERE {parent_field} IN ({ids_in})"
+            )
+            try:
+                rows = await self._sf.query_all(soql)
+                for r in rows:
+                    parent_id = r.get(parent_field)
+                    if parent_id and parent_id in shares_by_record:
+                        shares_by_record[parent_id].append({
+                            "UserOrGroupId": r.get("UserOrGroupId", ""),
+                            "UserOrGroup": r.get("UserOrGroup") or {},
+                        })
+                        total_shares += 1
+            except Exception as exc:
+                exc_str = str(exc)
+                if "INVALID_TYPE" in exc_str or "is not supported" in exc_str:
+                    logger.info(
+                        "[GroupACL] Share table %s does not exist — %s uses non-standard sharing; skipping",
+                        share_table, object_type,
+                    )
+                    self._no_share_table_types.add(object_type)
+                    return
+                logger.warning(
+                    "[GroupACL] Bulk share fetch from %s failed (batch %d): %s",
+                    share_table, i // batch_size + 1, exc,
+                )
+
+        # Inject into records
+        for record in needs_fetch:
+            rid = str(record.get("Id", ""))
+            if rid in shares_by_record:
+                record["Shares"] = {"records": shares_by_record[rid]}
+
+        logger.info(
+            "[GroupACL] Fetched %d share(s) for %d %s record(s) from %s",
+            total_shares, len(record_ids), object_type, share_table,
+        )
 
     def _process_user_share(
         self,
@@ -375,7 +484,7 @@ class GroupAclBuilder:
                         if self._principal_mapper is not None:
                             resolved = self._principal_mapper._resolve_identifier(identifier)
                             if resolved:
-                                logger.info(
+                                logger.debug(
                                     "[GroupACL] Owner %s (%s) — resolved via %s '%s' → AAD GUID '%s'",
                                     owner_id, owner.name, source, identifier, resolved,
                                 )
@@ -386,7 +495,7 @@ class GroupAclBuilder:
                                     owner_id, owner.name, identifier,
                                 )
                         else:
-                            logger.info(
+                            logger.debug(
                                 "[GroupACL] Owner %s (%s) — resolved via %s: '%s' → adding as user ACE (no PrincipalMapper)",
                                 owner_id, owner.name, source, identifier,
                             )

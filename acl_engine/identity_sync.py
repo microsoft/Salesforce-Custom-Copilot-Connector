@@ -321,7 +321,11 @@ class IdentityGatherer:
         group_type = child_ref.group_type
 
         if group_type == GroupIdentityType.GLOBAL_ACCESS_USERS:
-            membership.users = await self._query.get_global_access_users(object_name)
+            if child_ref.metadata.get("use_read_permission"):
+                # Object has no share table — grant all users with Read permission
+                membership.users = await self._query.get_authorized_users(object_name)
+            else:
+                membership.users = await self._query.get_global_access_users(object_name)
 
         elif group_type in (GroupIdentityType.ROLE_WITH_PARENT, GroupIdentityType.ROLE_WITHOUT_PARENT):
             role_id = child_ref.metadata.get("RoleId", "")
@@ -430,6 +434,12 @@ class IdentityGatherer:
 
         # 3. Query group shares for this object
         group_share_ids = await self._query.get_group_share_ids(object_name)
+
+        # If the share table doesn't exist (e.g. Product2, Pricebook2),
+        # flag the GlobalUsers group to include all Read-permission users
+        # instead of only ViewAll/ModifyAll admins.
+        if not self._query.has_share_table(object_name):
+            membership.child_groups[0].metadata["use_read_permission"] = True
 
         # 4. Load group details
         sf_groups: list[SfGroup] = []

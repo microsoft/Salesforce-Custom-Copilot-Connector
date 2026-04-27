@@ -927,6 +927,10 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             principal_mapper=_grp_principal_mapper,
         )
         logger.info("Group ACL builder initialised")
+        # Pre-fetch OWD map so the dashboard can show ACL types
+        _owd_labels = asyncio.run(_group_acl_builder.prewarm_owd())
+        if dashboard:
+            dashboard.set_acl_types(_owd_labels)
 
     # Legacy resolver — initialise once and pre-warm caches before workers start
     legacy_resolver = (

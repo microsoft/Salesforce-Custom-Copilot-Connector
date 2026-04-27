@@ -31,6 +31,7 @@ build_parser()
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +52,39 @@ LOGS_DIR = Path(__file__).resolve().parents[1] / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+_MAX_LINES_PER_LOG = 100_000  # 1 lakh lines
+
+
+class _LineRotatingFileHandler(logging.FileHandler):
+    """File handler that rotates to a new file after *max_lines* lines.
+
+    New files are named ``<stem>_2.log``, ``<stem>_3.log``, etc.
+    """
+
+    def __init__(self, filename: str, max_lines: int = _MAX_LINES_PER_LOG, **kwargs):
+        self._base_path = Path(filename)
+        self._max_lines = max_lines
+        self._line_count = 0
+        self._file_index = 1
+        super().__init__(filename, **kwargs)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self._line_count += 1
+        if self._line_count >= self._max_lines:
+            self._rotate()
+
+    def _rotate(self) -> None:
+        """Close the current file and open the next numbered file."""
+        self._file_index += 1
+        new_name = f"{self._base_path.stem}_{self._file_index}{self._base_path.suffix}"
+        new_path = self._base_path.parent / new_name
+        self.close()
+        self.baseFilename = os.fspath(new_path)
+        self._line_count = 0
+        self.stream = self._open()
+
+
 _console_handlers: list[tuple[logging.Handler, int]] = []
 
 
@@ -63,11 +97,13 @@ def setup_logging(prefix: str, verbose: bool = False, dashboard_mode: bool = Fal
     Returns (log_file, summary_file).
     """
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = LOGS_DIR / f"{prefix}_{timestamp}.log"
-    summary_file = LOGS_DIR / f"summary_{prefix}_{timestamp}.log"
+    run_dir = LOGS_DIR / f"{prefix}_{timestamp}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_file = run_dir / f"{prefix}_{timestamp}.log"
+    summary_file = run_dir / f"summary_{prefix}_{timestamp}.log"
     fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler = _LineRotatingFileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter(fmt))
 
