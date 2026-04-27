@@ -134,7 +134,7 @@ class TestIdentityCrawlEnumerator:
 
 
 class TestIdentityGathererPublic:
-    def test_public_owd_adds_users_directly(self):
+    def test_public_owd_skips_user_query(self):
         users = [_make_user("005A", "Alice"), _make_user("005B", "Bob")]
         qc = _mock_query_client(authorized_users=users)
         gatherer = IdentityGatherer(qc)
@@ -143,16 +143,19 @@ class TestIdentityGathererPublic:
             gatherer.build_top_level_group("Account", EntityVisibility.READ)
         )
         assert result.group_id == "AccountTopLevel"
-        assert len(result.users) == 2
+        # PUBLIC OWD uses grant-everyone on content items; no users needed in group
+        assert len(result.users) == 0
         assert len(result.child_groups) == 0
+        qc.get_authorized_users.assert_not_awaited()
 
-    def test_public_owd_no_users(self):
+    def test_public_owd_empty_group(self):
         qc = _mock_query_client(authorized_users=[])
         gatherer = IdentityGatherer(qc)
         result = asyncio.run(
             gatherer.build_top_level_group("Lead", EntityVisibility.EDIT)
         )
         assert len(result.users) == 0
+        qc.get_authorized_users.assert_not_awaited()
 
 
 class TestIdentityGathererPrivate:
@@ -456,12 +459,10 @@ class TestIdentityGathererChildGroups:
 
 class TestIdentitySyncHandler:
     def test_full_crawl_public_object(self):
-        users = [_make_user("005A", "Alice"), _make_user("005B", "Bob")]
-
         with patch("acl_engine.identity_sync.IdentityQueryClient") as MockQC:
             instance = MockQC.return_value
             instance.get_org_wide_defaults = AsyncMock(return_value={"Account": EntityVisibility.READ})
-            instance.get_authorized_users = AsyncMock(return_value=users)
+            instance.get_authorized_users = AsyncMock(return_value=[])
 
             handler = IdentitySyncHandler(
                 sf_client=MagicMock(),
@@ -473,8 +474,10 @@ class TestIdentitySyncHandler:
 
             assert len(result.top_level_groups) == 1
             assert result.top_level_groups[0].owd == EntityVisibility.READ
-            assert result.total_users_emitted == 2
+            # PUBLIC OWD: no users emitted (grant-everyone used on content items)
+            assert result.total_users_emitted == 0
             assert result.total_groups_emitted >= 1
+            instance.get_authorized_users.assert_not_awaited()
 
     def test_incremental_crawl_same_as_full(self):
         with patch("acl_engine.identity_sync.IdentityQueryClient") as MockQC:

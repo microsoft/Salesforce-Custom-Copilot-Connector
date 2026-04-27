@@ -207,11 +207,29 @@ def _run_full_deployment(args, since: datetime | None = None) -> bool:
 def cmd_full_deployment(args) -> bool:
     """Deploy connection → schema → ingest items with ACLs.
 
-    When ``--continuous`` is passed, the first iteration performs the full
-    deployment and subsequent iterations re-ingest on a fixed schedule.
+    When ``--incremental`` is passed, the first run uses the last successful
+    content crawl timestamp from SQLite (if available) so only changed records
+    are fetched.  Falls back to a full crawl when no prior run is found.
+
+    When ``--continuous`` is passed, subsequent iterations re-ingest on a
+    fixed schedule.
     """
-    # First run: always full
-    success = _run_full_deployment(args, since=None)
+    since = None
+    if getattr(args, "incremental", False) and get_last_content_crawl_time is not None:
+        try:
+            config = load_config()
+            since = get_last_content_crawl_time(config)
+        except Exception:
+            pass
+        if since is not None:
+            logging.getLogger("progress").info(
+                "--incremental: resuming from %s", since.isoformat()
+            )
+        else:
+            logging.getLogger("progress").info(
+                "--incremental: no previous crawl found, running full crawl"
+            )
+    success = _run_full_deployment(args, since=since)
 
     continuous = getattr(args, "continuous", False)
     if not continuous:

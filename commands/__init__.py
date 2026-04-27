@@ -201,6 +201,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Deploy connection → schema → ingest items with ACLs",
     )
     p_deploy.add_argument(
+        "--incremental",
+        action="store_true",
+        default=False,
+        help="Start with an incremental crawl (since last successful full crawl) instead of a full crawl.",
+    )
+    p_deploy.add_argument(
         "--continuous",
         action="store_true",
         default=False,
@@ -225,6 +231,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest = subparsers.add_parser(
         "ingest",
         help="Ingest items only (connection & schema must already exist)",
+    )
+    p_ingest.add_argument(
+        "--incremental",
+        action="store_true",
+        default=False,
+        help="Start with an incremental crawl (since last successful full crawl) instead of a full crawl.",
     )
     p_ingest.add_argument(
         "--continuous",

@@ -94,11 +94,14 @@ class GroupAclBuilder:
         records_by_object_type: dict[str, list[dict[str, Any]]],
     ) -> dict[str, dict[str, list[dict[str, str]]]]:
         """Async implementation of the resolve pipeline."""
+        import time as _time
         logger.info("[GroupACL] Starting group-based ACL resolution")
 
         # Load OWD map once
         if self._owd_map is None:
+            _t0 = _time.monotonic()
             self._owd_map = await self._query_client.get_org_wide_defaults()
+            logger.info("[GroupACL][TIMING] OWD query: %.1fs", _time.monotonic() - _t0)
             # Apply overrides
             for obj_name, raw_owd in self._owd_overrides.items():
                 self._owd_map[obj_name] = parse_visibility(raw_owd)
@@ -152,9 +155,8 @@ class GroupAclBuilder:
         object_type: str,
         records: list[dict[str, Any]],
     ) -> dict[str, list[dict[str, str]]]:
-        """All records get a single group ACE referencing the TopLevel group."""
-        group_id = SfGroupIdFormats.TOP_LEVEL.format(object_type)
-        acl = [_group_ace(group_id)]
+        """All records get a grant-everyone ACE — no external group needed."""
+        acl = [{"accessType": "grant", "type": "everyone", "value": "everyone"}]
         return {str(r["Id"]): acl for r in records if r.get("Id")}
 
     # ── PRIVATE OWD ───────────────────────────────────────────────────────────
@@ -172,15 +174,23 @@ class GroupAclBuilder:
         2. Per-share ACEs: user ACEs for direct user shares, group ACEs for
            role/queue/manager/organization shares
         """
+        import time as _time
+
         # Ensure we have user and group data loaded
         if self._users_by_id is None:
+            _t0 = _time.monotonic()
             users = await self._query_client.get_users_with_roles(object_type)
             self._users_by_id = {u.id: u for u in users}
+            logger.info("[GroupACL][TIMING] Load users for %s: %.1fs (%d users)", object_type, _time.monotonic() - _t0, len(self._users_by_id))
 
         if self._frozen_users is None:
+            _t0 = _time.monotonic()
             self._frozen_users = await self._query_client.get_frozen_user_ids()
+            logger.info("[GroupACL][TIMING] Load frozen users: %.1fs (%d frozen)", _time.monotonic() - _t0, len(self._frozen_users))
 
         acl_map: dict[str, list[dict[str, str]]] = {}
+        _group_query_count = 0
+        _group_query_time = 0.0
 
         for record in records:
             record_id = str(record.get("Id", ""))
@@ -207,15 +217,28 @@ class GroupAclBuilder:
                     if not ok:
                         acl_failed = True
                         break
-                elif uog_type == "Queue":
+                elif uog_id:
+                    # Any non-User share (Queue, Role, Organization, etc.)
+                    _gq_t0 = _time.monotonic()
                     await self._process_group_share(
                         acls, uog_id, object_type, processed_roles
                     )
+                    _gq_dur = _time.monotonic() - _gq_t0
+                    if _gq_dur > 0.001:  # only count actual SOQL calls
+                        _group_query_count += 1
+                        _group_query_time += _gq_dur
 
             if acl_failed:
                 acl_map[record_id] = _deny_everyone_acl()
             else:
                 acl_map[record_id] = acls
+
+        if _group_query_count > 0:
+            logger.info(
+                "[GroupACL][TIMING] Group lookups for %s: %d SOQL queries in %.1fs (%.0f ms/query avg)",
+                object_type, _group_query_count, _group_query_time,
+                (_group_query_time / _group_query_count) * 1000,
+            )
 
         return acl_map
 

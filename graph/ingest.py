@@ -45,6 +45,7 @@ from urllib.parse import quote
 import json
 import logging
 import threading
+import time
 
 from graph.legacy_acl_resolver import AclResolver as LegacyAclResolver
 from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH, GRAPH_BATCH_MAX_SIZE
@@ -125,11 +126,10 @@ def load_content(config: AppConfig, client: GraphClient, item: dict) -> None:
         logger.info("PUT %s", url)
         logger.info("\nRequest Payload:")
         logger.info(json.dumps(payload, indent=2))
-    else:
+    elif logger.isEnabledFor(logging.DEBUG):
         logger.debug("ITEM REQUEST: %s | PUT %s", item_id, url)
-        logger.debug(json.dumps(payload, indent=2))
 
-    logger.info("PUT %s", url)
+    logger.debug("PUT %s", url)
 
     try:
         response = client.put(url, json_body=payload, headers={"content-type": "application/json"})
@@ -370,6 +370,7 @@ def _ingest_chunk_graph_batch(
     Returns the total number of items submitted (success + failure).
     """
     # 1. Transform all records into Graph external-item payloads
+    _transform_t0 = time.monotonic()
     items_to_process: list[dict] = []
     for record in records:
         item_id = record["Id"]
@@ -382,8 +383,18 @@ def _ingest_chunk_graph_batch(
         for transformed in transformer.transform_record(record, acl):
             items_to_process.append(transformed)
 
+    _transform_dur = time.monotonic() - _transform_t0
+
     if not items_to_process:
         return 0
+
+    logger.info(
+        "[TIMING] Transform %s: %.1fs for %d records → %d items (%.0f rec/s)",
+        object_type, _transform_dur, len(records), len(items_to_process),
+        len(records) / _transform_dur if _transform_dur > 0 else 0,
+    )
+    if dashboard:
+        dashboard.record_phase_time(object_type, "Transform", _transform_dur)
 
     effective_batch = min(batch_size, GRAPH_BATCH_MAX_SIZE)
     max_workers = concurrency.current if concurrency else 1
@@ -406,12 +417,8 @@ def _ingest_chunk_graph_batch(
                     "id": str(idx), "method": "PUT", "url": item_url,
                     "headers": {"Content-Type": "application/json"}, "body": body,
                 })
-                logger.info(
-                    "\n%s\nITEM REQUEST — PUT %s\n%s\n%s\n%s",
-                    "=" * 70, item_url, "=" * 70,
-                    json.dumps(body, indent=2),
-                    "=" * 70,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("ITEM REQUEST — PUT %s", item_url)
         sub_batches.append((batch_items, payload))
 
     # 3. Send sub-batches concurrently with adaptive throttling
@@ -473,12 +480,11 @@ def _ingest_chunk_graph_batch(
 
             try:
                 responses = client.batch_requests(cur_payload)
-                logger.info(
-                    "\n%s\nITEM RESPONSE (attempt %d)\n%s\n%s\n%s",
-                    "=" * 70, attempt, "=" * 70,
-                    json.dumps(responses, indent=2),
-                    "=" * 70,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "BATCH RESPONSE (attempt %d): %s",
+                        attempt, json.dumps(responses, indent=2),
+                    )
             except Exception as exc:
                 logger.error("Graph $batch call failed for %d items: %s", len(cur_items), exc)
                 failed_ids: list[str] = []
@@ -596,6 +602,7 @@ def _ingest_chunk_graph_batch(
                 concurrency.on_success()
 
     # Dispatch sub-batches with adaptive parallelism
+    _graph_t0 = time.monotonic()
     i = 0
     while i < len(sub_batches):
         workers = concurrency.current if concurrency else 1
@@ -609,6 +616,16 @@ def _ingest_chunk_graph_batch(
                 for f in as_completed(futures):
                     f.result()  # propagate exceptions
         i += len(window)
+
+    _graph_dur = time.monotonic() - _graph_t0
+    logger.info(
+        "[TIMING] Graph push %s: %.1fs for %d items in %d sub-batches (%.0f items/s, concurrency=%d)",
+        object_type, _graph_dur, len(items_to_process), len(sub_batches),
+        len(items_to_process) / _graph_dur if _graph_dur > 0 else 0,
+        concurrency.current if concurrency else 1,
+    )
+    if dashboard:
+        dashboard.record_phase_time(object_type, "Graph Push", _graph_dur)
 
     items_to_process.clear()
     return submitted
@@ -659,10 +676,11 @@ def _ingest_single_object_type(
     # Pipeline: overlap Graph upload of chunk N with ACL resolution of chunk N+1
     _pipeline_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"graph-{object_type}")
     _pending_graph_future = None
+    _next_chunk_t0 = time.monotonic()  # track SF fetch time
 
     try:
         for records in iter_object_chunks(config, obj_config, since, chunk_size):
-            # ── Debug: single item filter ─────────────────────────────────
+            _fetch_dur = time.monotonic() - _next_chunk_t0            # ── Debug: single item filter ─────────────────────────────────
             if _debug_item_id:
                 records = [r for r in records if r.get("Id") == _debug_item_id]
                 if not records:
@@ -687,12 +705,17 @@ def _ingest_single_object_type(
                 "\n" + "=" * 70 + "\nSALESFORCE CHUNK: %s chunk #%d (%d records)\n" + "=" * 70,
                 object_type, chunk_index, batch_size,
             )
+            logger.info(
+                "[TIMING] SF fetch %s chunk #%d: %.1fs for %d records",
+                object_type, chunk_index, _fetch_dur, batch_size,
+            )
             progress.info(
                 "  [%s] chunk #%d — fetched %d record(s)",
                 object_type, chunk_index, batch_size,
             )
             if dashboard:
                 dashboard.chunk_fetched(object_type, chunk_index, batch_size)
+                dashboard.record_phase_time(object_type, "SF Fetch", _fetch_dur)
 
             # ── Checkpoint: skip already-completed chunks ─────────────────
             if checkpoint:
@@ -715,6 +738,7 @@ def _ingest_single_object_type(
                 )
                 if dashboard:
                     dashboard.acl_started(object_type, chunk_index, batch_size)
+                _acl_t0 = time.monotonic()
                 if _USE_GROUP_ACL:
                     acl_map_by_object = group_acl_builder.resolve({object_type: records})  # type: ignore[union-attr]
                     acl_map_for_chunk = acl_map_by_object.get(object_type, {})
@@ -732,10 +756,15 @@ def _ingest_single_object_type(
                     acl_map_by_object = legacy_resolver.resolve({object_type: records})  # type: ignore[union-attr]
                     acl_map_for_chunk = acl_map_by_object.get(object_type, {})
                     acl_map_by_object.clear()
+                _acl_dur = time.monotonic() - _acl_t0
                 logger.info(
-                    "ACL resolution complete for %s chunk #%d: %d entries",
-                    object_type, chunk_index, len(acl_map_for_chunk),
+                    "[TIMING] ACL resolution %s chunk #%d: %.1fs for %d records (%.0f rec/s) → %d entries",
+                    object_type, chunk_index, _acl_dur, batch_size,
+                    batch_size / _acl_dur if _acl_dur > 0 else 0,
+                    len(acl_map_for_chunk),
                 )
+                if dashboard:
+                    dashboard.record_phase_time(object_type, "ACL", _acl_dur)
             except Exception as error:
                 logger.exception(
                     "ACL resolution failed for %s chunk #%d, falling back to public ACLs: %s",
@@ -746,7 +775,14 @@ def _ingest_single_object_type(
 
             # ── Wait for previous chunk's Graph upload (pipeline) ─────────
             if _pending_graph_future is not None:
+                _wait_t0 = time.monotonic()
                 ingested_count += _pending_graph_future.result()
+                _wait_dur = time.monotonic() - _wait_t0
+                if _wait_dur > 0.5:
+                    logger.info(
+                        "[TIMING] Pipeline wait %s chunk #%d: %.1fs (ACL was faster than Graph push)",
+                        object_type, chunk_index, _wait_dur,
+                    )
                 _pending_graph_future = None
 
             # ── Transform + push this chunk via Graph JSON batching ───────
@@ -773,6 +809,7 @@ def _ingest_single_object_type(
             _pending_graph_future = _pipeline_pool.submit(_upload_chunk)
             del records
             del acl_map_for_chunk
+            _next_chunk_t0 = time.monotonic()  # reset for next SF fetch measurement
 
         # ── Drain last pending upload ─────────────────────────────────────
         if _pending_graph_future is not None:

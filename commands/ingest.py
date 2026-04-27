@@ -178,10 +178,28 @@ def _run_ingest(args, since: datetime | None = None) -> bool:
 def cmd_ingest(args) -> bool:
     """Ingest items only — connection & schema must already exist.
 
+    When ``--incremental`` is passed, the first run uses the last successful
+    content crawl timestamp from SQLite so only changed records are fetched.
+    Falls back to a full crawl when no prior run is found.
+
     When ``--continuous`` is passed, ingestion repeats on a fixed schedule.
     """
-    # First run: always full
-    success = _run_ingest(args, since=None)
+    since = None
+    if getattr(args, "incremental", False) and get_last_content_crawl_time is not None:
+        try:
+            config = load_config()
+            since = get_last_content_crawl_time(config)
+        except Exception:
+            pass
+        if since is not None:
+            logging.getLogger("progress").info(
+                "--incremental: resuming from %s", since.isoformat()
+            )
+        else:
+            logging.getLogger("progress").info(
+                "--incremental: no previous crawl found, running full crawl"
+            )
+    success = _run_ingest(args, since=since)
 
     continuous = getattr(args, "continuous", False)
     if not continuous:

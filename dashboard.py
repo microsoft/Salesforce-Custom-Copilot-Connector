@@ -45,6 +45,17 @@ class _Obj:
     t0: float = 0.0
 
 
+@dataclass
+class _PhaseTiming:
+    """Cumulative timing for one phase of one object type."""
+    total_secs: float = 0.0
+    count: int = 0  # number of chunks/calls
+
+    @property
+    def avg_secs(self) -> float:
+        return self.total_secs / self.count if self.count else 0.0
+
+
 # -- Dashboard ----------------------------------------------------------------
 
 
@@ -77,6 +88,9 @@ class IngestionDashboard:
         self._lock = threading.Lock()
         self._console = Console()
         self._live: Live | None = None
+        # Per-object phase timings: {obj_type: {phase: _PhaseTiming}}
+        self._timings: dict[str, dict[str, _PhaseTiming]] = {}
+        self._PHASES = ("SF Fetch", "ACL", "Transform", "Graph Push")
 
     def __rich__(self):
         with self._lock:
@@ -173,6 +187,17 @@ class IngestionDashboard:
             o = self._objs.get(obj_type)
             if o:
                 o.status = "done"
+
+    def record_phase_time(self, obj_type: str, phase: str, duration: float) -> None:
+        """Record elapsed time for a pipeline phase (called from ingest.py)."""
+        with self._lock:
+            if obj_type not in self._timings:
+                self._timings[obj_type] = {}
+            if phase not in self._timings[obj_type]:
+                self._timings[obj_type][phase] = _PhaseTiming()
+            pt = self._timings[obj_type][phase]
+            pt.total_secs += duration
+            pt.count += 1
 
     def add_error(self, msg: str) -> None:
         with self._lock:
@@ -377,6 +402,53 @@ class IngestionDashboard:
         else:
             bar_grid = Text("  Waiting for records...", style="dim")
 
+        # -- Timing breakdown table --------------------------------------------
+        timing_tbl = None
+        if self._timings:
+            timing_tbl = Table(
+                show_header=True, header_style="bold", border_style="dim",
+                pad_edge=False, padding=(0, 1), expand=True,
+                title="[bold]Phase Timing (cumulative)[/]",
+                title_style="dim",
+            )
+            timing_tbl.add_column("Object", style="cyan", min_width=18, no_wrap=True)
+            for phase in self._PHASES:
+                timing_tbl.add_column(phase, justify="right", min_width=12, no_wrap=True)
+            timing_tbl.add_column("Total", justify="right", min_width=10, no_wrap=True, style="bold")
+
+            grand_phase: dict[str, float] = {p: 0.0 for p in self._PHASES}
+            for name in self._order:
+                obj_timings = self._timings.get(name, {})
+                cells: list[str] = []
+                row_total = 0.0
+                for phase in self._PHASES:
+                    pt = obj_timings.get(phase)
+                    if pt and pt.total_secs > 0:
+                        cells.append(f"{_fmt_dur(pt.total_secs)} [dim]({pt.count})[/]")
+                        grand_phase[phase] += pt.total_secs
+                        row_total += pt.total_secs
+                    else:
+                        cells.append("[dim]-[/]")
+                if row_total > 0:
+                    timing_tbl.add_row(name, *cells, _fmt_dur(row_total))
+
+            # Totals row
+            grand_total_t = sum(grand_phase.values())
+            if grand_total_t > 0:
+                timing_tbl.add_section()
+                total_cells = [
+                    f"[bold]{_fmt_dur(grand_phase[p])}[/]" if grand_phase[p] > 0 else "[dim]-[/]"
+                    for p in self._PHASES
+                ]
+                timing_tbl.add_row("[bold]Total[/]", *total_cells, f"[bold]{_fmt_dur(grand_total_t)}[/]")
+
+                # Percentage row
+                pct_cells = [
+                    f"[dim]{grand_phase[p]/grand_total_t:.0%}[/]" if grand_phase[p] > 0 else "[dim]-[/]"
+                    for p in self._PHASES
+                ]
+                timing_tbl.add_row("[dim]% of time[/]", *pct_cells, "[dim]100%[/]")
+
         # -- Timing -----------------------------------------------------------
         rate_min = overall_rate * 60
         parts = [f"  Elapsed: [bold]{_fmt_dur(elapsed)}[/]"]
@@ -417,5 +489,9 @@ class IngestionDashboard:
         bottom = Text.from_markup(f"{act_text}{err_text}\n{hint}")
 
         # -- Assemble ---------------------------------------------------------
-        elements: list = [header, Text(""), tbl, Text(""), bar_grid, Text(""), timing, bottom]
+        elements: list = [header, Text(""), tbl, Text(""), bar_grid, Text("")]
+        if timing_tbl:
+            elements.append(timing_tbl)
+            elements.append(Text(""))
+        elements.extend([timing, bottom])
         return Group(*elements)

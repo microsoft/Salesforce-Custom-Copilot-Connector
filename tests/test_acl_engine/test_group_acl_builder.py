@@ -97,7 +97,7 @@ class TestAceFactories:
 
 
 class TestPublicOwd:
-    def test_public_owd_produces_top_level_group_ace(self):
+    def test_public_owd_produces_grant_everyone_ace(self):
         builder = _make_builder(owd_map={"Account": EntityVisibility.READ})
         records = [{"Id": "001ABC", "objectType": "Account"}]
 
@@ -105,20 +105,21 @@ class TestPublicOwd:
 
         assert "001ABC" in result
         assert len(result["001ABC"]) == 1
-        assert result["001ABC"][0]["value"] == "AccountTopLevel"
-        assert result["001ABC"][0]["type"] == "externalGroup"
+        assert result["001ABC"][0]["value"] == "everyone"
+        assert result["001ABC"][0]["type"] == "everyone"
+        assert result["001ABC"][0]["accessType"] == "grant"
 
     def test_edit_owd_is_public(self):
         builder = _make_builder(owd_map={"Lead": EntityVisibility.EDIT})
         records = [{"Id": "00Q001"}]
         result = asyncio.run(builder._build_acl_map("Lead", records, {}))
-        assert result["00Q001"][0]["value"] == "LeadTopLevel"
+        assert result["00Q001"][0]["value"] == "everyone"
 
     def test_read_edit_transfer_owd_is_public(self):
         builder = _make_builder(owd_map={"Case": EntityVisibility.READ_EDIT_TRANSFER})
         records = [{"Id": "500001"}]
         result = asyncio.run(builder._build_acl_map("Case", records, {}))
-        assert result["500001"][0]["value"] == "CaseTopLevel"
+        assert result["500001"][0]["value"] == "everyone"
 
     def test_multiple_records_all_get_same_acl(self):
         builder = _make_builder(owd_map={"Account": EntityVisibility.READ})
@@ -126,7 +127,7 @@ class TestPublicOwd:
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         assert len(result) == 3
         for record_id in ("001A", "001B", "001C"):
-            assert result[record_id][0]["value"] == "AccountTopLevel"
+            assert result[record_id][0]["value"] == "everyone"
 
 
 # ── PRIVATE OWD tests ────────────────────────────────────────────────────────
@@ -450,7 +451,7 @@ class TestControlledByParent:
         )
         records = [{"Id": "003C1"}]
         result = asyncio.run(builder._build_acl_map("Contact", records, {}))
-        assert result["003C1"][0]["value"] == "ContactTopLevel"
+        assert result["003C1"][0]["value"] == "everyone"
 
     def test_controlled_by_parent_with_private_parent_uses_owner(self):
         owner = _make_sf_user(user_id="005OWNER", federation_id="a2b3c4d5-e6f7-8901-2345-678901234567")
@@ -508,12 +509,11 @@ class TestOWDOverrides:
 class TestGroupIdConsistency:
     """Verify that group IDs used in ACLs match the format constants."""
 
-    def test_public_acl_uses_top_level_format(self):
-        expected = SfGroupIdFormats.TOP_LEVEL.format("Account")
+    def test_public_acl_uses_grant_everyone(self):
         builder = _make_builder(owd_map={"Account": EntityVisibility.READ})
         records = [{"Id": "001X"}]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
-        assert result["001X"][0]["value"] == expected
+        assert result["001X"][0] == {"accessType": "grant", "type": "everyone", "value": "everyone"}
 
     def test_private_acl_uses_global_users_format(self):
         expected = SfGroupIdFormats.GLOBAL_USERS.format("Account")

@@ -295,13 +295,12 @@ class IdentityGatherer:
         )
 
         if is_public_visibility(visibility):
-            # PUBLIC OWD: add all authorized users directly
-            users = await self._query.get_authorized_users(object_name)
-            membership.users = users
+            # PUBLIC OWD: content items use grant-everyone ACL, so no
+            # external group membership is needed.  Skip the expensive
+            # authorized-users query entirely.
             logger.info(
-                "[IdentityGather] %s PUBLIC: %d user(s)",
+                "[IdentityGather] %s PUBLIC: skipped (grant-everyone used for content ACLs)",
                 object_name,
-                len(users),
             )
         else:
             # PRIVATE OWD: build child group structure

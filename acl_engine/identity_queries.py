@@ -32,6 +32,17 @@ logger = logging.getLogger("salesforce_connector.acl_engine.identity")
 _MAX_IN_CLAUSE_IDS = 50
 
 
+def _share_table_name(object_type: str) -> str:
+    """Derive the share table API name for a given sObject type.
+
+    Standard objects : Account   → AccountShare
+    Custom objects   : Work_Order__c → Work_Order__Share
+    """
+    if object_type.endswith("__c"):
+        return object_type[:-3] + "__Share"
+    return object_type + "Share"
+
+
 def _chunked(items: list, size: int) -> list[list]:
     """Split *items* into chunks of at most *size*."""
     return [items[i : i + size] for i in range(0, len(items), size)]
@@ -83,7 +94,8 @@ class IdentityQueryClient:
         Query OWD settings from the Organization object.
 
         The SELECT field list is built dynamically from ``owd_field_map``
-        (loaded from ``config/schema.json``).  No field names are hardcoded.
+        (loaded from ``config/schema.json``).  Fields that don't exist on the
+        Organization entity are silently skipped (e.g. ``DefaultUserAccess``).
 
         Returns ``{object_name: EntityVisibility}``.
         """
@@ -91,8 +103,25 @@ class IdentityQueryClient:
             logger.warning("[IdentityQuery] No owd_field_map available; returning empty OWD")
             return {}
 
-        # Build SELECT from config: deduplicate field names
-        owd_fields = list(dict.fromkeys(self._owd_field_map.values()))
+        # Validate fields against Organization describe to avoid INVALID_FIELD
+        valid_fields = await self._get_org_fields()
+        filtered_map = {
+            obj: fld for obj, fld in self._owd_field_map.items()
+            if fld in valid_fields
+        }
+        skipped = set(self._owd_field_map) - set(filtered_map)
+        if skipped:
+            logger.warning(
+                "[IdentityQuery] Skipping objects with invalid OWD fields on Organization: %s",
+                {obj: self._owd_field_map[obj] for obj in skipped},
+            )
+
+        if not filtered_map:
+            logger.warning("[IdentityQuery] No valid OWD fields found; returning empty OWD")
+            return {}
+
+        # Build SELECT from validated fields: deduplicate field names
+        owd_fields = list(dict.fromkeys(filtered_map.values()))
         soql = f"SELECT {', '.join(owd_fields)} FROM Organization"
 
         logger.info("[IdentityQuery] Fetching OWD with: %s", soql)
@@ -105,12 +134,22 @@ class IdentityQueryClient:
 
         record = records[0]
         owd_map: dict[str, EntityVisibility] = {}
-        for obj_name, owd_field in self._owd_field_map.items():
+        for obj_name, owd_field in filtered_map.items():
             raw = record.get(owd_field, "None")
             owd_map[obj_name] = parse_visibility(raw)
 
         logger.info("[IdentityQuery] OWD map: %s", {k: v.value for k, v in owd_map.items()})
         return owd_map
+
+    async def _get_org_fields(self) -> set[str]:
+        """Return the set of field names available on the Organization entity."""
+        try:
+            desc = await self._sf.describe_sobject("Organization")
+            return {f["name"] for f in desc.get("fields", [])}
+        except Exception as exc:
+            logger.warning("[IdentityQuery] Organization describe failed: %s", exc)
+            # Fall back to all configured fields (query may fail for bad ones)
+            return set(self._owd_field_map.values())
 
     # ── 3.2  Authorized Users (all with Read permission) ─────────────────────
 
@@ -187,17 +226,17 @@ class IdentityQueryClient:
         Query distinct UserOrGroupId values from the share table
         where the share is to a Group (Queue type).
         """
+        share_table = _share_table_name(object_name)
         soql = (
             f"SELECT UserOrGroupId "
-            f"FROM {object_name}Share "
-            f"WHERE UserOrGroup.Type = 'Queue' "
+            f"FROM {share_table} "
             f"GROUP BY UserOrGroupId "
             f"ORDER BY UserOrGroupId ASC"
         )
         try:
             records = await self._sf.query_all(soql)
         except RuntimeError:
-            logger.warning("[IdentityQuery] Could not query %sShare group shares", object_name)
+            logger.warning("[IdentityQuery] Could not query %s group shares", share_table)
             return []
         return [r["UserOrGroupId"] for r in records if r.get("UserOrGroupId")]
 
