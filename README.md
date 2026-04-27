@@ -172,8 +172,11 @@ CONNECTION_RETRY_INTERVAL_SECONDS=15
 # Schema provisioning retry interval (seconds)
 SCHEMA_RETRY_INTERVAL_SECONDS=15
 
-# Salesforce SOQL query page size
-SALESFORCE_QUERY_LIMIT=10
+# Salesforce SOQL LIMIT clause.
+# Set to 0 (recommended for production) to let Salesforce paginate the full result
+# set automatically at 2000 records/page via nextRecordsUrl — no artificial cap.
+# Set to a small positive number (e.g. 5) only for local dev/debug runs.
+SALESFORCE_QUERY_LIMIT=0
 
 # Max IDs in a single SOQL IN clause
 SALESFORCE_BATCH_SIZE=100
@@ -181,8 +184,29 @@ SALESFORCE_BATCH_SIZE=100
 # Max depth when following ControlledByParent ACL chains
 ACL_MAX_PARENT_DEPTH=5
 
+# ── Batching / parallelism ──
+# Number of Salesforce records processed per chunk (ACL resolve + Graph $batch cycle).
+# Aligning to 2000 = one Salesforce page per cycle. Safe to increase up to ~5000.
+INGEST_CHUNK_SIZE=2000
+
+# Number of PUT/DELETE requests per Graph $batch POST.
+# Hard-capped at 20 by the Graph API — do not set above 20.
+INGEST_GRAPH_BATCH_SIZE=20
+
+# Number of concurrent Graph $batch POST workers (1 = sequential, 4-8 recommended for large orgs).
+# Higher values increase throughput but may trigger 429 throttling — start with 2 and tune.
+GRAPH_BATCH_WORKERS=4
+
+# ── ACL engine flags ──
 # Set to true to use the new ACL engine instead of the legacy resolver
-USE_NEW_ACL_ENGINE=false
+USE_NEW_ACL_ENGINE=true
+
+# Enable group-based ACL (public groups, queues, territories)
+USE_GROUP_ACL=true
+
+# Force specific object OWD values for testing (JSON object, e.g. {"Account":"Private"})
+# Leave empty or omit to use real Salesforce OWD values
+OWD_OVERRIDES=
 ```
 
 Create `env/.env.local.user` for secrets:
