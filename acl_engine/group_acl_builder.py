@@ -282,7 +282,7 @@ class GroupAclBuilder:
         self,
         object_type: str,
         records: list[dict[str, Any]],
-        batch_size: int = 100,
+        batch_size: int = 200,
     ) -> None:
         """Bulk-fetch share records from Salesforce and inject into record dicts.
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -33,19 +33,40 @@ class SalesforceClient:
 
     Parameters
     ----------
-    instance_url  : Full URL of the org  (e.g. "https://myorg.my.salesforce.com")
-    api_version   : API version string   (e.g. "60.0")
-    access_token  : OAuth Bearer token
+    instance_url    : Full URL of the org  (e.g. "https://myorg.my.salesforce.com")
+    api_version     : API version string   (e.g. "60.0")
+    access_token    : OAuth Bearer token
+    token_refresher : Optional callable that returns a fresh access token.
+                      When provided, 401 responses trigger a single retry
+                      with the new token.
     """
 
-    def __init__(self, instance_url: str, api_version: str, access_token: str) -> None:
+    def __init__(
+        self,
+        instance_url: str,
+        api_version: str,
+        access_token: str,
+        token_refresher: Callable[[], str] | None = None,
+    ) -> None:
         self._base_url = instance_url.rstrip("/")
         # Normalise "v60.0" → "60.0" so URL construction (which prepends 'v') is correct
         self._api_version = api_version.lstrip("v")
-        self._headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
+        self._access_token = access_token
+        self._token_refresher = token_refresher
+        self._headers = self._make_headers(access_token)
+
+    @staticmethod
+    def _make_headers(token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    def _refresh_token(self) -> None:
+        """Refresh the access token via the callback, if available."""
+        if not self._token_refresher:
+            return
+        new_token = self._token_refresher()
+        self._access_token = new_token
+        self._headers = self._make_headers(new_token)
+        logger.info("[SalesforceClient] Token refreshed successfully")
 
     # ── Public async API ──────────────────────────────────────────────────────
 
@@ -99,6 +120,12 @@ class SalesforceClient:
             params={"q": soql},
             timeout=_TIMEOUT_SECS,
         )
+        if response.status_code == 401 and self._token_refresher:
+            logger.warning("[SalesforceClient] 401 — refreshing token and retrying")
+            self._refresh_token()
+            response = requests.get(
+                url, headers=self._headers, params={"q": soql}, timeout=_TIMEOUT_SECS,
+            )
         if not response.ok:
             raise RuntimeError(
                 f"Salesforce {'tooling ' if tooling else ''}query failed "
@@ -119,6 +146,10 @@ class SalesforceClient:
                 next_path = self._base_url + next_path
 
             response = requests.get(next_path, headers=self._headers, timeout=_TIMEOUT_SECS)
+            if response.status_code == 401 and self._token_refresher:
+                logger.warning("[SalesforceClient] 401 during pagination — refreshing token")
+                self._refresh_token()
+                response = requests.get(next_path, headers=self._headers, timeout=_TIMEOUT_SECS)
             if not response.ok:
                 raise RuntimeError(
                     f"Salesforce pagination failed [{response.status_code}]: {response.text}"

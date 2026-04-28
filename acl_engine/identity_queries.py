@@ -77,6 +77,7 @@ class IdentityQueryClient:
         self._batch_size = batch_size
         self._owd_field_map = owd_field_map if owd_field_map is not None else self._load_owd_field_map()
         self._no_share_table_types: set[str] = set()
+        self._invalid_owd_fields: set[str] = set()
 
     @staticmethod
     def _load_owd_field_map() -> dict[str, str]:
@@ -112,6 +113,7 @@ class IdentityQueryClient:
         }
         skipped = set(self._owd_field_map) - set(filtered_map)
         if skipped:
+            self._invalid_owd_fields = {self._owd_field_map[obj] for obj in skipped}
             logger.warning(
                 "[IdentityQuery] Skipping objects with invalid OWD fields on Organization: %s",
                 {obj: self._owd_field_map[obj] for obj in skipped},
@@ -180,7 +182,7 @@ class IdentityQueryClient:
         logger.info("[IdentityQuery] SOQL: %s", soql)
         records = await self._sf.query_all(soql)
         logger.info("[IdentityQuery] Fetched %d user record(s) for '%s'", len(records), object_name)
-        users = self._parse_full_users(records)
+        users = self._parse_psa_users(records)
         missing = [u for u in users if not u.federation_identifier]
         if missing:
             logger.warning(
@@ -252,6 +254,14 @@ class IdentityQueryClient:
     def has_share_table(self, object_name: str) -> bool:
         """Return False if a prior query proved the share table doesn't exist."""
         return object_name not in self._no_share_table_types
+
+    def has_owd_field(self, object_name: str) -> bool:
+        """Return True if the object has a valid OWD field on Organization.
+
+        Objects like User, Product2, Pricebook2 have no OWD field — their
+        access is controlled by Profile/Permission Set, not per-record sharing.
+        """
+        return object_name in self._owd_field_map and self._owd_field_map[object_name] not in self._invalid_owd_fields
 
     # ── 3.7  Group Details ───────────────────────────────────────────────────
 

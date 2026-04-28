@@ -58,6 +58,7 @@ def run_identity_sync(config: AppConfig, graph_client: GraphClient) -> SyncSessi
         instance_url=config.connector.salesforce.instance_url,
         api_version=config.connector.salesforce.api_version,
         access_token=get_salesforce_access_token(config),
+        token_refresher=lambda: get_salesforce_access_token(config),
     )
 
     # 2. Determine object names from config

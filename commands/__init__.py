@@ -171,6 +171,48 @@ def write_summary(summary_file, log_file, stats, connection_status, connector_id
         lines.append(f"")
         lines.append(f"  >> Failed records: logs/failed_records_{connector_id}.jsonl")
     lines.append(f"  Time elapsed:     {elapsed:.1f}s")
+
+    # Phase timing breakdown
+    _PHASES = ("SF Fetch", "ACL", "Transform", "Graph Push")
+    if hasattr(stats, "phase_timings") and stats.phase_timings:
+        lines.append("")
+        lines.append("  Phase Timing (cumulative)")
+        lines.append("  " + "-" * 56)
+        header = f"  {'Object':<20s}"
+        for phase in _PHASES:
+            header += f" {phase:>12s}"
+        header += f" {'Total':>10s}"
+        lines.append(header)
+        lines.append("  " + "-" * 56)
+
+        grand_phase: dict[str, float] = {p: 0.0 for p in _PHASES}
+        for obj_type in sorted(stats.phase_timings):
+            obj_timings = stats.phase_timings[obj_type]
+            row = f"  {obj_type:<20s}"
+            row_total = 0.0
+            for phase in _PHASES:
+                entry = obj_timings.get(phase)
+                if entry and entry[0] > 0:
+                    secs, count = entry
+                    row += f" {secs:>8.1f}s({count})"
+                    grand_phase[phase] += secs
+                    row_total += secs
+                else:
+                    row += f" {'—':>12s}"
+            row += f" {row_total:>8.1f}s"
+            lines.append(row)
+
+        lines.append("  " + "-" * 56)
+        totals_row = f"  {'TOTAL':<20s}"
+        grand_total = 0.0
+        for phase in _PHASES:
+            val = grand_phase[phase]
+            totals_row += f" {val:>9.1f}s   "
+            grand_total += val
+        totals_row += f" {grand_total:>8.1f}s"
+        lines.append(totals_row)
+        lines.append("  " + "-" * 56)
+
     lines.append(f"  Full log:         {log_file}")
     lines.append(f"  Summary log:      {summary_file}")
     lines.append("=" * 60)

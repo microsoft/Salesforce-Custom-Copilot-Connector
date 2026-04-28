@@ -436,9 +436,10 @@ class IdentityGatherer:
         group_share_ids = await self._query.get_group_share_ids(object_name)
 
         # If the share table doesn't exist (e.g. Product2, Pricebook2),
+        # or the object has no valid OWD field on Organization (e.g. User),
         # flag the GlobalUsers group to include all Read-permission users
         # instead of only ViewAll/ModifyAll admins.
-        if not self._query.has_share_table(object_name):
+        if not self._query.has_share_table(object_name) or not self._query.has_owd_field(object_name):
             membership.child_groups[0].metadata["use_read_permission"] = True
 
         # 4. Load group details

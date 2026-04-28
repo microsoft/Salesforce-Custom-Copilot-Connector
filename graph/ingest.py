@@ -73,6 +73,17 @@ class IngestionStats:
     object_type_counts: dict[str, int] = field(default_factory=dict)
     acl_engine: str = "LEGACY"
     acl_fallback_used: bool = False
+    # {obj_type: {phase: (total_secs, chunk_count)}}
+    phase_timings: dict[str, dict[str, tuple[float, int]]] = field(default_factory=dict)
+    _timing_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def record_phase_time(self, obj_type: str, phase: str, duration: float) -> None:
+        """Accumulate timing for a pipeline phase (thread-safe)."""
+        with self._timing_lock:
+            if obj_type not in self.phase_timings:
+                self.phase_timings[obj_type] = {}
+            prev = self.phase_timings[obj_type].get(phase, (0.0, 0))
+            self.phase_timings[obj_type][phase] = (prev[0] + duration, prev[1] + 1)
 
 logger = logging.getLogger("salesforce_connector")
 
@@ -395,6 +406,7 @@ def _ingest_chunk_graph_batch(
     )
     if dashboard:
         dashboard.record_phase_time(object_type, "Transform", _transform_dur)
+    stats.record_phase_time(object_type, "Transform", _transform_dur)
 
     effective_batch = min(batch_size, GRAPH_BATCH_MAX_SIZE)
     max_workers = concurrency.current if concurrency else 1
@@ -626,6 +638,7 @@ def _ingest_chunk_graph_batch(
     )
     if dashboard:
         dashboard.record_phase_time(object_type, "Graph Push", _graph_dur)
+    stats.record_phase_time(object_type, "Graph Push", _graph_dur)
 
     items_to_process.clear()
     return submitted
@@ -716,6 +729,7 @@ def _ingest_single_object_type(
             if dashboard:
                 dashboard.chunk_fetched(object_type, chunk_index, batch_size)
                 dashboard.record_phase_time(object_type, "SF Fetch", _fetch_dur)
+            stats.record_phase_time(object_type, "SF Fetch", _fetch_dur)
 
             # ── Checkpoint: skip already-completed chunks ─────────────────
             if checkpoint:
@@ -765,6 +779,7 @@ def _ingest_single_object_type(
                 )
                 if dashboard:
                     dashboard.record_phase_time(object_type, "ACL", _acl_dur)
+                stats.record_phase_time(object_type, "ACL", _acl_dur)
             except Exception as error:
                 logger.exception(
                     "ACL resolution failed for %s chunk #%d, falling back to public ACLs: %s",
@@ -884,6 +899,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             instance_url=config.connector.salesforce.instance_url,
             api_version=config.connector.salesforce.api_version,
             access_token=get_salesforce_access_token(config),
+            token_refresher=lambda: get_salesforce_access_token(config),
         )
         _new_acl_resolver = NewAclResolver(
             _acl_sf_client,
@@ -912,6 +928,7 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             instance_url=config.connector.salesforce.instance_url,
             api_version=config.connector.salesforce.api_version,
             access_token=_grp_get_token(config),
+            token_refresher=lambda: _grp_get_token(config),
         )
         _grp_principal_mapper = _PrincipalMapper(
             sf_client=_grp_sf_client,

@@ -43,6 +43,7 @@ def cmd_identity_dry_run(args) -> bool:
             instance_url=config.connector.salesforce.instance_url,
             api_version=config.connector.salesforce.api_version,
             access_token=get_salesforce_access_token(config),
+            token_refresher=lambda: get_salesforce_access_token(config),
         )
 
         object_names = [
@@ -68,9 +69,25 @@ def cmd_identity_dry_run(args) -> bool:
             crawl_result.total_users_emitted,
         )
 
-        # ── Step 2: Flatten to member sets ────────────────────────────────────
+        # ── Step 2: Flatten to member sets (resolve SF users → AAD GUIDs) ─────
+        import asyncio
+        from graph.client import GraphClient
         from graph.identity_publisher import IdentityPublisher
-        flat = IdentityPublisher._flatten_crawl_result(crawl_result)
+        from acl_engine.principal_mapper import PrincipalMapper
+
+        graph_client = GraphClient()
+        principal_mapper = PrincipalMapper(
+            sf_client=sf_client,
+            graph_client=graph_client,
+            tenant_id=config.tenant_id,
+            batch_size=config.tuning.salesforce_batch_size,
+        )
+        publisher = IdentityPublisher(
+            graph_client=graph_client,
+            connection_id=config.connector.id,
+            principal_mapper=principal_mapper,
+        )
+        flat = asyncio.run(publisher._flatten_crawl_result_async(crawl_result))
 
         # ── Step 3: Diff against SQLite store ─────────────────────────────────
         from graph.identity_store import create_store
