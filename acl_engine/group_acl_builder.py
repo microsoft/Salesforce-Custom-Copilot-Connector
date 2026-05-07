@@ -369,12 +369,33 @@ class GroupAclBuilder:
         if not user or not user.permission_sets or user.id in frozen:
             return True  # Skipped user, not a failure
 
-        # Direct user ACE (only if resolvable to AAD GUID)
+        # Resolve user to AAD GUID — try FederationIdentifier → stripped UserName → Email
+        # in order, stopping at the first candidate that resolves successfully.
         ace = None
-        if user.federation_identifier:
-            ace = _user_ace_aad(user.federation_identifier)
-        else:
-            ace = _user_ace_external(user)
+        candidates = _best_user_identifiers(user)
+        for identifier in candidates:
+            if self._principal_mapper is not None:
+                resolved = self._principal_mapper._resolve_identifier(identifier)
+                if resolved:
+                    ace = _user_ace_aad(resolved)
+                    if ace:
+                        break  # resolved and valid GUID
+            else:
+                ace = _user_ace_aad(identifier)
+                if ace:
+                    break  # identifier was already a GUID
+
+        if not candidates:
+            logger.warning(
+                "[GroupACL] User %s (%s) — no valid identifier (FederationIdentifier/UserName/Email all missing or invalid)",
+                user_id, user.name,
+            )
+        elif not ace:
+            logger.warning(
+                "[GroupACL] User %s (%s) — tried %d candidate(s) %s, none resolved to AAD GUID → ACL resolution failed",
+                user_id, user.name, len(candidates), candidates,
+            )
+
         if ace:
             acls.append(ace)
         else:
@@ -471,41 +492,43 @@ class GroupAclBuilder:
             if owner_id:
                 owner = (self._users_by_id or {}).get(owner_id)
                 if owner:
-                    # Mirror PrincipalMapper._resolve_principal:
-                    # try FederationIdentifier → UserName (stripped) → Email in order
-                    identifier = _best_user_identifier(owner)
-                    if identifier:
-                        source = (
-                            "FederationIdentifier" if identifier == owner.federation_identifier
-                            else "Email" if identifier == owner.email
-                            else "UserName (stripped)"
-                        )
-                        # If a PrincipalMapper is available, resolve identifier → AAD GUID
+                    # Try FederationIdentifier → stripped UserName → Email in order,
+                    # stopping at the first candidate that resolves to an AAD GUID.
+                    candidates = _best_user_identifiers(owner)
+                    ace = None
+                    resolved_via: str | None = None
+                    for identifier in candidates:
                         if self._principal_mapper is not None:
                             resolved = self._principal_mapper._resolve_identifier(identifier)
                             if resolved:
-                                logger.debug(
-                                    "[GroupACL] Owner %s (%s) — resolved via %s '%s' → AAD GUID '%s'",
-                                    owner_id, owner.name, source, identifier, resolved,
-                                )
-                                acls.append(_user_ace_aad(resolved))
-                            else:
-                                logger.warning(
-                                    "[GroupACL] Owner %s (%s) — PrincipalMapper could not resolve '%s' to AAD GUID → skipping user ACE",
-                                    owner_id, owner.name, identifier,
-                                )
+                                ace = _user_ace_aad(resolved)
+                                if ace:
+                                    resolved_via = identifier
+                                    break
                         else:
-                            logger.debug(
-                                "[GroupACL] Owner %s (%s) — resolved via %s: '%s' → adding as user ACE (no PrincipalMapper)",
-                                owner_id, owner.name, source, identifier,
-                            )
-                            acls.append(_user_ace_aad(identifier))
-                    else:
-                        logger.warning(
-                            "[GroupACL] Owner %s (%s) — no identifier available "
-                            "(FederationIdentifier/UserName/Email all missing) → applying deny-everyone ACL for record %s",
-                            owner_id, owner.name, record_id,
+                            ace = _user_ace_aad(identifier)
+                            if ace:
+                                resolved_via = identifier
+                                break
+
+                    if ace:
+                        logger.debug(
+                            "[GroupACL] Owner %s (%s) — resolved via '%s' → adding user ACE",
+                            owner_id, owner.name, resolved_via,
                         )
+                        acls.append(ace)
+                    else:
+                        if not candidates:
+                            logger.warning(
+                                "[GroupACL] Owner %s (%s) — no valid identifier available "
+                                "(FederationIdentifier/UserName/Email all missing or invalid) → deny-everyone for record %s",
+                                owner_id, owner.name, record_id,
+                            )
+                        else:
+                            logger.warning(
+                                "[GroupACL] Owner %s (%s) — tried %d candidate(s) %s, none resolved to AAD GUID → deny-everyone for record %s",
+                                owner_id, owner.name, len(candidates), candidates, record_id,
+                            )
                         acl_map[record_id] = _deny_everyone_acl()
                         continue
                 else:
@@ -530,28 +553,74 @@ class GroupAclBuilder:
 # ── Identifier resolution helper ────────────────────────────────────────────
 
 
+def _best_user_identifiers(user: "SfUser") -> list[str]:
+    """
+    Return an ordered list of all valid identifiers for AAD ACE resolution.
+
+    Priority: FederationIdentifier → stripped UserName → Email
+    Each candidate is de-duplicated.  Bare values without '@' that are not
+    GUIDs (e.g. numeric Salesforce IDs like '61273255') are rejected.
+
+    Returning a list (instead of just the first match) lets callers try every
+    candidate through Graph until one resolves — mirroring the behaviour of
+    PrincipalMapper._resolve_principal.
+    """
+    def _strip_sf_suffix(username: str) -> str | None:
+        """Strip the single Salesforce-appended org label from a username.
+
+        Rules (mirrors principal_mapper._strip_sf_username_suffix):
+        - Must contain exactly one '@'.
+        - Domain must have MORE than 2 labels — 'acme.com' is never stripped.
+        - Only the LAST label is removed: 'acme.com.sandbox' → 'acme.com'.
+        """
+        if "@" not in username:
+            return None
+        local, domain = username.rsplit("@", 1)
+        labels = domain.split(".")
+        if len(labels) <= 2:
+            return None
+        return f"{local}@{'.' .join(labels[:-1])}"
+
+    seen: set[str] = set()
+    candidates: list[str] = []
+
+    def _add(val: str | None) -> None:
+        if not val:
+            return
+        val = val.strip()
+        if not val or val in seen:
+            return
+        # Reject bare values that have no '@' and are not GUIDs.
+        # e.g. numeric SF IDs like '61273255' are invalid for Graph.
+        if "@" not in val and not _looks_like_guid(val):
+            logger.debug(
+                "[GroupACL] Skipping identifier '%s' for user %s — not a UPN, email, or GUID",
+                val, user.id,
+            )
+            return
+        seen.add(val)
+        candidates.append(val)
+
+    # FederationIdentifier (raw, then stripped)
+    _add(user.federation_identifier)
+    if user.federation_identifier:
+        _add(_strip_sf_suffix(user.federation_identifier))
+
+    # UserName (stripped first — the raw SF username is rarely a valid UPN)
+    if user.user_name:
+        _add(_strip_sf_suffix(user.user_name))
+        _add(user.user_name)  # raw as last resort
+
+    # Email
+    _add(user.email)
+
+    return candidates
+
+
 def _best_user_identifier(user: "SfUser") -> str | None:
-    """
-    Return the best identifier to use as an AAD ACE value.
-
-    Priority: FederationIdentifier → UserName (stripped of SF suffix) → Email
-    Returns None if none are available.
-    """
-    import re
-
-    def _strip_sf_suffix(username: str) -> str:
-        """Strip the Salesforce-appended org suffix from a username."""
-        # e.g. john@contoso.com.sandbox123 → john@contoso.com
-        return re.sub(r'(\.[a-z0-9]+)+$', '', username, flags=re.IGNORECASE)
-
-    for identifier in (
-        user.federation_identifier,
-        _strip_sf_suffix(user.user_name) if user.user_name else "",
-        user.email,
-    ):
-        if identifier and identifier.strip():
-            return identifier.strip()
-    return None
+    """Return the single highest-priority identifier (first from _best_user_identifiers)."""
+    candidates = _best_user_identifiers(user)
+    return candidates[0] if candidates else None
 
 
 # ── Module-level ACE factories ────────────────────────────────────────────────
