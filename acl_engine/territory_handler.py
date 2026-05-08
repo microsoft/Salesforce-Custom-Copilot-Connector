@@ -50,6 +50,7 @@ Queries used
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Optional
 
 from acl_engine.salesforce_client import SalesforceClient
@@ -59,16 +60,66 @@ logger = logging.getLogger("salesforce_connector.acl_engine")
 
 class TerritoryHandler:
     """
-    Resolves user sets for Territory2-based Salesforce groups and record
-    territory assignments.
-
-    Parameters
-    ----------
-    sf_client : SalesforceClient instance.
+    Resolves user sets for Territory2-based Salesforce groups.
     """
 
     def __init__(self, sf_client: SalesforceClient) -> None:
         self._sf = sf_client
+        # Pre-warm caches (None = not yet fetched)
+        # territory_id → parent_territory_id
+        self._territory_parent_map: Optional[dict[str, Optional[str]]] = None
+        # parent_territory_id → [child_territory_ids]
+        self._territories_by_parent: Optional[dict[str, list[str]]] = None
+        # territory_id → {user_ids}
+        self._users_by_territory: Optional[dict[str, set[str]]] = None
+        self._prewarm_lock = threading.Lock()
+
+    # ── Bulk pre-warm (once per run) ─────────────────────────────────────
+
+    async def prewarm(self) -> None:
+        """
+        Fetch ALL Territory2 nodes and ALL UserTerritory2Association rows
+        in 2 SOQL calls. After this, all territory resolution is in-memory.
+        """
+        if self._territory_parent_map is not None:
+            return
+
+        parent_map: dict[str, Optional[str]] = {}
+        by_parent: dict[str, list[str]] = {}
+        try:
+            rows = await self._sf.query_all(
+                "SELECT Id, ParentTerritory2Id FROM Territory2"
+            )
+            for r in rows:
+                tid = r.get("Id")
+                pid = r.get("ParentTerritory2Id")
+                if tid:
+                    parent_map[tid] = pid
+                    if pid:
+                        by_parent.setdefault(pid, []).append(tid)
+            logger.info("[TerritoryHandler] Pre-warmed %d territory node(s)", len(parent_map))
+        except RuntimeError as exc:
+            logger.warning("[TerritoryHandler] Territory2 prewarm failed: %s", exc)
+
+        users_by_territory: dict[str, set[str]] = {}
+        try:
+            rows = await self._sf.query_all(
+                "SELECT UserId, Territory2Id FROM UserTerritory2Association"
+            )
+            for r in rows:
+                uid = r.get("UserId")
+                tid = r.get("Territory2Id")
+                if uid and tid:
+                    users_by_territory.setdefault(tid, set()).add(uid)
+            logger.info("[TerritoryHandler] Pre-warmed users for %d territory/territories", len(users_by_territory))
+        except RuntimeError as exc:
+            logger.warning("[TerritoryHandler] UserTerritory2Association prewarm failed: %s", exc)
+
+        with self._prewarm_lock:
+            if self._territory_parent_map is None:
+                self._territories_by_parent = by_parent
+                self._users_by_territory = users_by_territory
+                self._territory_parent_map = parent_map  # set last — signals ready
 
     # ── Record-level territory look-up ────────────────────────────────────────
 
@@ -182,30 +233,28 @@ class TerritoryHandler:
     # ── Private query helpers ─────────────────────────────────────────────────
 
     async def _users_in_territory(self, territory2_id: str) -> set[str]:
-        """Fetch users assigned to *territory2_id* via UserTerritory2Association."""
+        """Return users assigned to *territory2_id*."""
+        if self._users_by_territory is not None:
+            return set(self._users_by_territory.get(territory2_id, set()))
         soql = (
-            f"SELECT UserId "
-            f"FROM UserTerritory2Association "
+            f"SELECT UserId FROM UserTerritory2Association "
             f"WHERE Territory2Id = '{territory2_id}'"
         )
         records = await self._sf.query_all(soql)
-        user_ids = {r["UserId"] for r in records if r.get("UserId")}
-        logger.debug(
-            "[TerritoryHandler] Territory %s → %d user(s)", territory2_id, len(user_ids)
-        )
-        return user_ids
+        return {r["UserId"] for r in records if r.get("UserId")}
 
     async def _child_territory_ids(self, territory2_id: str) -> list[str]:
-        """Fetch direct child territories (one level down) of *territory2_id*."""
-        soql = (
-            f"SELECT Id FROM Territory2 "
-            f"WHERE ParentTerritory2Id = '{territory2_id}'"
-        )
+        """Return direct child territories of *territory2_id*."""
+        if self._territories_by_parent is not None:
+            return list(self._territories_by_parent.get(territory2_id, []))
+        soql = f"SELECT Id FROM Territory2 WHERE ParentTerritory2Id = '{territory2_id}'"
         records = await self._sf.query_all(soql)
         return [r["Id"] for r in records if r.get("Id")]
 
     async def _get_parent_territory_id(self, territory2_id: str) -> Optional[str]:
         """Return the ParentTerritory2Id for *territory2_id*, or None at root."""
+        if self._territory_parent_map is not None:
+            return self._territory_parent_map.get(territory2_id)
         soql = (
             f"SELECT Id, ParentTerritory2Id FROM Territory2 "
             f"WHERE Id = '{territory2_id}' LIMIT 1"

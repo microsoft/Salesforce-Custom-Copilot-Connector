@@ -4,10 +4,16 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Iterator
 from urllib.parse import urlencode
+import json
 import logging
+import os
+import queue
 import re
+import threading
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from salesforce.sharing_model import SalesforceConstants
 from item.converter import METADATA_COLUMNS, load_converter_config
@@ -16,6 +22,71 @@ from salesforce.utils import to_iso_z
 
 
 logger = logging.getLogger("salesforce_connector")
+
+
+def _build_sf_session() -> requests.Session:
+    """Create a ``requests.Session`` with connection pooling and retry for Salesforce API calls.
+
+    Reusing a session avoids repeated TCP + TLS handshakes — this alone can
+    cut per-request latency by 50-80 ms on typical Salesforce endpoints.
+    """
+    session = requests.Session()
+    retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
+    adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+# Module-level pooled session — shared across all Salesforce fetch threads.
+# Thread-safe: urllib3 connection pools are internally locked.
+_sf_session = _build_sf_session()
+
+# ── Per-org, per-object field-list cache (SQLite-backed) ───────────────────
+# After the per-field retry loop discovers which fields work for a given org,
+# we persist the final list in the SQLite state store so subsequent runs skip
+# the retry loop entirely.  The store is located at data/{connection_id}_identity.db.
+#
+# We need a connection_id to open the store, but the cache functions only
+# receive instance_url.  We use a module-level variable that is set when
+# load_config() is called (via the first fetch_salesforce_records call).
+_active_connection_id: str | None = None
+
+
+def _load_field_cache(instance_url: str, object_type: str) -> tuple[str, ...] | None:
+    """Return cached field list from SQLite, or ``None`` if not found."""
+    if not _active_connection_id:
+        return None
+    try:
+        from graph.identity_store import create_store
+        with create_store(_active_connection_id) as store:
+            result = store.get_cached_fields(instance_url, object_type)
+            if result:
+                logger.info(
+                    "[FieldCache] Loaded %d cached fields for %s from SQLite",
+                    len(result), object_type,
+                )
+            return result
+    except Exception as exc:
+        logger.warning("[FieldCache] Could not load cache for %s: %s", object_type, exc)
+    return None
+
+
+def _save_field_cache(instance_url: str, object_type: str, fields: tuple[str, ...]) -> None:
+    """Persist working field list to SQLite so the next run skips the retry loop."""
+    if not _active_connection_id:
+        return
+    try:
+        from graph.identity_store import create_store
+        with create_store(_active_connection_id) as store:
+            store.save_cached_fields(instance_url, object_type, fields)
+            logger.info(
+                "[FieldCache] Saved %d working fields for %s to SQLite",
+                len(fields), object_type,
+            )
+    except Exception as exc:
+        logger.warning("[FieldCache] Could not save cache for %s: %s", object_type, exc)
+
 
 INVALID_FIELD_NAME_PATTERNS = (
     re.compile(r"No such column '([^']+)' on entity", re.IGNORECASE),
@@ -88,12 +159,52 @@ def _build_object_configs() -> tuple[SalesforceObjectConfig, ...]:
 OBJECT_CONFIGS = _build_object_configs()
 
 
+def get_object_counts(
+    config: AppConfig,
+    since: datetime | None = None,
+) -> dict[str, int]:
+    """Run lightweight ``SELECT COUNT()`` queries to get total record counts per object type.
+
+    Salesforce returns the count in the ``totalSize`` response field for
+    ``COUNT()`` queries, so no actual records are transferred.  This is
+    used by the dashboard to calculate a stable ETA from the start.
+    """
+    access_token = get_salesforce_access_token(config)
+    base_url = config.connector.salesforce.instance_url
+    api_version = config.connector.salesforce.api_version
+    headers = {"accept": "application/json", "authorization": f"Bearer {access_token}"}
+
+    active_configs = OBJECT_CONFIGS
+    if config.debug_object_type:
+        active_configs = tuple(c for c in OBJECT_CONFIGS if c.object_type == config.debug_object_type)
+
+    counts: dict[str, int] = {}
+    for obj_cfg in active_configs:
+        soql = f"SELECT COUNT() FROM {obj_cfg.object_type}"
+        where_clauses: list[str] = []
+        if obj_cfg.filter_condition:
+            where_clauses.append(obj_cfg.filter_condition)
+        if since:
+            where_clauses.append(f"LastModifiedDate >= {to_iso_z(since)}")
+        if where_clauses:
+            soql += f" WHERE {' AND '.join(where_clauses)}"
+        url = _build_query_url(base_url, api_version, soql)
+        try:
+            resp = _sf_session.get(url, headers=headers, timeout=30)
+            if resp.ok:
+                counts[obj_cfg.object_type] = resp.json().get("totalSize", 0)
+                logger.info("COUNT %s: %d records", obj_cfg.object_type, counts[obj_cfg.object_type])
+        except Exception as exc:
+            logger.warning("COUNT query failed for %s: %s", obj_cfg.object_type, exc)
+    return counts
+
+
 def get_salesforce_access_token(config: AppConfig) -> str:
     """Authenticate with Salesforce using client-credentials and return an access token."""
     token_url = f"{config.connector.salesforce.instance_url}/services/oauth2/token"
     logger.info("Authenticating with Salesforce at %s", token_url)
 
-    response = requests.post(
+    response = _sf_session.post(
         token_url,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data={
@@ -119,14 +230,132 @@ def get_salesforce_access_token(config: AppConfig) -> str:
 
 
 def get_all_items_from_api(config: AppConfig, since: datetime | None = None) -> Iterator[dict[str, Any]]:
-    """Yield all Salesforce records across configured objects, optionally filtered by *since*."""
+    """Yield all Salesforce records across configured objects, optionally filtered by *since*.
+
+    Records for each object type are fetched **in parallel** using one thread per
+    object type, then merged into a single sequential stream ordered by object
+    type.  This dramatically reduces total fetch time for large orgs.
+
+    When ``config.debug_object_type`` is set (``ingest-object`` command), only
+    the matching object's thread is started — no unnecessary Salesforce API calls
+    are made for the other objects.
+
+    When ``config.debug_item_id`` is set (``ingest-item`` command), all object
+    threads start (we don't know which object the ID belongs to) but each thread
+    stops as soon as it has yielded the matching record, thanks to the sentinel
+    drain in the consumer.
+    """
+    debug_object_type = config.debug_object_type
+
+    # When a specific object type is requested, restrict to that one config only.
+    # This avoids starting N-1 unnecessary Salesforce fetch threads.
+    active_configs = (
+        [cfg for cfg in OBJECT_CONFIGS if cfg.object_type == debug_object_type]
+        if debug_object_type
+        else list(OBJECT_CONFIGS)
+    )
+
+    if debug_object_type and not active_configs:
+        logger.warning(
+            "DEBUG_OBJECT_TYPE '%s' not found in OBJECT_CONFIGS — nothing to fetch.",
+            debug_object_type,
+        )
+        return
+
     access_token = get_salesforce_access_token(config)
 
-    for object_config in OBJECT_CONFIGS:
-        for record in fetch_salesforce_records(config, access_token, object_config, since):
-            clean_url = f"{config.connector.salesforce.instance_url}/{record['Id']}".replace("'", "").replace('"', "")
-            record["url"] = clean_url
-            yield record
+    _SENTINEL = object()  # signals that a producer thread has finished
+
+    # One bounded queue per active object type
+    per_object_queues: list[tuple[SalesforceObjectConfig, queue.Queue]] = [
+        (obj_cfg, queue.Queue(maxsize=200))
+        for obj_cfg in active_configs
+    ]
+
+    def _producer(obj_cfg: SalesforceObjectConfig, q: queue.Queue) -> None:
+        try:
+            for record in fetch_salesforce_records(config, access_token, obj_cfg, since):
+                clean_url = (
+                    f"{config.connector.salesforce.instance_url}/{record['Id']}"
+                    .replace("'", "")
+                    .replace('"', "")
+                )
+                record["url"] = clean_url
+                q.put(record)  # blocks when queue is full → natural back-pressure
+        except Exception as exc:  # pragma: no cover
+            logger.error("Producer thread failed for %s: %s", obj_cfg.object_type, exc)
+        finally:
+            q.put(_SENTINEL)
+
+    # Start one producer thread per active object type
+    threads = []
+    for obj_cfg, q in per_object_queues:
+        t = threading.Thread(
+            target=_producer,
+            args=(obj_cfg, q),
+            name=f"sf-fetch-{obj_cfg.object_type}",
+            daemon=True,
+        )
+        t.start()
+        threads.append(t)
+        logger.debug("Started fetch thread for %s", obj_cfg.object_type)
+
+    logger.info(
+        "Fetching %d object type(s) in parallel: %s",
+        len(active_configs),
+        ", ".join(c.object_type for c in active_configs),
+    )
+
+    # Drain queues in schema order (preserves grouping required by the ingest pipeline)
+    for _obj_cfg, q in per_object_queues:
+        while True:
+            item = q.get()
+            if item is _SENTINEL:
+                break
+            yield item
+
+    for t in threads:
+        t.join()
+
+
+def iter_object_chunks(
+    config: AppConfig,
+    object_config: SalesforceObjectConfig,
+    since: datetime | None,
+    chunk_size: int,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield record chunks (lists of at most *chunk_size* dicts) for a single object type.
+
+    Each record is enriched with ``objectType`` and ``url`` fields,
+    identical to the output of ``get_all_items_from_api``.
+    """
+    access_token = get_salesforce_access_token(config)
+    buffer: list[dict[str, Any]] = []
+    for record in fetch_salesforce_records(config, access_token, object_config, since):
+        clean_url = (
+            f"{config.connector.salesforce.instance_url}/{record['Id']}"
+            .replace("'", "")
+            .replace('"', "")
+        )
+        record["url"] = clean_url
+        buffer.append(record)
+        if len(buffer) >= chunk_size:
+            yield buffer
+            buffer = []
+    if buffer:
+        yield buffer
+
+
+def get_object_config(object_type: str) -> SalesforceObjectConfig | None:
+    """Return the ``SalesforceObjectConfig`` for *object_type*, or ``None``."""
+    for cfg in OBJECT_CONFIGS:
+        if cfg.object_type == object_type:
+            return cfg
+    return None
+
+
+class _SkipObjectError(RuntimeError):
+    """Raised when a Salesforce object type is not available in this org."""
 
 
 def fetch_salesforce_records(
@@ -136,16 +365,37 @@ def fetch_salesforce_records(
     since: datetime | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Fetch records for a single Salesforce object, retrying on unsupported-field errors."""
+    global _active_connection_id
+    _active_connection_id = config.connector.id
+
     base_url = config.connector.salesforce.instance_url
     api_version = config.connector.salesforce.api_version
-    headers = {
-        "accept": "application/json",
-        "accept-language": "en-US,en;q=0.9,en-IN;q=0.8",
-        "content-type": "application/json",
-        "authorization": f"Bearer {access_token}",
-    }
+
+    def _make_headers(token: str) -> dict[str, str]:
+        return {
+            "accept": "application/json",
+            "accept-language": "en-US,en;q=0.9,en-IN;q=0.8",
+            "content-type": "application/json",
+            "authorization": f"Bearer {token}",
+        }
+
+    headers = _make_headers(access_token)
+    current_token = access_token
 
     active_config = object_config
+    all_removed_fields: list[str] = []
+
+    # ── Load per-org field cache (skip retry loop on subsequent runs) ─────────
+    cached_fields = _load_field_cache(
+        config.connector.salesforce.instance_url, object_config.object_type
+    )
+    if cached_fields is not None:
+        # Use the pre-validated field list directly — no retry loop needed
+        active_config = replace(object_config, fields=cached_fields)
+        logger.info(
+            "[FieldCache] Using %d cached fields for %s (skipping retry loop)",
+            len(cached_fields), object_config.object_type,
+        )
 
     while True:
         soql = build_soql_query(active_config, since, query_limit=config.tuning.salesforce_query_limit)
@@ -157,16 +407,34 @@ def fetch_salesforce_records(
         retry_requested = False
 
         while next_url:
-            response = requests.get(next_url, headers=headers, timeout=60)
+            response = _sf_session.get(next_url, headers=headers, timeout=60)
+
+            # ── 401: token expired — refresh once and retry immediately ────────────────
+            if response.status_code == 401:
+                logger.warning(
+                    "[SF] 401 Unauthorized for %s — refreshing Salesforce token and retrying",
+                    active_config.object_type,
+                )
+                try:
+                    current_token = get_salesforce_access_token(config)
+                    headers = _make_headers(current_token)
+                    response = _sf_session.get(next_url, headers=headers, timeout=60)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Token refresh failed for {active_config.object_type}: {exc}"
+                    ) from exc
+
             if not response.ok:
+                # ── 400 INVALID_TYPE: object not available in this org — skip ──────
                 error_info = _extract_salesforce_error_info(response)
+                if response.status_code == 400 and "INVALID_TYPE" in (str(error_info) if error_info else ""):
+                    raise _SkipObjectError(
+                        f"{active_config.object_type} is not available in this Salesforce org (INVALID_TYPE)"
+                    )
+
                 retry_config, removed_fields = _build_retry_object_config(active_config, error_info)
                 if retry_config is not None and next_url == query_url and fetched_count == 0:
-                    logger.warning(
-                        "Retrying Salesforce %s without unsupported field(s): %s",
-                        active_config.object_type,
-                        ", ".join(removed_fields),
-                    )
+                    all_removed_fields.extend(removed_fields)
                     active_config = retry_config
                     retry_requested = True
                     break
@@ -185,6 +453,19 @@ def fetch_salesforce_records(
         if retry_requested:
             continue
 
+        if all_removed_fields:
+            logger.warning(
+                "Salesforce %s: skipped unsupported field(s): %s",
+                active_config.object_type,
+                ", ".join(all_removed_fields),
+            )
+            # Persist the working field list so the next run skips the retry loop
+            if cached_fields is None:  # only save when we just discovered it
+                _save_field_cache(
+                    config.connector.salesforce.instance_url,
+                    active_config.object_type,
+                    active_config.fields,
+                )
         logger.info("Fetched %s %s records from Salesforce", fetched_count, active_config.object_type)
         return
 
@@ -278,8 +559,13 @@ def _match_exact_or_prefixed_fields(fields: tuple[str, ...], candidate: str) -> 
     return tuple(field for field in fields if field.lower().startswith(prefix))
 
 
-def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | None, query_limit: int = 10) -> str:
-    """Build a SOQL SELECT string for *object_config*, with optional *since* and *query_limit* clauses."""
+def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | None, query_limit: int = 0) -> str:
+    """Build a SOQL SELECT string for *object_config*, with optional *since* and *query_limit* clauses.
+
+    When *query_limit* is ``0`` (or negative) no ``LIMIT`` clause is added and Salesforce
+    paginates the full result set automatically at 2 000 records per page via
+    ``nextRecordsUrl``.  Set a positive value only for local testing / debugging.
+    """
     soql = f"SELECT {', '.join(object_config.fields)} FROM {object_config.object_type}"
     where_clauses: list[str] = []
     if object_config.filter_condition:
@@ -288,5 +574,6 @@ def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | No
         where_clauses.append(f"LastModifiedDate >= {to_iso_z(since)}")
     if where_clauses:
         soql += f" WHERE {' AND '.join(where_clauses)}"
-    soql += f" LIMIT {query_limit}"
+    if query_limit and query_limit > 0:
+        soql += f" LIMIT {query_limit}"
     return soql

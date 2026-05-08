@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -73,6 +74,40 @@ class PrincipalMapper:
         self._batch_size = batch_size
         # identifier (FedId/UPN/email) → resolved AAD GUID or None
         self._principal_cache: dict[str, Optional[str]] = {}
+        # user IDs already warned about missing M365 principal (suppress duplicates)
+        # Protected by a threading.Lock because 3 parallel object workers share this instance.
+        self._warned_missing_principals: set[str] = set()
+        self._warned_lock = threading.Lock()
+        # Pre-warm cache: user_id → {FederationIdentifier, UserName, Email}
+        self._user_details_cache: dict[str, dict[str, Any]] = {}
+
+    # ── Bulk pre-warm (call once per chunk with all owner/share user IDs) ──────
+
+    async def prewarm_users(self, user_ids: set[str], batch_size: int = 200) -> None:
+        """
+        Bulk-fetch FederationIdentifier / UserName / Email for all *user_ids*
+        that are not already in the cache.  After this, to_acl_entries() fires
+        zero SOQL for identity lookups.
+        """
+        missing = [uid for uid in user_ids if uid not in self._user_details_cache]
+        if not missing:
+            return
+
+        for i in range(0, len(missing), batch_size):
+            batch = missing[i : i + batch_size]
+            quoted = ", ".join(f"'{uid}'" for uid in batch)
+            soql = (
+                f"SELECT Id, FederationIdentifier, UserName, Email "
+                f"FROM User WHERE Id IN ({quoted}) AND IsActive = true"
+            )
+            try:
+                rows = await self._sf.query_all(soql)
+                for r in rows:
+                    uid = r.get("Id")
+                    if uid:
+                        self._user_details_cache[uid] = r
+            except RuntimeError as exc:
+                logger.warning("[PrincipalMapper] User details prewarm failed for batch: %s", exc)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -96,7 +131,14 @@ class PrincipalMapper:
             return self._deny_all_acl()
 
         # Bulk-fetch identity fields for all user IDs in a single SOQL call
-        user_details = await self._fetch_user_details_bulk(acl_result.user_ids)
+        # Use pre-warm cache when available to avoid per-record SOQL
+        cached = {uid: self._user_details_cache[uid] for uid in acl_result.user_ids if uid in self._user_details_cache}
+        uncached = acl_result.user_ids - set(cached.keys())
+        if uncached:
+            fetched = await self._fetch_user_details_bulk(uncached)
+            user_details = {**cached, **fetched}
+        else:
+            user_details = cached
 
         entries: list[dict[str, str]] = []
         seen: set[str] = set()
@@ -109,11 +151,16 @@ class PrincipalMapper:
 
             principal = await asyncio.to_thread(self._resolve_principal, details)
             if not principal:
-                logger.warning(
-                    "[PrincipalMapper] User %s (%s): no M365 principal found",
-                    user_id,
-                    details.get("Email") or details.get("UserName") or "no-identifier",
-                )
+                with self._warned_lock:
+                    already_warned = user_id in self._warned_missing_principals
+                    if not already_warned:
+                        self._warned_missing_principals.add(user_id)
+                if not already_warned:
+                    logger.warning(
+                        "[PrincipalMapper] User %s (%s): no M365 principal found",
+                        user_id,
+                        details.get("Email") or details.get("UserName") or "no-identifier",
+                    )
                 continue
 
             normalized = principal.lower()
@@ -187,14 +234,32 @@ class PrincipalMapper:
         Pick the best identifier and resolve to an AAD GUID if possible.
 
         Priority: FederationIdentifier → UserName → Email
+        For UserName we also try stripping the Salesforce-appended org suffix
+        (e.g. ``john@nokia.com.cape2104`` → ``john@nokia.com``) because SF
+        UserNames are globally unique but AAD UPNs are not suffixed.
         If GraphClient is available, attempts a Graph API lookup for each
         until one succeeds.
         """
+        seen: set[str] = set()
+        candidates: list[str] = []
+
         for field in ("FederationIdentifier", "UserName", "Email"):
             identifier = (user_details.get(field) or "").strip()
-            if not identifier:
+            if not identifier or identifier in seen:
                 continue
-            resolved = self._resolve_identifier(identifier)
+            seen.add(identifier)
+            candidates.append(identifier)
+            # For UserName (and FederationIdentifier), also try stripping the
+            # extra domain segment that Salesforce appends to make usernames
+            # globally unique (e.g. "@company.com.sandboxSuffix" → "@company.com")
+            if field in ("UserName", "FederationIdentifier"):
+                stripped = _strip_sf_username_suffix(identifier)
+                if stripped and stripped not in seen:
+                    seen.add(stripped)
+                    candidates.append(stripped)
+
+        for candidate in candidates:
+            resolved = self._resolve_identifier(candidate)
             if resolved:
                 return resolved
         return None
@@ -240,42 +305,52 @@ class PrincipalMapper:
         try:
             payload = self._graph_client.get(direct_path)
             if isinstance(payload, dict) and payload.get("id"):
-                logger.debug(
-                    "[PrincipalMapper] Graph direct lookup → %s → %s",
+                logger.info(
+                    "[PrincipalMapper] Graph direct lookup ✓ %s → %s",
                     identifier,
                     payload["id"],
                 )
                 return str(payload["id"])
         except GraphApiError as exc:
+            logger.debug("[PrincipalMapper] Graph direct lookup 404/400 for %s (status=%s)", identifier, exc.status_code)
             if exc.status_code not in (400, 403, 404):
                 raise
-        except Exception:
+        except Exception as exc:
+            logger.debug("[PrincipalMapper] Graph direct lookup error for %s: %s", identifier, exc)
             pass
 
-        # Attempt 2 – filter by UPN or mail
+        # Attempt 2 – filter by UPN, mail, or on-premises UPN.
+        # IMPORTANT: Graph $filter with 'or' across properties is an "advanced"
+        # query that requires ConsistencyLevel: eventual + $count=true, otherwise
+        # the API returns 400 or silently returns an empty result set.
         safe_id = identifier.replace("'", "''")
         filter_path = (
-            f"/users?$select=id&$top=1&$filter="
-            f"userPrincipalName eq '{safe_id}' or mail eq '{safe_id}'"
+            f"/users?$select=id&$top=1&$count=true&$filter="
+            f"userPrincipalName eq '{safe_id}'"
+            f" or mail eq '{safe_id}'"
+            f" or onPremisesUserPrincipalName eq '{safe_id}'"
         )
+        eventual_headers = {"ConsistencyLevel": "eventual"}
         try:
-            payload = self._graph_client.get(filter_path)
+            payload = self._graph_client.get(filter_path, headers=eventual_headers)
             values = payload.get("value", []) if isinstance(payload, dict) else []
             if values and isinstance(values[0], dict) and values[0].get("id"):
                 guid = str(values[0]["id"])
-                logger.debug(
-                    "[PrincipalMapper] Graph filter lookup → %s → %s",
+                logger.info(
+                    "[PrincipalMapper] Graph filter lookup ✓ %s → %s",
                     identifier,
                     guid,
                 )
                 return guid
         except GraphApiError as exc:
+            logger.debug("[PrincipalMapper] Graph filter lookup error for %s (status=%s): %s", identifier, exc.status_code, exc)
             if exc.status_code not in (400, 403, 404):
                 raise
-        except Exception:
+        except Exception as exc:
+            logger.debug("[PrincipalMapper] Graph filter lookup exception for %s: %s", identifier, exc)
             pass
 
-        logger.debug("[PrincipalMapper] No AAD user found for identifier: %s", identifier)
+        logger.warning("[PrincipalMapper] No AAD user found for '%s' (tried direct + filter on UPN/mail/onPremisesUPN)", identifier)
         return None
 
     # ── ACL entry helpers ─────────────────────────────────────────────────────
@@ -301,3 +376,32 @@ def _looks_like_guid(value: str) -> bool:
         len(p) == exp and all(c in "0123456789abcdefABCDEF" for c in p)
         for p, exp in zip(parts, expected)
     )
+
+
+def _strip_sf_username_suffix(username: str) -> Optional[str]:
+    """
+    Salesforce makes every username globally unique by appending an extra label
+    to the domain portion (e.g. ``john@acme.com.sandboxSuffix``).  This helper
+    returns the version with that trailing label stripped so the caller can try
+    it as a normal corporate UPN / email against AAD.
+
+    Rules:
+    - Must contain exactly one ``@``.
+    - The domain part must have **more than two** dot-separated labels
+      (``acme.com`` has two labels and should not be stripped).
+    - Returns ``None`` (no stripping done) when the conditions are not met.
+
+    Example::
+
+        _strip_sf_username_suffix("john@nokia.com.cape2104")  # → "john@nokia.com"
+        _strip_sf_username_suffix("john@nokia.com")           # → None
+    """
+    if "@" not in username:
+        return None
+    local, domain = username.rsplit("@", 1)
+    labels = domain.split(".")
+    # Need at least 3 labels to strip one (e.g. "nokia.com.suffix" → "nokia.com")
+    if len(labels) <= 2:
+        return None
+    stripped_domain = ".".join(labels[:-1])
+    return f"{local}@{stripped_domain}"

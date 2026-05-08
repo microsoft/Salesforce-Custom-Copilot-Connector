@@ -1,466 +1,490 @@
- [    
-    {
-      "name": "Id",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Name",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["title"]
-    },
-    {
-      "name": "Description",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": false,
-      "isRetrievable": false,
-      "isRefinable": false
-    },
-    {
-      "name": "Fax",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Phone",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Type",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "AccountId",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "AccountName",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "AccountUrl",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "AccountOwner",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "AccountOwnerUrl",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Email",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Title",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "MobilePhone",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "ObjectName",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Url",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["url"]
-    },
-    {
-      "name": "Owner",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "OwnerUrl",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "CreatedBy",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["createdBy"]
-    },
-    {
-      "name": "CreatedByUrl",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "LastModifiedBy",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["lastModifiedBy"]
-    },
-    {
-      "name": "CreatedDate",
-      "type": "DateTime",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["createdDateTime"]
-    },
-    {
-      "name": "LastModifiedByUrl",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "LastModifiedDate",
-      "type": "DateTime",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["lastModifiedDateTime"]
-    },
-    {
-      "name": "AccountNumber",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Site",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "BillingAddress",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Industry",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "ShippingAddress",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "TickerSymbol",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Website",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "AssistantName",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "AssistantPhone",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Department",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "HomePhone",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "MailingAddress",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "OtherAddress",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "OtherPhone",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Amount",
-      "type": "Double",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "StageName",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "CloseDate",
-      "type": "DateTime",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Address",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Company",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "IsConverted",
-      "type": "Boolean",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "LeadStatus",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "CaseNumber",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "CaseClosedDate",
-      "type": "DateTime",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "ContactMobile",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "ContactPhone",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "CaseCreatedDate",
-      "type": "DateTime",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "IsClosed",
-      "type": "Boolean",
-      "isSearchable": false,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Priority",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Reason",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Subject",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "Status",
-      "type": "String",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false
-    },
-    {
-      "name": "IconUrl",
-      "type": "String",
-      "isSearchable": false,
-      "isQueryable": false,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["iconUrl"]
-    },
-    {
-      "name": "Authors",
-      "type": "StringCollection",
-      "isSearchable": true,
-      "isQueryable": true,
-      "isRetrievable": true,
-      "isRefinable": false,
-      "labels": ["authors"]
-    }
-  ]
+[
+  {
+    "name": "title",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [
+      "title"
+    ]
+  },
+  {
+    "name": "url",
+    "type": "string",
+    "isRetrievable": true,
+    "labels": [
+      "url"
+    ]
+  },
+  {
+    "name": "objectType",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": []
+  },
+  {
+    "name": "Username",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "Name",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "Email",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CompanyName",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "IsActive",
+    "type": "boolean",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": false,
+    "labels": []
+  },
+  {
+    "name": "AccountNumber",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "OwnerId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": []
+  },
+  {
+    "name": "ParentId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CustomerCompliance",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHParentAccountName",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "AccountId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": []
+  },
+  {
+    "name": "ProductCode",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "Description",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "BusinessGroup",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHBusinessGroup",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "NCPALTERNATECODE2",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHBusinessLine",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHBusinessUnit",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "IsStandard",
+    "type": "boolean",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "IsArchived",
+    "type": "boolean",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CurrencyIsoCode",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CreatedDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CreatedById",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "LastModifiedDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "LastModifiedById",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "SystemModstamp",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "IsDeleted",
+    "type": "boolean",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "LastViewedDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "LastReferencedDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "UserRecordAccessId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "ContractNumber",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "Status",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": []
+  },
+  {
+    "name": "StartDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "EndDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "RecordTypeId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": []
+  },
+  {
+    "name": "ParentServiceContractId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "NCPContractType",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "NCPEntitlementAccessType",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "NCPEntitlementRelationship",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "NCPExternalServiceContractId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHCARESServiceAgreement",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHCDBContractId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHCDBContractType",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHCustomerContractNumber",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHERPSystem",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHProject",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHServiceContractType",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "NCPExternalStatus",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHEntitlement",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHCDBContractNumber",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "LineItemNumber",
+    "type": "string",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "ServiceContractId",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "Product2Id",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHCoverageType",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "EntitlementsAccess",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "ServiceContractNumber",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "CHServiceOffering",
+    "type": "string",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  }
+]

@@ -22,8 +22,10 @@ Predicates
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 from typing import Any, Optional
 
 from acl_engine.models import OWDVisibility
@@ -98,6 +100,10 @@ class OWDFetcher:
         self._org_owd_cache: Optional[dict[str, str]] = None
         # Optional overrides from config (e.g. {"Account": "Private"})
         self._owd_overrides: dict[str, str] = owd_overrides or {}
+        # threading.Lock guards the final cache assignment so two threads
+        # (when running in ThreadPoolExecutor mode) don't partially observe
+        # the dict.  In single-threaded asyncio this is a no-op but harmless.
+        self._prime_lock: threading.Lock = threading.Lock()
 
     # ── Main fetch ────────────────────────────────────────────────────────────
 
@@ -126,11 +132,17 @@ class OWDFetcher:
             return OWDVisibility.PRIVATE.value
 
         if self._org_owd_cache is None:
-            await self._prime_org_owd_cache()
+            # Multiple coroutines may race here; a few redundant SOQL calls are
+            # acceptable — they all return the same value and the lock ensures
+            # the cache dict is written atomically.
+            candidate = await self._prime_org_owd_cache()
+            with self._prime_lock:
+                if self._org_owd_cache is None:
+                    self._org_owd_cache = candidate
 
         owd_field = self._owd_field_map[object_type]
         owd = (self._org_owd_cache or {}).get(object_type, OWDVisibility.PRIVATE.value)
-        logger.info("[OWD] %s (Organization.%s) → %s", object_type, owd_field, owd)
+        logger.debug("[OWD] %s (Organization.%s) → %s", object_type, owd_field, owd)
 
         # ── OWD OVERRIDE (from OWD_OVERRIDES config) ─────────────────────────
         if object_type in self._owd_overrides:
@@ -146,19 +158,15 @@ class OWDFetcher:
 
     # ── Organization query (primes the in-memory cache) ───────────────────────
 
-    async def _prime_org_owd_cache(self) -> None:
+    async def _prime_org_owd_cache(self) -> dict[str, str]:
         """
-        Execute ONE ``SELECT <owd_fields> FROM Organization`` and populate
-        ``_org_owd_cache`` keyed by objectName.
+        Execute ONE ``SELECT <owd_fields> FROM Organization`` and return a
+        cache dict keyed by objectName.
 
-        The SELECT list is built from the ``owdField`` values in schema.json.
-        Duplicate field names (multiple objects sharing one OWD field) are
-        deduplicated before the query is assembled.
-
-        curl equivalent
-        ---------------
-        GET /services/data/v60.0/query
-            ?q=SELECT+DefaultAccountAccess%2CDefaultLeadAccess%2C...+FROM+Organization
+        Returns the dict \u2014 caller is responsible for assigning to _org_owd_cache
+        under the threading.Lock.  This allows the await to happen outside the
+        lock, preventing the deadlock that occurs when an awaiting coroutine
+        holds a threading.Lock and suspends, blocking all other coroutines.
         """
         owd_fields = list(dict.fromkeys(self._owd_field_map.values()))
         soql = f"SELECT {', '.join(owd_fields)} FROM Organization"
@@ -169,16 +177,14 @@ class OWDFetcher:
             records = await self._sf.query_all(soql)
         except RuntimeError as exc:
             logger.warning(
-                "[OWD] Organization query failed (%s); all objects default to Private",
+                "[OWD] Bulk Organization query failed (%s); retrying per-field (defaulting to Private on failure)",
                 exc,
             )
-            self._org_owd_cache = {}
-            return
+            return await self._fetch_owd_per_field()
 
         if not records:
             logger.warning("[OWD] Organization returned no rows; all objects default to Private")
-            self._org_owd_cache = {}
-            return
+            return {}
 
         org_row = records[0]  # There is always exactly one Organization record
 
@@ -187,8 +193,48 @@ class OWDFetcher:
             raw: Optional[str] = org_row.get(owd_field)
             cache[obj_name] = raw if raw else OWDVisibility.PRIVATE.value
 
-        self._org_owd_cache = cache
         logger.info("[OWD] Cache primed for %d object(s): %s", len(cache), cache)
+        return cache
+
+    async def _fetch_owd_per_field(self) -> dict[str, str]:
+        """
+        Fall back: query each owdField individually against the Organization table.
+
+        Multiple objects can share the same owdField (e.g. both Account and
+        Opportunity might use ``DefaultAccountAccess``), so we deduplicate the
+        field names and fan the result back out to all affected objects.
+
+        Any field whose query fails defaults to ``Private`` — never to a
+        permissive value — to preserve the principle of least privilege.
+        """
+        # Invert map: owdField → [objectName, ...]
+        field_to_objects: dict[str, list[str]] = {}
+        for obj_name, owd_field in self._owd_field_map.items():
+            field_to_objects.setdefault(owd_field, []).append(obj_name)
+
+        cache: dict[str, str] = {}
+        for owd_field, obj_names in field_to_objects.items():
+            soql = f"SELECT {owd_field} FROM Organization"
+            try:
+                records = await self._sf.query_all(soql)
+                if records:
+                    raw: Optional[str] = records[0].get(owd_field)
+                    value = raw if raw else OWDVisibility.PRIVATE.value
+                else:
+                    logger.warning("[OWD] Per-field query for %s returned no rows; defaulting to Private", owd_field)
+                    value = OWDVisibility.PRIVATE.value
+            except RuntimeError as exc:
+                logger.warning(
+                    "[OWD] Per-field query for %s failed (%s); defaulting to Private",
+                    owd_field, exc,
+                )
+                value = OWDVisibility.PRIVATE.value
+
+            for obj_name in obj_names:
+                cache[obj_name] = value
+                logger.info("[OWD] %s (Organization.%s) → %s (per-field fallback)", obj_name, owd_field, value)
+
+        return cache
 
     # ── Predicates ────────────────────────────────────────────────────────────
 

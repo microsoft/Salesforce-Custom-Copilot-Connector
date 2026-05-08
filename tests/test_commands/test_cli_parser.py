@@ -32,7 +32,7 @@ def test_full_deployment_sets_func(parser):
 
 
 def test_full_deployment_verbose(parser):
-    args = parser.parse_args(["--verbose", "full-deployment"])
+    args = parser.parse_args(["full-deployment", "--verbose"])
     assert args.verbose is True
     assert args.func is cmd_full_deployment
 
@@ -65,7 +65,8 @@ def test_ingest_object_requires_type(parser):
 
 
 def test_verbose_before_subcommand(parser):
-    args = parser.parse_args(["--verbose", "ingest"])
+    """--verbose after subcommand works."""
+    args = parser.parse_args(["ingest", "--verbose"])
     assert args.verbose is True
     assert args.command == "ingest"
 
@@ -83,22 +84,26 @@ def test_default_verbose_is_false(parser):
 def test_full_deployment_continuous_defaults(parser):
     args = parser.parse_args(["full-deployment"])
     assert args.continuous is False
-    assert args.hours == 12
+    assert args.full_crawl_hours == 24
+    assert args.incremental_hours == 4
 
 
 def test_full_deployment_continuous_with_hours(parser):
-    args = parser.parse_args(["full-deployment", "--continuous", "--hours", "24"])
+    args = parser.parse_args(["full-deployment", "--continuous", "--full-crawl-hours", "48", "--incremental-hours", "2"])
     assert args.continuous is True
-    assert args.hours == 24
+    assert args.full_crawl_hours == 48
+    assert args.incremental_hours == 2
 
 
 def test_ingest_continuous_defaults(parser):
     args = parser.parse_args(["ingest"])
     assert args.continuous is False
-    assert args.hours == 12
+    assert args.full_crawl_hours == 24
+    assert args.incremental_hours == 4
 
 
 def test_ingest_continuous_with_hours(parser):
-    args = parser.parse_args(["ingest", "--continuous", "--hours", "48"])
+    args = parser.parse_args(["ingest", "--continuous", "--full-crawl-hours", "48", "--incremental-hours", "6"])
     assert args.continuous is True
-    assert args.hours == 48
+    assert args.full_crawl_hours == 48
+    assert args.incremental_hours == 6

@@ -70,6 +70,113 @@ class ShareFetcher:
         self._parent_field_cache: dict[str, Optional[str]] = {}
         # Cache: object_type → access level field name on the share table
         self._access_level_field_cache: dict[str, Optional[str]] = {}
+        # Bulk pre-warm caches (populated by prewarm_chunk)
+        # record_id → OwnerId
+        self._owner_cache: dict[str, Optional[str]] = {}
+        # record_id → list of ShareEntry
+        self._share_cache: dict[str, list[ShareEntry]] = {}
+        # Object types whose sObject has no OwnerId field.
+        # Populated dynamically the first time a query returns INVALID_FIELD,
+        # so subsequent batches and runs skip the query immediately.
+        self._no_owner_id_types: set[str] = set()
+
+    # ── Bulk pre-warm (call once per chunk before resolving records) ──────────
+
+    async def prewarm_chunk(
+        self,
+        object_type: str,
+        record_ids: list[str],
+        batch_size: int = 100,
+    ) -> None:
+        """
+        Bulk-fetch all owner IDs and all share entries for *record_ids* in
+        O(ceil(N/batch_size)) SOQL calls instead of O(N).
+
+        After this call, get_owner_id() and get_share_entries() serve every
+        record in *record_ids* from memory without hitting Salesforce.
+
+        Call once per chunk before launching asyncio.gather() over the records.
+        """
+        if not record_ids:
+            return
+
+        share_object = _share_table_name(object_type)
+        parent_field, access_level_field = await self._get_share_fields(object_type, share_object)
+
+        # Pre-initialise share cache so records with zero shares don't fall
+        # back to a per-record SOQL (empty list = "queried, no results").
+        for rid in record_ids:
+            self._owner_cache.setdefault(rid, None)
+            self._share_cache.setdefault(rid, [])
+
+        # Objects known to lack an OwnerId field in Salesforce.
+        # User owns itself (no OwnerId column exists on the User sObject).
+        # Other objects (e.g. Product2) are added dynamically on first failure.
+        for i in range(0, len(record_ids), batch_size):
+            batch = record_ids[i : i + batch_size]
+            ids_in = ", ".join(f"'{rid}'" for rid in batch)
+
+            # ── Bulk owner fetch ──────────────────────────────────────────────
+            if object_type == "User":
+                # Salesforce User sObject has no OwnerId column — each user
+                # record is owned by itself.
+                for rid in batch:
+                    self._owner_cache[rid] = rid
+            elif object_type in self._no_owner_id_types:
+                # Previously discovered via INVALID_FIELD — leave owner as None
+                # (already pre-initialised above).
+                pass
+            else:
+                try:
+                    owner_rows = await self._sf.query_all(
+                        f"SELECT Id, OwnerId FROM {object_type} WHERE Id IN ({ids_in})"
+                    )
+                    for r in owner_rows:
+                        if r.get("Id"):
+                            self._owner_cache[r["Id"]] = r.get("OwnerId")
+                except RuntimeError as exc:
+                    exc_str = str(exc)
+                    if "INVALID_FIELD" in exc_str:
+                        logger.warning(
+                            "[ShareFetcher] OwnerId field does not exist on %s (will skip for all batches): %s",
+                            object_type, exc,
+                        )
+                        self._no_owner_id_types.add(object_type)
+                    else:
+                        logger.warning(
+                            "[ShareFetcher] Bulk owner fetch failed for %s batch %d (transient): %s",
+                            object_type, i // batch_size + 1, exc,
+                        )
+
+            # ── Bulk share-table fetch ────────────────────────────────────────
+            if not parent_field:
+                continue
+
+            select_fields = ["UserOrGroupId", "RowCause", parent_field]
+            if access_level_field:
+                select_fields.append(access_level_field)
+
+            try:
+                share_rows = await self._sf.query_all(
+                    f"SELECT {', '.join(select_fields)} "
+                    f"FROM {share_object} "
+                    f"WHERE {parent_field} IN ({ids_in})"
+                )
+                for r in share_rows:
+                    parent_id = r.get(parent_field)
+                    if not parent_id or not r.get("UserOrGroupId"):
+                        continue
+                    entry = ShareEntry(
+                        user_or_group_id=r["UserOrGroupId"],
+                        row_cause=r.get("RowCause"),
+                        access_level=r.get(access_level_field) if access_level_field else None,
+                    )
+                    self._share_cache.setdefault(parent_id, []).append(entry)
+            except RuntimeError as exc:
+                logger.warning(
+                    "[ShareFetcher] Bulk share fetch failed for %s batch %d: %s",
+                    share_object, i // batch_size + 1, exc,
+                )
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -77,18 +184,37 @@ class ShareFetcher:
         """
         Return the OwnerId for the given record, or None if not found.
 
-        The owner is *always* granted access regardless of share table entries,
-        so the resolver adds this ID before it even looks at the share table.
-
-        curl equivalent:
-            GET /services/data/v60.0/query
-                ?q=SELECT+OwnerId+FROM+<ObjectType>+WHERE+Id='<record_id>'+LIMIT+1
+        Serves from the bulk pre-warm cache when prewarm_chunk() has been
+        called for this record; falls back to a per-record SOQL otherwise.
         """
+        # Fast path — bulk cache hit
+        if record_id in self._owner_cache:
+            return self._owner_cache[record_id]
+
+        # Salesforce User sObject has no OwnerId column — each user owns itself.
+        if object_type == "User":
+            self._owner_cache[record_id] = record_id
+            return record_id
+
+        # Object previously discovered to have no OwnerId field (INVALID_FIELD).
+        if object_type in self._no_owner_id_types:
+            self._owner_cache[record_id] = None
+            return None
+
+        # Slow path — per-record fallback (incremental ingest / single-record mode)
         soql = f"SELECT OwnerId FROM {object_type} WHERE Id = '{record_id}' LIMIT 1"
         try:
             records = await self._sf.query_all(soql)
         except RuntimeError as exc:
-            logger.warning("[ShareFetcher] Could not fetch owner for %s/%s: %s", object_type, record_id, exc)
+            exc_str = str(exc)
+            if "INVALID_FIELD" in exc_str:
+                logger.warning(
+                    "[ShareFetcher] OwnerId field does not exist on %s; skipping for future lookups: %s",
+                    object_type, exc,
+                )
+                self._no_owner_id_types.add(object_type)
+            else:
+                logger.warning("[ShareFetcher] Could not fetch owner for %s/%s: %s", object_type, record_id, exc)
             return None
 
         if not records:
@@ -101,22 +227,16 @@ class ShareFetcher:
 
     async def get_share_entries(self, object_type: str, record_id: str) -> list[ShareEntry]:
         """
-        Query <ObjectType>Share and return all explicit share grants.
+        Return all explicit share grants for *record_id*.
 
-        Each returned ShareEntry contains:
-          user_or_group_id – a Salesforce User or Group Id
-          row_cause        – why the share was created (e.g. "Manual", "Territory")
-          access_level     – the level of access granted (e.g. "Read", "Edit")
-
-        The parent reference field and access level field are discovered
-        dynamically via sObject describe so this method works for any
-        standard or custom object without any hard-coded field names.
-
-        curl equivalent:
-            GET /services/data/v60.0/query
-                ?q=SELECT+AccountId%2CUserOrGroupId%2CAccountAccessLevel%2CRowCause
-                   +FROM+AccountShare+WHERE+AccountId='<record_id>'
+        Serves from the bulk pre-warm cache when prewarm_chunk() has been
+        called for this record; falls back to a per-record SOQL otherwise.
         """
+        # Fast path — bulk cache hit (empty list is a valid cached result)
+        if record_id in self._share_cache:
+            return self._share_cache[record_id]
+
+        # Slow path — per-record fallback
         share_object = _share_table_name(object_type)
 
         # Discover both fields concurrently in a single describe call

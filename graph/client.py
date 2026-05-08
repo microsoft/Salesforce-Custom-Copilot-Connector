@@ -36,8 +36,10 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 import logging
+import threading
 import time
 
+from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
 import requests
 
@@ -47,10 +49,17 @@ GRAPH_BASE_URL = "https://graph.microsoft.com"
 GRAPH_DEFAULT_API_VERSION = "v1.0"
 EXTERNAL_CONNECTIONS_PATH = "/external/connections"
 
+# Hard limit imposed by the Graph API — do not exceed.
+# See: https://learn.microsoft.com/en-us/graph/json-batching#batch-size-limitations
+GRAPH_BATCH_MAX_SIZE = 20
+
 # Transient HTTP status codes that should be retried
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 logger = logging.getLogger("salesforce_connector")
+
+# Suppress noisy Azure Identity token-acquisition logs
+logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
 
 class GraphApiError(RuntimeError):
@@ -91,7 +100,9 @@ class GraphClient:
     ):
         """Initialize the Graph client with authentication, retry, and polling settings."""
         self._credential = DefaultAzureCredential()
-        self._session = requests.Session()
+        self._token: AccessToken | None = None
+        self._token_lock = threading.Lock()
+        self._local = threading.local()
         self._base_url = f"{GRAPH_BASE_URL}/{api_version}"
         self._delay_seconds = delay_seconds
         self._max_retries = max_retries
@@ -134,6 +145,38 @@ class GraphClient:
     def delete(self, path_or_url: str, *, headers: dict[str, str] | None = None) -> Any:
         """Send a DELETE request to the Graph API."""
         return self.request("DELETE", path_or_url, headers=headers)
+
+    def batch_requests(
+        self,
+        requests_payload: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Send up to ``GRAPH_BATCH_MAX_SIZE`` (20) requests in a single ``POST /$batch`` call.
+
+        Each element in *requests_payload* must be a dict with:
+            ``id``      — unique string identifier within this batch
+            ``method``  — HTTP verb (e.g. ``"PUT"``, ``"DELETE"``)
+            ``url``     — relative path without the API version prefix
+                          (e.g. ``/external/connections/{id}/items/{itemId}``)
+            ``headers`` — (optional) dict of extra headers; required when ``body`` is set
+            ``body``    — (optional) JSON-serialisable request body
+
+        Returns a list of response dicts, each with ``id``, ``status``, ``headers``,
+        and ``body`` fields.  The outer ``POST /$batch`` is retried on transient
+        errors using the standard retry logic; individual per-item failures (non-2xx
+        ``status``) are returned as-is for the caller to handle.
+
+        Raises ``ValueError`` if more than ``GRAPH_BATCH_MAX_SIZE`` requests are passed.
+        """
+        if len(requests_payload) > GRAPH_BATCH_MAX_SIZE:
+            raise ValueError(
+                f"Batch size {len(requests_payload)} exceeds the Graph API maximum of {GRAPH_BATCH_MAX_SIZE}. "
+                "Split the payload into smaller chunks before calling batch_requests()."
+            )
+
+        response = self.post("/$batch", json_body={"requests": requests_payload})
+        if isinstance(response, dict):
+            return response.get("responses", [])
+        return []
 
     def paginate(self, path_or_url: str) -> Iterator[dict[str, Any]]:
         """Iterate over all pages of a Graph API collection, yielding each item dict."""
@@ -230,11 +273,25 @@ class GraphClient:
 
             return payload
 
+    @property
+    def _session(self) -> requests.Session:
+        """Thread-local session so concurrent batch calls don't share state."""
+        if not hasattr(self._local, "session"):
+            self._local.session = requests.Session()
+        return self._local.session
+
+    @_session.setter
+    def _session(self, value: requests.Session) -> None:
+        self._local.session = value
+
     def _get_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
-        """Build request headers with a fresh Bearer token, merged with any extra headers."""
-        token = self._credential.get_token(GRAPH_SCOPE).token
+        """Build request headers with a cached Bearer token, refreshed 5 min before expiry."""
+        _REFRESH_BUFFER = 300  # refresh 5 minutes before expiry
+        with self._token_lock:
+            if self._token is None or self._token.expires_on - time.time() < _REFRESH_BUFFER:
+                self._token = self._credential.get_token(GRAPH_SCOPE)
         base_headers = {
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {self._token.token}",
             "Accept": "application/json",
         }
         if headers:

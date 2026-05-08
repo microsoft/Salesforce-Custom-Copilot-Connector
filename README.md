@@ -10,7 +10,12 @@ A Python-based connector that syncs Salesforce CRM data into **Microsoft Search*
 - **Fine-grained ACL resolution** — Respects Salesforce Org-Wide Defaults, role hierarchies, sharing rules, territories, queues, and public groups
 - **Adaptive Card search results** — Configurable result templates for Microsoft Search
 - **CLI with multiple commands** — Full deployment, re-ingestion, single-item/object debugging
-- **Progress and summary logging** — Real-time progress on console, detailed logs in files, run summary with success/failure counts
+- **Live dashboard** — Real-time per-object progress, throughput, ETA, and error display (powered by `rich`)
+- **Delta (incremental) sync** — Only fetches records changed since the last successful run
+- **Checkpointing & resume** — Crash-safe; restarts pick up where the previous run left off
+- **Failed records log** — Per-item error details (HTTP status, error code, message) in a JSONL file for inspection and retry
+- **Parallel Graph API calls** — Adaptive concurrency for `$batch` pushes (auto-dials down on 429 throttling)
+- **Bulk identity resolution** — Batches Salesforce-to-AAD user lookups via Graph `$batch` (20x fewer HTTP calls)
 - **Self-healing queries** — Automatically retries Salesforce queries when fields aren't available in the target org
 
 ---
@@ -20,7 +25,8 @@ A Python-based connector that syncs Salesforce CRM data into **Microsoft Search*
 ```
 ├── run.py                  # CLI entry point
 ├── commands/               # CLI subcommand implementations
-├── config/                 # JSON schema, Graph properties, and result templates
+├── config/                 # JSON schema, Graph properties, result templates, and sync state
+├── dashboard.py            # Live console dashboard (rich-powered)
 ├── env/                    # Environment variable config files (.env.local)
 ├── graph/                  # Microsoft Graph API client and ingestion pipeline
 ├── item/                   # Salesforce → Graph external item conversion
@@ -166,8 +172,11 @@ CONNECTION_RETRY_INTERVAL_SECONDS=15
 # Schema provisioning retry interval (seconds)
 SCHEMA_RETRY_INTERVAL_SECONDS=15
 
-# Salesforce SOQL query page size
-SALESFORCE_QUERY_LIMIT=10
+# Salesforce SOQL LIMIT clause.
+# Set to 0 (recommended for production) to let Salesforce paginate the full result
+# set automatically at 2000 records/page via nextRecordsUrl — no artificial cap.
+# Set to a small positive number (e.g. 5) only for local dev/debug runs.
+SALESFORCE_QUERY_LIMIT=0
 
 # Max IDs in a single SOQL IN clause
 SALESFORCE_BATCH_SIZE=100
@@ -175,8 +184,29 @@ SALESFORCE_BATCH_SIZE=100
 # Max depth when following ControlledByParent ACL chains
 ACL_MAX_PARENT_DEPTH=5
 
+# ── Batching / parallelism ──
+# Number of Salesforce records processed per chunk (ACL resolve + Graph $batch cycle).
+# Aligning to 2000 = one Salesforce page per cycle. Safe to increase up to ~5000.
+INGEST_CHUNK_SIZE=2000
+
+# Number of PUT/DELETE requests per Graph $batch POST.
+# Hard-capped at 20 by the Graph API — do not set above 20.
+INGEST_GRAPH_BATCH_SIZE=20
+
+# Number of concurrent Graph $batch POST workers (1 = sequential, 4-8 recommended for large orgs).
+# Higher values increase throughput but may trigger 429 throttling — start with 2 and tune.
+GRAPH_BATCH_WORKERS=4
+
+# ── ACL engine flags ──
 # Set to true to use the new ACL engine instead of the legacy resolver
-USE_NEW_ACL_ENGINE=false
+USE_NEW_ACL_ENGINE=true
+
+# Enable group-based ACL (public groups, queues, territories)
+USE_GROUP_ACL=true
+
+# Force specific object OWD values for testing (JSON object, e.g. {"Account":"Private"})
+# Leave empty or omit to use real Salesforce OWD values
+OWD_OVERRIDES=
 ```
 
 Create `env/.env.local.user` for secrets:
@@ -205,17 +235,26 @@ python run.py guide
 # Full deployment: create connection → register schema → ingest items
 python run.py full-deployment
 
-# Full deployment with detailed console output
+# Full deployment with detailed console output (no dashboard)
 python run.py full-deployment --verbose
 
-# Full deployment with continuous re-ingestion every 24 hours
-python run.py full-deployment --continuous --hours 24
+# Continuous mode (defaults: full every 24h, incremental every 4h)
+python run.py full-deployment --continuous
+
+# Continuous mode with custom schedule
+python run.py full-deployment --continuous --full-crawl-hours 48 --incremental-hours 2
 
 # Re-ingest items only (connection & schema must already exist)
 python run.py ingest
 
-# Continuous re-ingestion every 12 hours
-python run.py ingest --continuous --hours 12
+# Continuous ingestion (defaults: full every 24h, incremental every 4h)
+python run.py ingest --continuous
+
+# Preview identity crawl changes without calling Graph APIs
+python run.py identity-dry-run --verbose
+
+# Preview and save crawl data to SQLite (no Graph calls)
+python run.py identity-dry-run --save --verbose
 
 # Debug: ingest a single record by Salesforce ID
 python run.py ingest-item --id 500f6000008iCNYAA2
@@ -224,59 +263,86 @@ python run.py ingest-item --id 500f6000008iCNYAA2
 python run.py ingest-object --type Case
 ```
 
+### After a Crash
+
+Just re-run the same command. The checkpoint file automatically resumes from the last completed chunk:
+
+```bash
+# Crashed at Account chunk #50? Re-run — chunks 1-50 are skipped
+python run.py ingest
+```
+
+### Graceful Stop
+
+Press **Ctrl+X** during ingestion to stop after the current chunk (progress is checkpointed). Press **Ctrl+X** again to exit immediately.
+
 ### Console Output
 
-In default (non-verbose) mode, the console shows progress milestones and a run summary:
+In default mode, a **live dashboard** displays real-time progress (powered by `rich`):
 
 ```
-Starting full deployment for connector 'salesforce-crm'...
-  Graph client initialized
-  Connection 'salesforce-crm' verified (existing)
-  Schema registered
-  Starting ingestion...
-  Fetched 150 records from Salesforce
-  Resolving ACLs for 6 object type(s)...
-  Ingested 50 / 150 items...
-  Ingested 100 / 150 items...
-  Ingestion complete: 148 succeeded, 2 failed, 0 deleted
++----------------------  Salesforce >> Graph Ingestion  ----------------------+
+| Connector: salesforce-crm  |  Mode: Full sync  |  ACL: LEGACY              |
+| Log:     logs/ingestion_20260418.log                                        |
+| Errors:  logs/failed_records_salesforce-crm.jsonl                           |
++-----------------------------------------------------------------------------+
 
-============================================================
-  RUN SUMMARY — FULL DEPLOYMENT
-============================================================
-  Connector ID:     salesforce-crm
-  Connection:       existing
-  Records fetched:  150
-  Ingested OK:      148
-  Failed:           2
-  Time elapsed:     42.3s
-  Full log:         logs/deployment_20260411_124225.log
-  Summary log:      logs/summary_deployment_20260411_124225.log
-============================================================
+ Object              Ingested / Total    Failed       ETA   Status
+ Account                4,000 / 8,000         1         -   + Done
+ Case                   2,000 / 25,000        0      ~13m   > Chunk #4
+ Contact                    - / 12,000        -      ~10m   - Pending
+ Total                  6,000 / 45,000        1
+
+ ------                                          6,000 / 45,000  (13.3%)
+
+ Elapsed: 5m 24s  |  Rate: 1,111/min  |  ETA: ~35m 08s
+ Last error: Account/001ABC -- [Graph] HTTP 400: BadRequest -- value too long
+
+ > [Case] chunk #4 -- Resolving ACLs (500 records)  (45s)  ETA ~2m 10s
+ Press Ctrl+X to stop gracefully
 ```
 
-Use `--verbose` to see all INFO-level log messages on the console.
+The dashboard auto-refreshes 4 times per second. Elapsed time, rate, and ETA update in real-time even during long ACL resolution phases.
+
+Use `--verbose` for traditional scrolling log output (disables the dashboard).
+
+After the dashboard, a run summary is printed with totals and file paths.
 
 ---
 
 ## Logging
 
-All runs produce two log files in `logs/`:
+All runs produce files in `logs/`:
 
 | File | Content |
 |------|---------|
 | `<command>_<timestamp>.log` | Full detail (all INFO+ messages) |
 | `summary_<command>_<timestamp>.log` | Run summary with counts, failed IDs, and timing |
+| `failed_records_<connector_id>.jsonl` | Per-item failure details (item ID, object type, HTTP status, error message, timestamp) |
+| `sync_state.json` | Last successful sync timestamp per connector (for delta sync) |
+| `checkpoint_<connector_id>.json` | In-progress chunk state for crash recovery (cleared on success) |
 
-If items fail, check the summary log for failed item IDs, then search the full log for error details.
+The **failed records** file is a JSONL file (one JSON object per line) with full error context:
+
+```json
+{"item_id": "001dN00000rKNCtQAO", "object_type": "Account", "error": "[Graph] HTTP 400: BadRequest -- Property 'Website' value cannot exceed 256 characters.", "timestamp": "2026-04-18T13:24:37+00:00"}
+```
+
+Each error is prefixed with `[Graph]` or `[Salesforce]` to identify which API failed.
 
 ---
 
 ## ACL Resolution
 
-The connector supports two ACL engines:
+The connector supports three ACL resolution modes:
 
-- **Legacy engine** (default) — `graph/legacy_acl_resolver.py`
-- **New engine** (opt-in) — `acl_engine/` — Set `USE_NEW_ACL_ENGINE=true` in your env config
+| Mode | Environment Variable | Description |
+|------|---------------------|-------------|
+| **Legacy** (default) | *(none)* | User-only ACL via `graph/legacy_acl_resolver.py` |
+| **New user-only** | `USE_NEW_ACL_ENGINE=true` | Modular user-only ACL via `acl_engine/resolver.py` |
+| **Group-based** | `USE_GROUP_ACL=true` | Group-reference ACLs via `acl_engine/group_acl_builder.py` (requires identity crawl) |
+
+### User-only modes (Legacy / New)
 
 Both engines resolve Salesforce's sharing model into Microsoft Graph ACL entries:
 
@@ -285,6 +351,10 @@ Both engines resolve Salesforce's sharing model into Microsoft Graph ACL entries
 3. For Private objects: fetch **owner** + **share table entries**
 4. Expand principals: **users**, **roles**, **territories**, **queues**, **public groups**, **managers**
 5. Map Salesforce User IDs to **Azure AD identities**
+
+### Group-based mode
+
+Instead of expanding groups into individual users, produces ACL entries referencing **external groups** created by the Identity Crawl. The identity crawl only runs on **full sync** cycles (not incremental). The SQLite diff engine ensures minimal Graph API calls.
 
 See [`acl_engine/README.md`](acl_engine/README.md) for detailed flowcharts and sequence diagrams.
 
@@ -299,11 +369,14 @@ Set these in `env/.env.local` to adjust behaviour:
 | `GRAPH_API_VERSION` | v1.0 | Microsoft Graph API version |
 | `GRAPH_MAX_RETRIES` | 4 | Max retries for Graph API calls |
 | `GRAPH_RETRY_BACKOFF_BASE` | 2 | Exponential backoff base (seconds) |
+| `GRAPH_CONCURRENT_BATCHES` | 4 | Parallel `$batch` calls to Graph API (auto-dials down on 429 throttling) |
 | `CONNECTION_TIMEOUT_SECONDS` | 600 | Max wait time for connection creation |
 | `CONNECTION_RETRY_INTERVAL_SECONDS` | 15 | Retry interval for connection checks |
 | `SCHEMA_RETRY_INTERVAL_SECONDS` | 15 | Retry interval for schema registration |
-| `SALESFORCE_QUERY_LIMIT` | 10 | Max records per SOQL page (increase for production) |
-| `SALESFORCE_BATCH_SIZE` | 100 | Batch size for ingestion |
+| `SALESFORCE_QUERY_LIMIT` | 0 | SOQL LIMIT clause (0 = no limit, Salesforce auto-paginates at 2000/page) |
+| `SALESFORCE_BATCH_SIZE` | 100 | Max IDs in a single SOQL IN clause |
+| `INGEST_CHUNK_SIZE` | 500 | Records per processing chunk (higher = fewer round trips, more memory) |
+| `INGEST_GRAPH_BATCH_SIZE` | 20 | Items per Graph `$batch` POST (max 20, per MS docs) |
 | `ACL_MAX_PARENT_DEPTH` | 5 | Max recursion depth for ControlledByParent ACLs |
 | `USE_NEW_ACL_ENGINE` | false | Use the new ACL engine instead of legacy |
 | `OWD_OVERRIDES` | *(empty)* | Force OWD values for testing, JSON object e.g. `{"Account":"Private"}` |
@@ -323,31 +396,13 @@ pytest tests/ -v
 
 This connector is a **reference implementation / starter project**. It demonstrates how to bridge Salesforce CRM data into Microsoft Search but has several limitations you should be aware of before running it in production.
 
-### Full Sync Only (No Incremental / Delta Sync)
-
-Every run re-fetches and re-ingests **all records** from Salesforce. The codebase has infrastructure for a `since` parameter (the SOQL `WHERE LastModifiedDate >=` clause is already wired in `salesforce/api_client.py`), but all commands currently pass `since=None`. There is no persistent state store to track the last sync timestamp.
-
-**Impact:** For orgs with thousands of records, each run is slow and consumes API quota unnecessarily.
-
-### No Built-In Scheduling or Automation
-
-The connector is a CLI tool (`python run.py …`) that must be triggered manually. There is no timer, cron, Azure Functions wrapper, Dockerfile, or Kubernetes manifest included.
-
-### No Resumability or Checkpointing
-
-If ingestion fails midway (e.g., at record 500 of 1,000), the entire run must be restarted from the beginning. Failed items are logged in the summary file but there is no dead-letter queue or selective retry mechanism.
-
 ### Orphaned Items from Hard Deletes
 
 Records soft-deleted in Salesforce (still in the Recycle Bin) are detected via `IsDeleted` and removed from Graph. However, records that are **permanently deleted** (hard-deleted or purged past the 15-day window) will remain in Microsoft Search indefinitely because there is no reconciliation between items currently in Graph and items currently in Salesforce.
 
-### All Records Buffered in Memory
+### No Built-In Scheduling or Automation
 
-`graph/ingest.py` loads all converted items into a list before processing. For very large orgs this can exhaust available memory.
-
-### Debug Commands Fetch All Objects Before Filtering
-
-The `single-object` and `single-item` commands query **all** object types from Salesforce and then filter to the requested type/ID in memory. This means you will see query warnings and retries for unrelated objects (e.g. Account, Lead, Contact) even when you only asked for `Case`. The filtering should be pushed upstream into `get_all_items_from_api` before using this in production so that only the requested object type is queried from Salesforce.
+The connector is a CLI tool (`python run.py ...`) with `--continuous` mode for simple scheduling. For production, consider Azure Functions with a TimerTrigger, Kubernetes CronJob, or similar.
 
 ### Salesforce Objects Are Statically Configured
 
@@ -401,20 +456,7 @@ Microsoft Graph External Connectors support ACL resolution via **external groups
 
 The sections below outline what you need to add or change to make this connector production-ready.
 
-### 1. Enable Incremental (Delta) Sync
-
-The SOQL infrastructure already exists — you just need a state store and a small code change.
-
-1. **Create a persistent state store** — Azure Blob Storage, Table Storage, or a simple file in a mounted volume.
-2. **Modify the ingest command** — In `commands/ingest.py` and `commands/deploy.py`, read the last sync timestamp from the store and pass it as the `since` argument:
-   ```python
-   since = read_last_sync_timestamp()          # from your state store
-   stats = ingest_content(config, client, since=since)
-   save_last_sync_timestamp(datetime.utcnow()) # persist for next run
-   ```
-3. **Test with `single-object`** first to verify the `WHERE LastModifiedDate >=` clause returns expected results.
-
-### 2. Add Scheduling
+### 1. Add Scheduling
 
 **Azure Functions:**
 - Create a `function_app.py` with a `TimerTrigger` that imports and calls the existing command functions.
@@ -429,7 +471,7 @@ The SOQL infrastructure already exists — you just need a state store and a sma
 - Build and push a container image to ACR.
 - Use a Logic App with a Recurrence trigger to start the container group on schedule.
 
-### 3. Handle Orphaned / Hard-Deleted Items
+### 2. Handle Orphaned / Hard-Deleted Items
 
 Implement a **reconciliation pass** after each ingestion:
 
@@ -439,35 +481,14 @@ Implement a **reconciliation pass** after each ingestion:
 
 This ensures that hard-deleted records don't remain searchable indefinitely.
 
-### 4. Add Checkpointing and Resumability
-
-- Persist a checkpoint (e.g., last successfully ingested item ID or offset) to your state store after each batch.
-- On failure, read the checkpoint and skip already-ingested items.
-- Optionally implement a dead-letter queue (Azure Queue Storage or Service Bus) for failed items so they can be retried independently.
-
-### 5. Stream Instead of Buffer
-
-Replace the full-list materialisation in `graph/ingest.py` with a streaming approach:
-
-```python
-# Instead of:
-raw_items = list(get_all_items_from_api(config, since))
-
-# Process one at a time:
-for raw_item in get_all_items_from_api(config, since):
-    process_and_ingest(raw_item)
-```
-
-This keeps memory usage constant regardless of org size.
-
-### 6. Add New Salesforce Objects
+### 3. Add New Salesforce Objects
 
 1. Add an entry to the `objectList` array in `config/schema.json` with `objectName`, `selectedFields`, `owdField`, and optional `parentObjectName` / `filterCondition`.
 2. Add corresponding property definitions in `config/graph-schema.json`.
 3. If the object has a custom sharing model, update `salesforce/sharing_model.py` with the appropriate `ORDERED_OBJECT_NAMES` entry.
 4. Test with `python run.py single-object YourObject__c`.
 
-### 7. Integrate Secrets Management
+### 4. Integrate Secrets Management
 
 Replace plaintext `.env.local.user` secrets with a secure store:
 
@@ -475,13 +496,13 @@ Replace plaintext `.env.local.user` secrets with a secure store:
 - **Azure Function App Settings** — Reference Key Vault secrets via `@Microsoft.KeyVault(SecretUri=...)`.
 - **Managed Identity** — Eliminate client secrets for Graph auth entirely by deploying to an Azure resource with a system-assigned identity.
 
-### 8. Add Observability
+### 5. Add Observability
 
 - **Application Insights** — Add the `opencensus-ext-azure` or `azure-monitor-opentelemetry` package and instrument the ingestion pipeline for traces, metrics, and exceptions.
 - **Structured logging** — Switch to JSON-formatted logs so they can be queried in Log Analytics.
 - **Alerts** — Set up Azure Monitor alerts on ingestion failure count or run duration thresholds.
 
-### 9. Multi-Org Deployment
+### 6. Multi-Org Deployment
 
 For organisations with multiple Salesforce instances:
 
@@ -504,7 +525,7 @@ For organisations with multiple Salesforce instances:
 ## FAQ
 
 **Q: How long does a full sync take?**
-A: Depends on record count, Salesforce API limits, and network latency. A typical org with ~1,000 records across 5 objects completes in 1–3 minutes. For 100K+ records, expect 30–60 minutes and consider enabling incremental sync.
+A: Depends on record count, ACL complexity, and network latency. A typical org with ~1,000 records across 5 objects completes in 1-3 minutes. For 100K+ records, expect 30-60 minutes. For 1M+, the first full sync may take several hours; subsequent runs use delta sync and complete in minutes. The live dashboard shows per-object ETA throughout the run.
 
 **Q: Can I run this against a Salesforce sandbox?**
 A: Yes. Point `SALESFORCE_INSTANCE_URL` to your sandbox URL (e.g., `https://your-org--dev.sandbox.my.salesforce.com/`) and use the sandbox's OAuth credentials.

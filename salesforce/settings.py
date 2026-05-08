@@ -119,6 +119,11 @@ class TuningSettings:
     salesforce_query_limit: int
     salesforce_batch_size: int
     acl_max_parent_depth: int
+    # Batching / parallelism controls
+    ingest_chunk_size: int          # records per processing chunk (default 500)
+    ingest_graph_batch_size: int    # requests per Graph $batch POST (max 20, per MS docs)
+    graph_concurrent_batches: int   # parallel $batch calls (default 4, auto-dials on 429)
+    parallel_object_workers: int    # object types ingested in parallel (default 3)
 
 
 @dataclass(frozen=True)
@@ -133,6 +138,7 @@ class AppConfig:
     parent_map: dict[str, tuple[str, str]]
     owd_overrides: dict[str, str]
     use_new_acl_engine: bool
+    use_group_acl: bool
     debug_object_type: str | None
     debug_item_id: str | None
 
@@ -218,6 +224,7 @@ def load_config() -> AppConfig:
         parent_map=build_parent_map(cfg),
         owd_overrides=owd_overrides,
         use_new_acl_engine=os.getenv("USE_NEW_ACL_ENGINE", "false").lower() in ("true", "1", "yes"),
+        use_group_acl=os.getenv("USE_GROUP_ACL", "false").lower() in ("true", "1", "yes"),
         debug_object_type=os.getenv("DEBUG_OBJECT_TYPE") or None,
         debug_item_id=os.getenv("DEBUG_ITEM_ID") or None,
         tuning=TuningSettings(
@@ -227,9 +234,13 @@ def load_config() -> AppConfig:
             connection_timeout_seconds=_require_int_env("CONNECTION_TIMEOUT_SECONDS"),
             connection_retry_interval_seconds=_require_int_env("CONNECTION_RETRY_INTERVAL_SECONDS"),
             schema_retry_interval_seconds=_require_int_env("SCHEMA_RETRY_INTERVAL_SECONDS"),
-            salesforce_query_limit=_require_int_env("SALESFORCE_QUERY_LIMIT"),
+            salesforce_query_limit=int(os.getenv("SALESFORCE_QUERY_LIMIT", "0")),
             salesforce_batch_size=_require_int_env("SALESFORCE_BATCH_SIZE"),
             acl_max_parent_depth=_require_int_env("ACL_MAX_PARENT_DEPTH"),
+            ingest_chunk_size=int(os.getenv("INGEST_CHUNK_SIZE", "2000")),  # 2000 matches SF page size = 1 page per ingest cycle
+            ingest_graph_batch_size=min(int(os.getenv("INGEST_GRAPH_BATCH_SIZE", "20")), 20),
+            graph_concurrent_batches=max(1, int(os.getenv("GRAPH_CONCURRENT_BATCHES", "8"))),
+            parallel_object_workers=max(1, int(os.getenv("PARALLEL_OBJECT_WORKERS", "3"))),
         ),
         connector=ConnectorSettings(
             id=connector_id,

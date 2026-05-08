@@ -19,19 +19,21 @@ Global options:
                              console; the log file always captures everything.
 
 Continuous mode (full-deployment and ingest only):
-    --continuous             Keep running and re-ingest on a schedule instead of exiting.
-    --hours <int>            Re-ingestion interval in hours (min 12, max 168). Default: 12.
+    --continuous             Keep running with scheduled full and incremental crawls.
+    --full-crawl-hours <int> Full crawl interval in hours (min 12, max 168). Default: 24.
+    --incremental-hours <int> Incremental crawl interval in hours (min 1, max 168). Default: 4.
 
 Examples:
     python run.py guide
     python run.py full-deployment
     python run.py full-deployment --verbose
-    python run.py full-deployment --continuous --hours 24
-    python run.py ingest
-    python run.py ingest --continuous --hours 12
+    python run.py full-deployment --continuous --full-crawl-hours 24 --incremental-hours 4
+    python run.py ingest --verbose
+    python run.py ingest --continuous
     python run.py ingest-item --id 500f6000008iCNYAA2
     python run.py ingest-object --type Case
-    python run.py ingest-object --type Account
+    python run.py identity-dry-run --verbose
+    python run.py identity-dry-run --save --verbose
 """
 
 import sys

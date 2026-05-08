@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch, PropertyMock
 import json
+import time
 
 import pytest
 
@@ -34,6 +35,7 @@ def client():
     with patch("graph.client.DefaultAzureCredential") as MockCred:
         token_obj = MagicMock()
         token_obj.token = "fake-token"
+        token_obj.expires_on = time.time() + 3600  # valid for 1 hour
         MockCred.return_value.get_token.return_value = token_obj
         c = GraphClient(max_retries=2, delay_seconds=0, retry_backoff_base=0)
         c._session = MagicMock()

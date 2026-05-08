@@ -31,6 +31,7 @@ build_parser()
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,7 @@ from .deploy import cmd_full_deployment
 from .ingest import cmd_ingest
 from .ingest_item import cmd_ingest_item
 from .ingest_object import cmd_ingest_object
+from .identity_dry_run import cmd_identity_dry_run
 
 
 # ---------------------------------------------------------------------------
@@ -50,23 +52,64 @@ LOGS_DIR = Path(__file__).resolve().parents[1] / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def setup_logging(prefix: str, verbose: bool = False) -> tuple[Path, Path]:
+_MAX_LINES_PER_LOG = 100_000  # 1 lakh lines
+
+
+class _LineRotatingFileHandler(logging.FileHandler):
+    """File handler that rotates to a new file after *max_lines* lines.
+
+    New files are named ``<stem>_2.log``, ``<stem>_3.log``, etc.
+    """
+
+    def __init__(self, filename: str, max_lines: int = _MAX_LINES_PER_LOG, **kwargs):
+        self._base_path = Path(filename)
+        self._max_lines = max_lines
+        self._line_count = 0
+        self._file_index = 1
+        super().__init__(filename, **kwargs)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self._line_count += 1
+        if self._line_count >= self._max_lines:
+            self._rotate()
+
+    def _rotate(self) -> None:
+        """Close the current file and open the next numbered file."""
+        self._file_index += 1
+        new_name = f"{self._base_path.stem}_{self._file_index}{self._base_path.suffix}"
+        new_path = self._base_path.parent / new_name
+        self.close()
+        self.baseFilename = os.fspath(new_path)
+        self._line_count = 0
+        self.stream = self._open()
+
+
+_console_handlers: list[tuple[logging.Handler, int]] = []
+
+
+def setup_logging(prefix: str, verbose: bool = False, dashboard_mode: bool = False) -> tuple[Path, Path]:
     """Configure logging: full INFO detail always goes to file.
     Console shows INFO+ when verbose=True, WARNING+ otherwise.
     A 'progress' logger always prints to console for key milestones.
+    When *dashboard_mode* is True, console handlers are suppressed so
+    that the rich live dashboard can render without interference.
     Returns (log_file, summary_file).
     """
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_file = LOGS_DIR / f"{prefix}_{timestamp}.log"
-    summary_file = LOGS_DIR / f"summary_{prefix}_{timestamp}.log"
+    run_dir = LOGS_DIR / f"{prefix}_{timestamp}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_file = run_dir / f"{prefix}_{timestamp}.log"
+    summary_file = run_dir / f"summary_{prefix}_{timestamp}.log"
     fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler = _LineRotatingFileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter(fmt))
 
+    console_level = logging.INFO if verbose else logging.WARNING
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO if verbose else logging.WARNING)
+    console_handler.setLevel(logging.CRITICAL + 1 if dashboard_mode else console_level)
     console_handler.setFormatter(logging.Formatter(fmt))
 
     root = logging.getLogger()
@@ -78,12 +121,23 @@ def setup_logging(prefix: str, verbose: bool = False) -> tuple[Path, Path]:
     progress = logging.getLogger("progress")
     progress.propagate = False  # don't duplicate to root
     progress_console = logging.StreamHandler(sys.stdout)
-    progress_console.setLevel(logging.INFO)
+    progress_console.setLevel(logging.CRITICAL + 1 if dashboard_mode else logging.INFO)
     progress_console.setFormatter(logging.Formatter("%(message)s"))
     progress.addHandler(progress_console)
     progress.addHandler(file_handler)  # also goes to main log file
 
+    # Store handlers so they can be restored after dashboard stops
+    _console_handlers.clear()
+    _console_handlers.append((console_handler, console_level))
+    _console_handlers.append((progress_console, logging.INFO))
+
     return log_file, summary_file
+
+
+def restore_console_logging() -> None:
+    """Re-enable console handlers after dashboard mode ends."""
+    for handler, level in _console_handlers:
+        handler.setLevel(level)
 
 
 def write_summary(summary_file, log_file, stats, connection_status, connector_id, elapsed, command_name):
@@ -109,13 +163,56 @@ def write_summary(summary_file, log_file, stats, connection_status, connector_id
     lines.append(f"  Deleted:          {stats.deleted_count}")
     lines.append(f"  Failed:           {stats.failed_count}")
     if stats.failed_ids:
-        lines.append(f"  Failed item IDs:")
+        lines.append(f"  Failed item IDs (first {len(stats.failed_ids)}):")
         for fid in stats.failed_ids:
             lines.append(f"    - {fid}")
+        if stats.failed_count > len(stats.failed_ids):
+            lines.append(f"    ... and {stats.failed_count - len(stats.failed_ids)} more")
         lines.append(f"")
-        lines.append(f"  >> To retry failed items, check the summary log:")
-        lines.append(f"  >> {summary_file}")
+        lines.append(f"  >> Failed records: logs/failed_records_{connector_id}.jsonl")
     lines.append(f"  Time elapsed:     {elapsed:.1f}s")
+
+    # Phase timing breakdown
+    _PHASES = ("SF Fetch", "ACL", "Transform", "Graph Push")
+    if hasattr(stats, "phase_timings") and stats.phase_timings:
+        lines.append("")
+        lines.append("  Phase Timing (cumulative)")
+        lines.append("  " + "-" * 56)
+        header = f"  {'Object':<20s}"
+        for phase in _PHASES:
+            header += f" {phase:>12s}"
+        header += f" {'Total':>10s}"
+        lines.append(header)
+        lines.append("  " + "-" * 56)
+
+        grand_phase: dict[str, float] = {p: 0.0 for p in _PHASES}
+        for obj_type in sorted(stats.phase_timings):
+            obj_timings = stats.phase_timings[obj_type]
+            row = f"  {obj_type:<20s}"
+            row_total = 0.0
+            for phase in _PHASES:
+                entry = obj_timings.get(phase)
+                if entry and entry[0] > 0:
+                    secs, count = entry
+                    row += f" {secs:>8.1f}s({count})"
+                    grand_phase[phase] += secs
+                    row_total += secs
+                else:
+                    row += f" {'—':>12s}"
+            row += f" {row_total:>8.1f}s"
+            lines.append(row)
+
+        lines.append("  " + "-" * 56)
+        totals_row = f"  {'TOTAL':<20s}"
+        grand_total = 0.0
+        for phase in _PHASES:
+            val = grand_phase[phase]
+            totals_row += f" {val:>9.1f}s   "
+            grand_total += val
+        totals_row += f" {grand_total:>8.1f}s"
+        lines.append(totals_row)
+        lines.append("  " + "-" * 56)
+
     lines.append(f"  Full log:         {log_file}")
     lines.append(f"  Summary log:      {summary_file}")
     lines.append("=" * 60)
@@ -159,19 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
             "  python run.py guide\n"
             "  python run.py full-deployment\n"
             "  python run.py full-deployment --verbose\n"
-            "  python run.py full-deployment --continuous --hours 24\n"
+            "  python run.py full-deployment --continuous --full-crawl-hours 24 --incremental-hours 4\n"
             "  python run.py ingest\n"
-            "  python run.py ingest --continuous --hours 12\n"
+            "  python run.py ingest --continuous --full-crawl-hours 48 --incremental-hours 6\n"
             "  python run.py ingest-item --id 500f6000008iCNYAA2\n"
             "  python run.py ingest-object --type Case\n"
         ),
-    )
-
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Print all log levels (INFO+) to console. Without this flag only WARNING and ERROR are shown on console; the log file always captures everything.",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="command")
@@ -189,17 +279,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Deploy connection → schema → ingest items with ACLs",
     )
     p_deploy.add_argument(
+        "--incremental",
+        action="store_true",
+        default=False,
+        help="Start with an incremental crawl (since last successful full crawl) instead of a full crawl.",
+    )
+    p_deploy.add_argument(
         "--continuous",
         action="store_true",
         default=False,
-        help="Keep running and re-ingest every --hours hours instead of exiting.",
+        help="Keep running with scheduled full and incremental crawls.",
     )
     p_deploy.add_argument(
-        "--hours",
+        "--full-crawl-hours",
         type=int,
-        default=12,
-        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
+        default=24,
+        help="Full crawl interval in hours when --continuous is set (min 12, max 168). Default: 24.",
     )
+    p_deploy.add_argument(
+        "--incremental-hours",
+        type=int,
+        default=4,
+        help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
+    )
+    p_deploy.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_deploy.set_defaults(func=cmd_full_deployment)
 
     # ingest
@@ -208,17 +311,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ingest items only (connection & schema must already exist)",
     )
     p_ingest.add_argument(
+        "--incremental",
+        action="store_true",
+        default=False,
+        help="Start with an incremental crawl (since last successful full crawl) instead of a full crawl.",
+    )
+    p_ingest.add_argument(
         "--continuous",
         action="store_true",
         default=False,
-        help="Keep running and re-ingest every --hours hours instead of exiting.",
+        help="Keep running with scheduled full and incremental crawls.",
     )
     p_ingest.add_argument(
-        "--hours",
+        "--full-crawl-hours",
         type=int,
-        default=12,
-        help="Re-ingestion interval in hours when --continuous is set (min 12, max 168). Default: 12.",
+        default=24,
+        help="Full crawl interval in hours when --continuous is set (min 12, max 168). Default: 24.",
     )
+    p_ingest.add_argument(
+        "--incremental-hours",
+        type=int,
+        default=4,
+        help="Incremental crawl interval in hours when --continuous is set (min 1, max 168). Default: 4.",
+    )
+    p_ingest.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_ingest.set_defaults(func=cmd_ingest)
 
     # ingest-item
@@ -231,6 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Salesforce record ID (e.g. 500f6000008iCNYAA2)",
     )
+    p_item.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_item.set_defaults(func=cmd_ingest_item)
 
     # ingest-object
@@ -243,6 +360,21 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Salesforce object type (e.g. Case, Account, Opportunity)",
     )
+    p_obj.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_obj.set_defaults(func=cmd_ingest_object)
+
+    # identity-dry-run
+    p_identity = subparsers.add_parser(
+        "identity-dry-run",
+        help="Preview identity crawl changes without calling Graph APIs",
+    )
+    p_identity.add_argument(
+        "--save",
+        action="store_true",
+        default=False,
+        help="Write crawl results to the SQLite store (without calling Graph APIs).",
+    )
+    p_identity.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
+    p_identity.set_defaults(func=cmd_identity_dry_run)
 
     return parser

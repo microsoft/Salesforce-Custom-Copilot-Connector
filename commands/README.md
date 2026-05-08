@@ -7,10 +7,11 @@ CLI subcommand implementations for the `run.py` unified entry point. Each module
 | Command | Module | Description |
 |---------|--------|-------------|
 | `guide` | `guide.py` | Prints the complete setup and usage guide (prerequisites, environment variables, config files, workflow). |
-| `full-deployment` | `deploy.py` | End-to-end deployment: create connection → register schema → configure search → ingest items with ACLs. |
+| `full-deployment` | `deploy.py` | End-to-end deployment: create connection → register schema → configure search → identity crawl (if USE_GROUP_ACL) → ingest items with ACLs. |
 | `ingest` | `ingest.py` | Re-ingest items into an existing connection (assumes prior `full-deployment`). |
 | `ingest-item` | `ingest_item.py` | Ingest a single Salesforce record by its ID (`--id`). |
 | `ingest-object` | `ingest_object.py` | Ingest all records of one Salesforce object type (`--type`). |
+| `identity-dry-run` | `identity_dry_run.py` | Preview identity crawl changes without calling Graph APIs. Use `--save` to write to SQLite. |
 
 ## Shared Utilities (`__init__.py`)
 
@@ -31,20 +32,26 @@ CLI subcommand implementations for the `run.py` unified entry point. Each module
 
 ### Continuous Mode (`full-deployment` and `ingest` only)
 
-| Flag | Description |
-|------|-------------|
-| `--continuous` | Keep running and re-ingest on a schedule instead of exiting after one run. |
-| `--hours <int>` | Re-ingestion interval in hours (min 12, max 168). Default: 12. Only used with `--continuous`. |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--continuous` | — | Keep running with scheduled full and incremental crawls. |
+| `--full-crawl-hours <int>` | 24 | Full crawl interval in hours (min 12, max 168). |
+| `--incremental-hours <int>` | 4 | Incremental crawl interval in hours (min 1, max 168). |
+
+Identity crawl only runs on **full** sync cycles (not incremental).
 
 ## Usage
 
 ```bash
-python run.py guide                                        # Show setup guide
-python run.py full-deployment                              # Deploy (quiet console)
-python run.py full-deployment --verbose                    # Deploy (detailed console)
-python run.py full-deployment --continuous --hours 24       # Deploy + re-ingest every 24h
-python run.py ingest                                       # Re-ingest only
-python run.py ingest --continuous --hours 12                # Re-ingest every 12h
-python run.py ingest-item --id 500f6000008iCNYAA2               # Ingest one record
-python run.py ingest-object --type Case                          # Ingest all Cases
+python run.py guide                                                         # Show setup guide
+python run.py full-deployment                                               # Deploy (full sync)
+python run.py full-deployment --verbose                                     # Deploy (detailed console)
+python run.py full-deployment --continuous                                   # Deploy + continuous (24h full, 4h incremental)
+python run.py full-deployment --continuous --full-crawl-hours 48 --incremental-hours 2
+python run.py ingest                                                        # Re-ingest only (full sync)
+python run.py ingest --continuous                                           # Continuous (24h full, 4h incremental)
+python run.py identity-dry-run --verbose                                    # Preview identity changes
+python run.py identity-dry-run --save --verbose                             # Preview + save to SQLite
+python run.py ingest-item --id 500f6000008iCNYAA2                           # Ingest one record
+python run.py ingest-object --type Case                                     # Ingest all Cases
 ```

@@ -57,6 +57,10 @@ from acl_engine.group_handler import GroupHandler
 
 logger = logging.getLogger("salesforce_connector.acl_engine")
 
+# Track object types for which we've already logged the missing-parent warning
+# so it fires at most once per object type instead of once per record.
+_warned_no_parent: set[str] = set()
+
 
 def _load_parent_map(parent_map: dict[str, tuple[str, str]] | None = None) -> dict[str, tuple[str, str]]:
     """
@@ -125,7 +129,8 @@ class AclResolver:
         self._share_fetcher = ShareFetcher(sf_client)
         self._user_handler = UserHandler(sf_client)
         self._group_handler = GroupHandler(sf_client)
-        # {objectName: (parentFieldName, parentObjectName)} – loaded once from schema.json
+        # Share the same UserHandler instance so prewarm is shared
+        self._group_handler._uh = self._user_handler
         self._parent_map: dict[str, tuple[str, str]] = _load_parent_map(parent_map)
         self._max_parent_depth = max_parent_depth
 
@@ -141,17 +146,35 @@ class AclResolver:
         """
         return asyncio.run(self.resolve_async(object_type, record_id))
 
+    async def prewarm_chunk(self, object_type: str, record_ids: list[str]) -> None:
+        """
+        Bulk pre-warm all reference data for a chunk of records.
+
+        Call this ONCE before launching asyncio.gather() over the chunk.
+        Eliminates per-record SOQL queries for owners, share entries, groups,
+        and role/user mappings.
+
+        SOQL calls fired:
+          - 1 call:  SELECT <owd_fields> FROM Organization  (once ever, primed here)
+          - 2 × ceil(N/200) calls: bulk owner + bulk share-table per batch
+          - 1 call:  SELECT Id, ParentRoleId FROM UserRole  (once ever)
+          - 1 call:  SELECT Id, UserRoleId FROM User        (once ever)
+          - 1 call:  SELECT Id, Type, RelatedId FROM Group  (once ever)
+        """
+        # Per-chunk: owner IDs and share entries (batch_size=200 = safe SOQL IN limit)
+        await self._share_fetcher.prewarm_chunk(object_type, record_ids, batch_size=200)
+        # One-time: all groups + roles + users + territories + group-members
+        await self._group_handler.prewarm()
+
     async def resolve_async(self, object_type: str, record_id: str) -> AclResult:
         """
         Async entry point – preferred when called from an async context.
         """
-        logger.info("=" * 70)
         logger.info(
             "[AclResolver] START  object_type=%-20s  record_id=%s",
             object_type,
             record_id,
         )
-        logger.info("=" * 70)
 
         result = await self._resolve_internal(object_type, record_id, depth=0)
 
@@ -320,11 +343,13 @@ class AclResolver:
         parent_field, parent_type = await self._get_controlling_parent_info(object_type)
 
         if not parent_field or not parent_type:
-            logger.warning(
-                "[AclResolver] Cannot determine controlling parent for %s; "
-                "falling back to private ACL",
-                object_type,
-            )
+            if object_type not in _warned_no_parent:
+                _warned_no_parent.add(object_type)
+                logger.warning(
+                    "[AclResolver] Cannot determine controlling parent for %s; "
+                    "falling back to private ACL (this warning fires once per object type)",
+                    object_type,
+                )
             result = AclResult(object_type=object_type, record_id=record_id, owd="ControlledByParent")
             result.user_ids = await self._resolve_private_acl(object_type, record_id)
             return result
@@ -377,11 +402,13 @@ class AclResolver:
             )
             return parent_field, parent_type
 
-        logger.warning(
-            "[AclResolver] No parentObjectName in schema.json for %s – "
-            "cannot follow ControlledByParent chain",
-            object_type,
-        )
+        if object_type not in _warned_no_parent:
+            _warned_no_parent.add(object_type)
+            logger.warning(
+                "[AclResolver] No parentObjectName in schema.json for %s – "
+                "cannot follow ControlledByParent chain (this warning fires once per object type)",
+                object_type,
+            )
         return None, None
 
     async def _fetch_field_value(

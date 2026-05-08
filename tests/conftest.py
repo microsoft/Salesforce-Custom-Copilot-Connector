@@ -34,6 +34,7 @@ def test_config() -> AppConfig:
         parent_map=build_parent_map(schema),
         owd_overrides={},
         use_new_acl_engine=False,
+        use_group_acl=False,
         debug_object_type=None,
         debug_item_id=None,
         tuning=TuningSettings(
@@ -43,10 +44,12 @@ def test_config() -> AppConfig:
             connection_timeout_seconds=600,
             connection_retry_interval_seconds=15,
             schema_retry_interval_seconds=15,
-            salesforce_query_limit=10,
+            salesforce_query_limit=0,
             salesforce_batch_size=100,
-            acl_max_parent_depth=5,
-        ),
+            acl_max_parent_depth=5,            ingest_chunk_size=500,
+            ingest_graph_batch_size=20,
+            graph_concurrent_batches=1,
+            parallel_object_workers=1,        ),
         connector=ConnectorSettings(
             id="SalesforceCRMTestAutomation",
             name="Salesforce CRM Test Automation",

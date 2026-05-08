@@ -29,13 +29,13 @@ get_details(user_id)
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional
 
 from acl_engine.salesforce_client import SalesforceClient
 
 logger = logging.getLogger("salesforce_connector.acl_engine")
 
-# Salesforce key prefix for User records
 USER_ID_PREFIX = "005"
 
 
@@ -50,6 +50,35 @@ class UserHandler:
 
     def __init__(self, sf_client: SalesforceClient) -> None:
         self._sf = sf_client
+        # Pre-warm cache: set of all active Salesforce user IDs (None = not yet fetched)
+        self._active_users: Optional[set[str]] = None
+        self._prewarm_lock = threading.Lock()
+
+    # ── Bulk pre-warm (once per run) ───────────────────────────────────────
+
+    async def prewarm(self) -> None:
+        """
+        Fetch ALL active Salesforce user IDs in one SOQL call.
+        After this, resolve() is a pure O(1) set lookup — no SOQL per user.
+        """
+        if self._active_users is not None:
+            return
+
+        active: set[str] = set()
+        try:
+            rows = await self._sf.query_all(
+                "SELECT Id FROM User WHERE IsActive = true"
+            )
+            active = {r["Id"] for r in rows if r.get("Id")}
+            logger.info("[UserHandler] Pre-warmed %d active user(s)", len(active))
+        except RuntimeError as exc:
+            logger.warning(
+                "[UserHandler] Active user prewarm failed: %s; will fall back to per-user SOQL", exc
+            )
+
+        with self._prewarm_lock:
+            if self._active_users is None:
+                self._active_users = active
 
     # ── Type detection ────────────────────────────────────────────────────────
 
@@ -69,27 +98,12 @@ class UserHandler:
     # ── ACL resolution (lightweight) ─────────────────────────────────────────
 
     async def resolve(self, user_id: str) -> set[str]:
-        """
-        Return ``{user_id}`` if the user is active, else an empty set.
+        """Return ``{user_id}`` if the user is active, else an empty set."""
+        # Fast path — bulk cache hit
+        if self._active_users is not None:
+            return {user_id} if user_id in self._active_users else set()
 
-        Why validate instead of blindly trusting the share table?
-        Salesforce may retain share rows for deactivated users, so we must
-        re-confirm liveness before emitting an ACL entry.
-
-        Uses a minimal SOQL query (no field data, just existence + IsActive).
-
-        Parameters
-        ----------
-        user_id : Salesforce User Id (18-char or 15-char).
-
-        Returns
-        -------
-        set[str] – {user_id} or set()
-
-        curl equivalent:
-            GET /services/data/v60.0/query
-                ?q=SELECT+Id+FROM+User+WHERE+Id='<user_id>'+AND+IsActive=true+LIMIT+1
-        """
+        # Slow path — per-user SOQL fallback
         soql = (
             f"SELECT Id FROM User "
             f"WHERE Id = '{user_id}' AND IsActive = true "
@@ -100,13 +114,7 @@ class UserHandler:
         except RuntimeError as exc:
             logger.warning("[UserHandler] Could not validate user %s: %s", user_id, exc)
             return set()
-
-        if records:
-            logger.debug("[UserHandler] User %s is active → added to ACL", user_id)
-            return {user_id}
-
-        logger.debug("[UserHandler] User %s is inactive or not found → skipped", user_id)
-        return set()
+        return {user_id} if records else set()
 
     # ── Full user detail fetch (REST sobjects) ────────────────────────────────
 
@@ -132,7 +140,7 @@ class UserHandler:
 
         Returns
         -------
-        dict[str, Any] | None – Raw Salesforce User record, or None on failure.
+        dict[str, Any] | None - Raw Salesforce User record, or None on failure.
         """
         try:
             details = await self._sf.get_sobject(sobject_name="User", record_id=user_id)
