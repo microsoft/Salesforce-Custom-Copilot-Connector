@@ -429,7 +429,12 @@ def _ingest_chunk_graph_batch(
                     "id": str(idx), "method": "PUT", "url": item_url,
                     "headers": {"Content-Type": "application/json"}, "body": body,
                 })
-                if logger.isEnabledFor(logging.DEBUG):
+                if config.debug_item_id:
+                    logger.info(
+                        "ITEM REQUEST — PUT %s\nRequest Body:\n%s",
+                        item_url, json.dumps(body, indent=2),
+                    )
+                elif logger.isEnabledFor(logging.DEBUG):
                     logger.debug("ITEM REQUEST — PUT %s", item_url)
         sub_batches.append((batch_items, payload))
 
@@ -492,7 +497,12 @@ def _ingest_chunk_graph_batch(
 
             try:
                 responses = client.batch_requests(cur_payload)
-                if logger.isEnabledFor(logging.DEBUG):
+                if config.debug_item_id:
+                    logger.info(
+                        "ITEM RESPONSE (attempt %d):\n%s",
+                        attempt, json.dumps(responses, indent=2),
+                    )
+                elif logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "BATCH RESPONSE (attempt %d): %s",
                         attempt, json.dumps(responses, indent=2),

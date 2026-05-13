@@ -1,490 +1,645 @@
 [
   {
     "name": "title",
-    "type": "string",
+    "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
+    "isRefinable": false,
     "labels": [
       "title"
     ]
   },
   {
     "name": "url",
-    "type": "string",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
     "isRetrievable": true,
+    "isRefinable": false,
     "labels": [
       "url"
     ]
   },
   {
     "name": "objectType",
-    "type": "string",
+    "type": "String",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
     "isRefinable": true,
-    "labels": []
-  },
-  {
-    "name": "Username",
-    "type": "string",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
+    "labels": [
+      "itemType"
+    ]
   },
   {
     "name": "Name",
-    "type": "string",
+    "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "Email",
-    "type": "string",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CompanyName",
-    "type": "string",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "IsActive",
-    "type": "boolean",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "isRefinable": false,
-    "labels": []
-  },
-  {
-    "name": "AccountNumber",
-    "type": "string",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The display name of the account, contact, product, user, or group."
   },
   {
     "name": "OwnerId",
-    "type": "string",
+    "type": "String",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
-    "isRefinable": true,
-    "labels": []
+    "labels": [],
+    "description": "The identifier of the user or queue that owns this account, contact, or group."
   },
   {
     "name": "ParentId",
-    "type": "string",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CustomerCompliance",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHParentAccountName",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The identifier of the parent account in the account hierarchy."
   },
   {
     "name": "AccountId",
-    "type": "string",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the account associated with this contact or user."
+  },
+  {
+    "name": "FirstName",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The first name of the contact or user."
+  },
+  {
+    "name": "LastName",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The last name of the contact or user."
+  },
+  {
+    "name": "ProductCode",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The SKU or unique product code identifier."
+  },
+  {
+    "name": "Description",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The text description of the account, product, or group."
+  },
+  {
+    "name": "IsActive",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "Whether this contact, product, or user is currently active."
+  },
+  {
+    "name": "RecordType",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The record type that determines field layout and available picklist values."
+  },
+  {
+    "name": "AgileStatus",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The agile development lifecycle status of the product."
+  },
+  {
+    "name": "UserRoleId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the role assigned to the user in the role hierarchy."
+  },
+  {
+    "name": "ProfileId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the permission profile assigned to the user."
+  },
+  {
+    "name": "ContactId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the contact record linked to this user."
+  },
+  {
+    "name": "FederationIdentifier",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The SSO federation identifier for matching to an external identity provider."
+  },
+  {
+    "name": "EmployeeIdHR",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The employee identifier from the HR system."
+  },
+  {
+    "name": "WorkCountry",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The country where the user is based for work."
+  },
+  {
+    "name": "GroupId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the group this group member belongs to."
+  },
+  {
+    "name": "UserOrGroupId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the user or nested group that is a member of the group."
+  },
+  {
+    "name": "Phone",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The primary phone number of the account, contact, or user."
+  },
+  {
+    "name": "Email",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The email address of the contact or user."
+  },
+  {
+    "name": "JobTitle",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The job title of the contact or user."
+  },
+  {
+    "name": "Department",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The department where the contact works."
+  },
+  {
+    "name": "Industry",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": [],
+    "description": "The industry classification of the account."
+  },
+  {
+    "name": "Type",
+    "type": "String",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
     "isRefinable": true,
-    "labels": []
+    "labels": [],
+    "description": "The classification type of the account."
   },
   {
-    "name": "ProductCode",
-    "type": "string",
+    "name": "Website",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The website URL of the account."
+  },
+  {
+    "name": "AccountName",
+    "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The name of the account."
   },
   {
-    "name": "Description",
-    "type": "string",
+    "name": "AccountNumber",
+    "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The external reference number identifying the account."
   },
   {
-    "name": "BusinessGroup",
-    "type": "string",
+    "name": "AccountSource",
+    "type": "String",
     "isSearchable": false,
     "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The source or origin of the account record."
+  },
+  {
+    "name": "BillingAddress",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "CHBusinessGroup",
-    "type": "string",
+    "name": "BillingCity",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The city of the account's billing address."
+  },
+  {
+    "name": "BillingState",
+    "type": "String",
     "isSearchable": false,
     "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": [],
+    "description": "The state or province of the account's billing address."
+  },
+  {
+    "name": "BillingCountry",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": [],
+    "description": "The country of the account's billing address."
+  },
+  {
+    "name": "BillingPostalCode",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The postal code of the account's billing address."
+  },
+  {
+    "name": "BillingStreet",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "NCPALTERNATECODE2",
-    "type": "string",
+    "name": "ShippingAddress",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "CHBusinessLine",
-    "type": "string",
+    "name": "ShippingCity",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The city of the account's shipping address."
   },
   {
-    "name": "CHBusinessUnit",
-    "type": "string",
+    "name": "ShippingCountry",
+    "type": "String",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": []
+    "isRefinable": true,
+    "labels": [],
+    "description": "The country of the account's shipping address."
   },
   {
-    "name": "IsStandard",
-    "type": "boolean",
+    "name": "NumberOfEmployees",
+    "type": "Int64",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The total number of employees at the account organization."
   },
   {
-    "name": "IsArchived",
-    "type": "boolean",
+    "name": "AnnualRevenue",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CurrencyIsoCode",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The annual revenue of the account."
   },
   {
     "name": "CreatedDate",
-    "type": "dateTime",
+    "type": "DateTime",
     "isSearchable": false,
     "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [
+      "createdDateTime"
+    ]
+  },
+  {
+    "name": "LastModifiedDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [
+      "lastModifiedDateTime"
+    ]
+  },
+  {
+    "name": "LastActivityDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date of the most recent activity on this record."
+  },
+  {
+    "name": "LastViewedDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date this record was last viewed."
+  },
+  {
+    "name": "LastReferencedDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date this record was last referenced."
+  },
+  {
+    "name": "SystemModstamp",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The system timestamp of the last modification."
+  },
+  {
+    "name": "IsDeleted",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "Whether this record has been deleted in Salesforce."
+  },
+  {
+    "name": "MasterRecordId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the master record if this record was merged."
+  },
+  {
+    "name": "PhotoUrl",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
     "name": "CreatedById",
-    "type": "string",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "LastModifiedDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The identifier of the user who created this record."
   },
   {
     "name": "LastModifiedById",
-    "type": "string",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the user who last modified this record."
+  },
+  {
+    "name": "Address",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "SystemModstamp",
-    "type": "dateTime",
+    "name": "MailingAddress",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "IsDeleted",
-    "type": "boolean",
+    "name": "MobilePhone",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The mobile phone number of the contact or user."
+  },
+  {
+    "name": "Fax",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "LastViewedDate",
-    "type": "dateTime",
+    "name": "HomePhone",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "LastReferencedDate",
-    "type": "dateTime",
+    "name": "OtherPhone",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "UserRecordAccessId",
-    "type": "string",
+    "name": "AssistantName",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The name of the contact's assistant."
+  },
+  {
+    "name": "AssistantPhone",
+    "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
+    "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "ContractNumber",
-    "type": "string",
+    "name": "Birthdate",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The birthdate of the contact."
+  },
+  {
+    "name": "LastLoginDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date the user last logged in."
+  },
+  {
+    "name": "Alias",
+    "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The short alias of the user."
   },
   {
-    "name": "Status",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "isRefinable": true,
-    "labels": []
-  },
-  {
-    "name": "StartDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "EndDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "RecordTypeId",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "isRefinable": true,
-    "labels": []
-  },
-  {
-    "name": "ParentServiceContractId",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "NCPContractType",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "NCPEntitlementAccessType",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "NCPEntitlementRelationship",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "NCPExternalServiceContractId",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHCARESServiceAgreement",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHCDBContractId",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHCDBContractType",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHCustomerContractNumber",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHERPSystem",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHProject",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHServiceContractType",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "NCPExternalStatus",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHEntitlement",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHCDBContractNumber",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "LineItemNumber",
-    "type": "string",
+    "name": "Username",
+    "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "The login username of the Salesforce user."
   },
   {
-    "name": "ServiceContractId",
-    "type": "string",
+    "name": "CompanyName",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The company name associated with the user."
+  },
+  {
+    "name": "DeveloperName",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The developer name or API name of the group."
+  },
+  {
+    "name": "Family",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": [],
+    "description": "The product family classification."
+  },
+  {
+    "name": "StockKeepingUnit",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The stock keeping unit identifier for the product."
+  },
+  {
+    "name": "IsArchived",
+    "type": "Boolean",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "Product2Id",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHCoverageType",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "EntitlementsAccess",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "ServiceContractNumber",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CHServiceOffering",
-    "type": "string",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
+    "labels": [],
+    "description": "Whether this product has been archived."
   }
 ]
