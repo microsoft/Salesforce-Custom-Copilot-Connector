@@ -30,7 +30,8 @@ Examples:
     python run.py full-deployment --continuous --full-crawl-hours 24 --incremental-hours 4
     python run.py ingest --verbose
     python run.py ingest --continuous
-    python run.py ingest-item --id 500f6000008iCNYAA2
+    python run.py ingest-item --id 001dN00000sh4neQAA
+    python run.py ingest-item --id 001dN00000sh4neQAA --object-type Account
     python run.py ingest-object --type Case
     python run.py identity-dry-run --verbose
     python run.py identity-dry-run --save --verbose

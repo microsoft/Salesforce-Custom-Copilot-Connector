@@ -398,7 +398,12 @@ def fetch_salesforce_records(
         )
 
     while True:
-        soql = build_soql_query(active_config, since, query_limit=config.tuning.salesforce_query_limit)
+        soql = build_soql_query(
+            active_config,
+            since,
+            query_limit=config.tuning.salesforce_query_limit,
+            record_id=config.debug_item_id,
+        )
         query_url = _build_query_url(base_url, api_version, soql)
         logger.info("Querying Salesforce %s: %s", active_config.object_type, soql)
 
@@ -559,8 +564,17 @@ def _match_exact_or_prefixed_fields(fields: tuple[str, ...], candidate: str) -> 
     return tuple(field for field in fields if field.lower().startswith(prefix))
 
 
-def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | None, query_limit: int = 0) -> str:
+def build_soql_query(
+    object_config: SalesforceObjectConfig,
+    since: datetime | None,
+    query_limit: int = 0,
+    record_id: str | None = None,
+) -> str:
     """Build a SOQL SELECT string for *object_config*, with optional *since* and *query_limit* clauses.
+
+    When *record_id* is provided, a ``WHERE Id = '<record_id>'`` clause is added
+    so that only the single matching record is returned.  This is used by the
+    ``ingest-item`` command to avoid fetching the entire object table.
 
     When *query_limit* is ``0`` (or negative) no ``LIMIT`` clause is added and Salesforce
     paginates the full result set automatically at 2 000 records per page via
@@ -568,6 +582,8 @@ def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | No
     """
     soql = f"SELECT {', '.join(object_config.fields)} FROM {object_config.object_type}"
     where_clauses: list[str] = []
+    if record_id:
+        where_clauses.append(f"Id = '{record_id}'")
     if object_config.filter_condition:
         where_clauses.append(object_config.filter_condition)
     if since:

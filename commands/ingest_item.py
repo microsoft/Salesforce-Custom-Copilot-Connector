@@ -45,7 +45,11 @@ def cmd_ingest_item(args) -> None:
         logger.info("  Connector ID: %s", config.connector.id)
         logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
 
+        object_type = getattr(args, "object_type", None)
         config = replace(config, debug_item_id=item_id)
+        if object_type:
+            config = replace(config, debug_object_type=object_type)
+            logger.info("  Object Type: %s (user-supplied)", object_type)
         logger.info("  Item ID: %s", item_id)
 
         logger.info("\n" + "=" * 70)

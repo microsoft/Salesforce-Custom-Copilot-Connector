@@ -974,7 +974,11 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     # ── Checkpointing & dead-letter setup ────────────────────────────────────
     _connector_id = config.connector.id
     _since_iso = since.isoformat() if since else None
-    _checkpoint = read_checkpoint(_connector_id)
+    # Skip checkpoint for single-item ingestion — always re-ingest the requested record
+    if config.debug_item_id:
+        _checkpoint = None
+    else:
+        _checkpoint = read_checkpoint(_connector_id)
     if _checkpoint and _checkpoint.get("since") == _since_iso:
         logger.info("Checkpoint found — resuming from: %s", _checkpoint["completed"])
     else:

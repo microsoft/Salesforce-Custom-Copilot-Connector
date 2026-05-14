@@ -347,6 +347,12 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Salesforce record ID (e.g. 500f6000008iCNYAA2)",
     )
+    p_item.add_argument(
+        "--object-type",
+        required=False,
+        default=None,
+        help="Salesforce object type (e.g. Account, Case). When provided, only this object is queried — dramatically faster.",
+    )
     p_item.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_item.set_defaults(func=cmd_ingest_item)
 
