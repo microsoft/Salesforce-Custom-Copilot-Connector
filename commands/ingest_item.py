@@ -29,6 +29,12 @@ def cmd_ingest_item(args) -> None:
 
     log_file, summary_file = setup_logging("ingest_item", verbose=getattr(args, "verbose", False))
     logger = logging.getLogger("ingest_item")
+    # Enable DEBUG on the converter logger so the field-mapping table is captured in the log file
+    _connector_logger = logging.getLogger("salesforce_connector")
+    _connector_logger.setLevel(logging.DEBUG)
+    for h in logging.getLogger().handlers:
+        if hasattr(h, 'baseFilename'):  # file handler
+            h.setLevel(logging.DEBUG)
     progress = logging.getLogger("progress")
     start_time = time.monotonic()
     stats = None

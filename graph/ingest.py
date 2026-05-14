@@ -708,6 +708,12 @@ def _ingest_single_object_type(
                 records = [r for r in records if r.get("Id") == _debug_item_id]
                 if not records:
                     continue
+                # Log the raw Salesforce record for single-item debugging
+                logger.info(
+                    "SALESFORCE RECORD — %s/%s\n%s",
+                    object_type, _debug_item_id,
+                    json.dumps(records[0], indent=2, default=str),
+                )
 
             # ── Graceful stop ─────────────────────────────────────────────
             if dashboard and dashboard.stop_requested:

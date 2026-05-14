@@ -100,9 +100,12 @@ class OWDFetcher:
         self._org_owd_cache: Optional[dict[str, str]] = None
         # Optional overrides from config (e.g. {"Account": "Private"})
         self._owd_overrides: dict[str, str] = owd_overrides or {}
-        # threading.Lock guards the final cache assignment so two threads
-        # (when running in ThreadPoolExecutor mode) don't partially observe
-        # the dict.  In single-threaded asyncio this is a no-op but harmless.
+        # asyncio.Lock prevents the thundering-herd problem where hundreds of
+        # concurrent coroutines all see _org_owd_cache=None and each fire the
+        # same failing OWD query.  Only ONE coroutine primes the cache; the
+        # rest wait on the lock and find the cache already populated.
+        self._prime_lock_async: asyncio.Lock = asyncio.Lock()
+        # threading.Lock guards cross-thread reads of the cache dict.
         self._prime_lock: threading.Lock = threading.Lock()
 
     # ── Main fetch ────────────────────────────────────────────────────────────
@@ -132,13 +135,13 @@ class OWDFetcher:
             return OWDVisibility.PRIVATE.value
 
         if self._org_owd_cache is None:
-            # Multiple coroutines may race here; a few redundant SOQL calls are
-            # acceptable — they all return the same value and the lock ensures
-            # the cache dict is written atomically.
-            candidate = await self._prime_org_owd_cache()
-            with self._prime_lock:
+            async with self._prime_lock_async:
+                # Double-check after acquiring the async lock — another coroutine
+                # may have primed the cache while we were waiting.
                 if self._org_owd_cache is None:
-                    self._org_owd_cache = candidate
+                    candidate = await self._prime_org_owd_cache()
+                    with self._prime_lock:
+                        self._org_owd_cache = candidate
 
         owd_field = self._owd_field_map[object_type]
         owd = (self._org_owd_cache or {}).get(object_type, OWDVisibility.PRIVATE.value)

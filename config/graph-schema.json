@@ -2,18 +2,16 @@
   {
     "name": "title",
     "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": false,
     "isRefinable": false,
-    "labels": [
-      "title"
-    ]
+    "labels": []
   },
   {
     "name": "url",
     "type": "String",
-    "isSearchable": false,
+    "isSearchable": true,
     "isQueryable": false,
     "isRetrievable": true,
     "isRefinable": false,
@@ -22,7 +20,18 @@
     ]
   },
   {
-    "name": "objectType",
+    "name": "Id",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "isRefinable": false,
+    "labels": [
+      "secondaryId"
+    ]
+  },
+  {
+    "name": "ObjectName",
     "type": "String",
     "isSearchable": false,
     "isQueryable": true,
@@ -38,7 +47,9 @@
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
-    "labels": [],
+    "labels": [
+      "title"
+    ],
     "description": "The display name of the account, contact, product, user, or group."
   },
   {
