@@ -7,6 +7,7 @@ CLI subcommand implementations for the `run.py` unified entry point. Each module
 | Command | Module | Description |
 |---------|--------|-------------|
 | `guide` | `guide.py` | Prints the complete setup and usage guide (prerequisites, environment variables, config files, workflow). |
+| `setup-connection` | `setup_connection.py` | Create/verify the external connection, register the schema, configure search settings, and wait for the connection to reach `ready` state. Does **not** ingest any content. Useful for initial setup or re-registering an updated schema. |
 | `full-deployment` | `deploy.py` | End-to-end deployment: create connection → register schema → configure search → identity crawl (if USE_GROUP_ACL) → ingest items with ACLs. |
 | `ingest` | `ingest.py` | Re-ingest items into an existing connection (assumes prior `full-deployment`). |
 | `ingest-item` | `ingest_item.py` | Ingest a single Salesforce record by its ID (`--id`). |
@@ -44,6 +45,8 @@ Identity crawl only runs on **full** sync cycles (not incremental).
 
 ```bash
 python run.py guide                                                         # Show setup guide
+python run.py setup-connection                                              # Create connection + schema (no ingestion)
+python run.py setup-connection --verbose                                    # Setup with detailed console output
 python run.py full-deployment                                               # Deploy (full sync)
 python run.py full-deployment --verbose                                     # Deploy (detailed console)
 python run.py full-deployment --continuous                                   # Deploy + continuous (24h full, 4h incremental)
