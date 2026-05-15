@@ -42,6 +42,7 @@ from .ingest import cmd_ingest
 from .ingest_item import cmd_ingest_item
 from .ingest_object import cmd_ingest_object
 from .identity_dry_run import cmd_identity_dry_run
+from .setup_connection import cmd_setup_connection
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +369,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_obj.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_obj.set_defaults(func=cmd_ingest_object)
+
+    # setup-connection
+    p_setup = subparsers.add_parser(
+        "setup-connection",
+        help="Create/verify connection and register schema (no ingestion)",
+    )
+    p_setup.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
+    p_setup.set_defaults(func=cmd_setup_connection)
 
     # identity-dry-run
     p_identity = subparsers.add_parser(

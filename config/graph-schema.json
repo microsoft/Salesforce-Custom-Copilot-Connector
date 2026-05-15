@@ -1,5 +1,5 @@
 [
-  {
+ {
     "name": "title",
     "type": "String",
     "isSearchable": false,
@@ -8,7 +8,7 @@
     "isRefinable": false,
     "labels": []
   },
-  {
+ {
     "name": "url",
     "type": "String",
     "isSearchable": true,
@@ -23,14 +23,12 @@
     "name": "Id",
     "type": "String",
     "isSearchable": true,
-    "isQueryable": false,
+    "isQueryable": true,
     "isRetrievable": true,
     "isRefinable": false,
-    "labels": [
-      "secondaryId"
-    ]
+    "labels": ["secondaryId"]
   },
-  {
+{
     "name": "ObjectName",
     "type": "String",
     "isSearchable": false,
@@ -42,123 +40,103 @@
     ]
   },
   {
-    "name": "Name",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [
-      "title"
-    ],
-    "description": "The display name of the account, contact, product, user, or group."
-  },
-  {
-    "name": "OwnerId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the user or queue that owns this account, contact, or group."
-  },
-  {
-    "name": "ParentId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the parent account in the account hierarchy."
-  },
-  {
     "name": "AccountId",
     "type": "String",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "The identifier of the account associated with this contact or user."
+    "description": "The identifier of the customer account for this case or work order."
   },
   {
-    "name": "FirstName",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The first name of the contact or user."
-  },
-  {
-    "name": "LastName",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The last name of the contact or user."
-  },
-  {
-    "name": "ProductCode",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The SKU or unique product code identifier."
-  },
-  {
-    "name": "Description",
+    "name": "ActualReceivedPON",
     "type": "String",
     "isSearchable": true,
     "isQueryable": false,
     "isRetrievable": true,
     "labels": [],
-    "description": "The text description of the account, product, or group."
+    "description": "The purchase order number on the received RMA shipment."
   },
   {
-    "name": "IsActive",
-    "type": "Boolean",
+    "name": "ActualReceivedSerialNumber",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The serial number on the received RMA hardware."
+  },
+  {
+    "name": "AssetId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the network asset linked to this work order or line item."
+  },
+  {
+    "name": "AssignedTime",
+    "type": "dateTime",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "Whether this contact, product, or user is currently active."
+    "description": "The date and time the service appointment was assigned to an engineer."
   },
   {
-    "name": "RecordType",
+    "name": "Case",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The case name or reference linked to this RMA line item."
+  },
+  {
+    "name": "CaseId",
     "type": "String",
     "isSearchable": false,
     "isQueryable": false,
     "isRetrievable": true,
     "labels": [],
-    "description": "The record type that determines field layout and available picklist values."
+    "description": "The identifier of the case linked to this RMA line item or work order."
   },
   {
-    "name": "AgileStatus",
+    "name": "CaseNumber",
     "type": "String",
-    "isSearchable": false,
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "City",
+    "type": "String",
+    "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "The agile development lifecycle status of the product."
+    "description": "The city where the work order or line item service is located."
   },
   {
-    "name": "UserRoleId",
-    "type": "String",
+    "name": "ClosedDate",
+    "type": "dateTime",
     "isSearchable": false,
-    "isQueryable": false,
+    "isQueryable": true,
     "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the role assigned to the user in the role hierarchy."
+    "labels": [
+      "closedDate"
+    ]
   },
   {
-    "name": "ProfileId",
+    "name": "ContactEmail",
     "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
+    "isSearchable": true,
+    "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "The identifier of the permission profile assigned to the user."
+    "description": "The email address of the customer contact on the case."
   },
   {
     "name": "ContactId",
@@ -167,490 +145,574 @@
     "isQueryable": false,
     "isRetrievable": true,
     "labels": [],
-    "description": "The identifier of the contact record linked to this user."
+    "description": "The identifier of the customer contact on the case or work order."
   },
   {
-    "name": "FederationIdentifier",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The SSO federation identifier for matching to an external identity provider."
-  },
-  {
-    "name": "EmployeeIdHR",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The employee identifier from the HR system."
-  },
-  {
-    "name": "WorkCountry",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The country where the user is based for work."
-  },
-  {
-    "name": "GroupId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the group this group member belongs to."
-  },
-  {
-    "name": "UserOrGroupId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the user or nested group that is a member of the group."
-  },
-  {
-    "name": "Phone",
+    "name": "ContactPhone",
     "type": "String",
     "isSearchable": true,
     "isQueryable": false,
     "isRetrievable": true,
     "labels": [],
-    "description": "The primary phone number of the account, contact, or user."
+    "description": "The phone number of the customer contact on the case."
   },
   {
-    "name": "Email",
+    "name": "Country",
     "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "The email address of the contact or user."
-  },
-  {
-    "name": "JobTitle",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The job title of the contact or user."
-  },
-  {
-    "name": "Department",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The department where the contact works."
-  },
-  {
-    "name": "Industry",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
     "isRefinable": true,
-    "labels": [],
-    "description": "The industry classification of the account."
+    "description": "The country where the work order or line item service is located."
   },
   {
-    "name": "Type",
+    "name": "CustomerAlternateEmail",
     "type": "String",
-    "isSearchable": false,
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The alternate email for the RMA line item customer."
+  },
+  {
+    "name": "CustomerEmail",
+    "type": "String",
+    "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
-    "isRefinable": true,
     "labels": [],
-    "description": "The classification type of the account."
+    "description": "The primary email of the RMA line item customer."
   },
   {
-    "name": "Website",
-    "type": "String",
+    "name": "DateReceivedFromCustomer",
+    "type": "dateTime",
     "isSearchable": false,
     "isQueryable": false,
     "isRetrievable": true,
     "labels": [],
-    "description": "The website URL of the account."
+    "description": "The date RMA hardware was received from the customer."
   },
   {
-    "name": "AccountName",
+    "name": "DateShipToCustomer",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date RMA hardware was shipped back to the customer."
+  },
+  {
+    "name": "Description",
     "type": "String",
     "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The name of the account."
-  },
-  {
-    "name": "AccountNumber",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The external reference number identifying the account."
-  },
-  {
-    "name": "AccountSource",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The source or origin of the account record."
-  },
-  {
-    "name": "BillingAddress",
-    "type": "String",
-    "isSearchable": false,
     "isQueryable": false,
     "isRetrievable": true,
     "labels": []
   },
   {
-    "name": "BillingCity",
+    "name": "Discount",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The discount applied to the work order or work order line item."
+  },
+  {
+    "name": "DispatchedTime",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date and time the field engineer was dispatched."
+  },
+  {
+    "name": "DueDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [
+      "dueDate"
+    ]
+  },
+  {
+    "name": "Duration",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The duration of the work order or line item."
+  },
+  {
+    "name": "DurationType",
     "type": "String",
     "isSearchable": true,
     "isQueryable": false,
     "isRetrievable": true,
     "labels": [],
-    "description": "The city of the account's billing address."
+    "description": "The unit of measurement for duration, such as hours or days."
   },
   {
-    "name": "BillingState",
-    "type": "String",
+    "name": "EndDate",
+    "type": "dateTime",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
-    "isRefinable": true,
     "labels": [],
-    "description": "The state or province of the account's billing address."
+    "description": "The end date of the work order or work order line item."
   },
   {
-    "name": "BillingCountry",
+    "name": "EngineerEmail",
     "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The email of the field engineer on the service appointment."
+  },
+  {
+    "name": "EngineerName",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The name of the field engineer on the case or service appointment."
+  },
+  {
+    "name": "EngineerPhone",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The phone number of the field engineer."
+  },
+  {
+    "name": "ExpectedShipDate",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The expected date for RMA hardware to be shipped."
+  },
+  {
+    "name": "FLMOnTime",
+    "type": "boolean",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "Whether first level maintenance was completed within SLA."
+  },
+  {
+    "name": "FMARequested",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "isRefinable": true,
+    "description": "Whether a failure mode analysis was requested."
+  },
+  {
+    "name": "FailureMode",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "isRefinable": true,
+    "description": "The identified hardware failure mode or root cause category."
+  },
+  {
+    "name": "GrandTotal",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The grand total monetary value of the work order."
+  },
+  {
+    "name": "HRRType",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The type of hardware return request for this RMA line item."
+  },
+  {
+    "name": "IsClosed",
+    "type": "boolean",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
-    "isRefinable": true,
     "labels": [],
-    "description": "The country of the account's billing address."
+    "description": "Whether this case, work order, or line item has been closed."
   },
   {
-    "name": "BillingPostalCode",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The postal code of the account's billing address."
-  },
-  {
-    "name": "BillingStreet",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "ShippingAddress",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "ShippingCity",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The city of the account's shipping address."
-  },
-  {
-    "name": "ShippingCountry",
-    "type": "String",
+    "name": "IsEscalated",
+    "type": "boolean",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
-    "isRefinable": true,
     "labels": [],
-    "description": "The country of the account's shipping address."
+    "description": "Whether this case has been escalated."
   },
   {
-    "name": "NumberOfEmployees",
+    "name": "LineItemCount",
     "type": "Int64",
     "isSearchable": false,
     "isQueryable": false,
     "isRetrievable": true,
     "labels": [],
-    "description": "The total number of employees at the account organization."
+    "description": "The number of line items in the work order."
   },
   {
-    "name": "AnnualRevenue",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The annual revenue of the account."
-  },
-  {
-    "name": "CreatedDate",
-    "type": "DateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [
-      "createdDateTime"
-    ]
-  },
-  {
-    "name": "LastModifiedDate",
-    "type": "DateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [
-      "lastModifiedDateTime"
-    ]
-  },
-  {
-    "name": "LastActivityDate",
-    "type": "DateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date of the most recent activity on this record."
-  },
-  {
-    "name": "LastViewedDate",
-    "type": "DateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date this record was last viewed."
-  },
-  {
-    "name": "LastReferencedDate",
-    "type": "DateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date this record was last referenced."
-  },
-  {
-    "name": "SystemModstamp",
-    "type": "DateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The system timestamp of the last modification."
-  },
-  {
-    "name": "IsDeleted",
-    "type": "Boolean",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "Whether this record has been deleted in Salesforce."
-  },
-  {
-    "name": "MasterRecordId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the master record if this record was merged."
-  },
-  {
-    "name": "PhotoUrl",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "CreatedById",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the user who created this record."
-  },
-  {
-    "name": "LastModifiedById",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the user who last modified this record."
-  },
-  {
-    "name": "Address",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "MailingAddress",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "MobilePhone",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The mobile phone number of the contact or user."
-  },
-  {
-    "name": "Fax",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "HomePhone",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "OtherPhone",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "AssistantName",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The name of the contact's assistant."
-  },
-  {
-    "name": "AssistantPhone",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "Birthdate",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The birthdate of the contact."
-  },
-  {
-    "name": "LastLoginDate",
-    "type": "DateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date the user last logged in."
-  },
-  {
-    "name": "Alias",
+    "name": "LineItemNumber",
     "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "The short alias of the user."
+    "description": "The line item reference number within the work order."
   },
   {
-    "name": "Username",
+    "name": "Name",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": ["title"],
+    "description": "The name or record identifier of the RMA line item or service appointment."
+  },
+  {
+    "name": "OnSiteArrivalTime",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date and time the engineer arrived on site."
+  },
+  {
+    "name": "OnSiteDepartTime",
+    "type": "dateTime",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The date and time the engineer departed the site."
+  },
+  {
+    "name": "OrderId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the order for this work order line item."
+  },
+  {
+    "name": "Origin",
     "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "The login username of the Salesforce user."
-  },
-  {
-    "name": "CompanyName",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The company name associated with the user."
-  },
-  {
-    "name": "DeveloperName",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The developer name or API name of the group."
-  },
-  {
-    "name": "Family",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
     "isRefinable": true,
-    "labels": [],
-    "description": "The product family classification."
+    "description": "The channel through which the case was created."
   },
   {
-    "name": "StockKeepingUnit",
+    "name": "ParentId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the parent case."
+  },
+  {
+    "name": "Priority",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [
+      "priority"
+    ],
+    "isRefinable": true
+  },
+  {
+    "name": "Product2Id",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the product on the work order line item."
+  },
+  {
+    "name": "Quantity",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The quantity of items on the work order line item."
+  },
+  {
+    "name": "Reason",
     "type": "String",
     "isSearchable": true,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "The stock keeping unit identifier for the product."
+    "isRefinable": true,
+    "description": "The reason the case was created or the root cause."
   },
   {
-    "name": "IsArchived",
-    "type": "Boolean",
+    "name": "RequestedStartTime",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The customer requested start time for the service."
+  },
+  {
+    "name": "ResolutionSummary",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": []
+  },
+  {
+    "name": "SLAFailureReason",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The reason the SLA was not met."
+  },
+  {
+    "name": "SLAStatus",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "isRefinable": true,
+    "description": "The SLA compliance status of the service appointment."
+  },
+  {
+    "name": "StartDate",
+    "type": "dateTime",
     "isSearchable": false,
     "isQueryable": true,
     "isRetrievable": true,
     "labels": [],
-    "description": "Whether this product has been archived."
+    "description": "The start date of the work order or line item."
+  },
+  {
+    "name": "Status",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [
+      "state"
+    ],
+    "isRefinable": true
+  },
+  {
+    "name": "StatusCategory",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "isRefinable": true,
+    "description": "The high-level status grouping of the record."
+  },
+  {
+    "name": "Street",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The street address where the service is located."
+  },
+  {
+    "name": "Subject",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The subject line or brief summary of the case, work order, or line item."
+  },
+  {
+    "name": "Subtotal",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The subtotal value of the work order before discounts."
+  },
+  {
+    "name": "TimeOnSite",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The total time in hours the engineer spent on site."
+  },
+  {
+    "name": "TotalPrice",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The total price of the work order line item."
+  },
+  {
+    "name": "Type",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The classification type of the case."
+  },
+  {
+    "name": "UnitPrice",
+    "type": "Double",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The price per unit for the work order line item."
+  },
+  {
+    "name": "WorkOrder",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The work order reference linked to this service appointment."
+  },
+  {
+    "name": "WorkOrderId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the work order this line item belongs to."
+  },
+  {
+    "name": "WorkOrderNumber",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The work order reference number."
+  },
+  {
+    "name": "RecordTypeId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the record type."
+  },
+  {
+    "name": "ActualRecievedSerialNumber",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The serial number recorded on receipt of hardware."
+  },
+  {
+    "name": "AssetSerialNumber",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The serial number of the network asset."
+  },
+  {
+    "name": "CountryofIssue",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The country where the case issue was reported."
+  },
+  {
+    "name": "CustomerReference",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The customer reference number for this case or work order."
+  },
+  {
+    "name": "EndCustomer",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The end customer or final recipient of the service."
+  },
+  {
+    "name": "NetworkImpact",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The impact level of the issue on the customer network."
+  },
+  {
+    "name": "ProductId",
+    "type": "String",
+    "isSearchable": false,
+    "isQueryable": false,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The identifier of the product linked to this case or RMA line item."
+  },
+  {
+    "name": "ProductRelease",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "labels": [],
+    "description": "The product software release version for this case."
   }
 ]
