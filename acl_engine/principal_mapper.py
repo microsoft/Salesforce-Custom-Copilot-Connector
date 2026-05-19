@@ -319,17 +319,21 @@ class PrincipalMapper:
             logger.debug("[PrincipalMapper] Graph direct lookup error for %s: %s", identifier, exc)
             pass
 
-        # Attempt 2 – filter by UPN, mail, or on-premises UPN.
+        # Attempt 2 – filter by UPN, mail, on-premises UPN, or employeeId.
         # IMPORTANT: Graph $filter with 'or' across properties is an "advanced"
         # query that requires ConsistencyLevel: eventual + $count=true, otherwise
         # the API returns 400 or silently returns an empty result set.
+        # employeeId is purely alphanumeric, so only include it in the filter
+        # when the identifier contains no special characters (no @, dots, etc.).
         safe_id = identifier.replace("'", "''")
-        filter_path = (
-            f"/users?$select=id&$top=1&$count=true&$filter="
+        filter_clauses = (
             f"userPrincipalName eq '{safe_id}'"
             f" or mail eq '{safe_id}'"
             f" or onPremisesUserPrincipalName eq '{safe_id}'"
         )
+        if safe_id.isalnum():
+            filter_clauses += f" or employeeId eq '{safe_id}'"
+        filter_path = f"/users?$select=id&$top=1&$count=true&$filter={filter_clauses}"
         eventual_headers = {"ConsistencyLevel": "eventual"}
         try:
             payload = self._graph_client.get(filter_path, headers=eventual_headers)
@@ -350,7 +354,7 @@ class PrincipalMapper:
             logger.debug("[PrincipalMapper] Graph filter lookup exception for %s: %s", identifier, exc)
             pass
 
-        logger.warning("[PrincipalMapper] No AAD user found for '%s' (tried direct + filter on UPN/mail/onPremisesUPN)", identifier)
+        logger.warning("[PrincipalMapper] No AAD user found for '%s' (tried direct + filter on UPN/mail/onPremisesUPN/employeeId)", identifier)
         return None
 
     # ── ACL entry helpers ─────────────────────────────────────────────────────

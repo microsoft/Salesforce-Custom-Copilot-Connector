@@ -369,8 +369,10 @@ class GroupAclBuilder:
         if not user or not user.permission_sets or user.id in frozen:
             return True  # Skipped user, not a failure
 
-        # Resolve user to AAD GUID — try FederationIdentifier → stripped UserName → Email
+        # Resolve user to AAD GUID — try FederationIdentifier → stripped UserName → Email → employeeId
         # in order, stopping at the first candidate that resolves successfully.
+        # _resolve_identifier chains to _lookup_graph_user_id which covers both
+        # Attempt 1 (direct path) and Attempt 2 (filter, including employeeId for alphanumeric identifiers).
         ace = None
         candidates = _best_user_identifiers(user)
         for identifier in candidates:
@@ -387,7 +389,7 @@ class GroupAclBuilder:
 
         if not candidates:
             logger.warning(
-                "[GroupACL] User %s (%s) — no valid identifier (FederationIdentifier/UserName/Email all missing or invalid)",
+                "[GroupACL] User %s (%s) — no valid identifier (FederationIdentifier/UserName/Email/employeeId all missing or invalid)",
                 user_id, user.name,
             )
         elif not ace:
@@ -492,8 +494,10 @@ class GroupAclBuilder:
             if owner_id:
                 owner = (self._users_by_id or {}).get(owner_id)
                 if owner:
-                    # Try FederationIdentifier → stripped UserName → Email in order,
+                    # Try FederationIdentifier → stripped UserName → Email → employeeId in order,
                     # stopping at the first candidate that resolves to an AAD GUID.
+                    # _resolve_identifier chains to _lookup_graph_user_id which covers both
+                    # Attempt 1 (direct path) and Attempt 2 (filter, including employeeId for alphanumeric identifiers).
                     candidates = _best_user_identifiers(owner)
                     ace = None
                     resolved_via: str | None = None
@@ -521,7 +525,7 @@ class GroupAclBuilder:
                         if not candidates:
                             logger.warning(
                                 "[GroupACL] Owner %s (%s) — no valid identifier available "
-                                "(FederationIdentifier/UserName/Email all missing or invalid) → deny-everyone for record %s",
+                                "(FederationIdentifier/UserName/Email/employeeId all missing or invalid) → deny-everyone for record %s",
                                 owner_id, owner.name, record_id,
                             )
                         else:
@@ -590,11 +594,12 @@ def _best_user_identifiers(user: "SfUser") -> list[str]:
         val = val.strip()
         if not val or val in seen:
             return
-        # Reject bare values that have no '@' and are not GUIDs.
-        # e.g. numeric SF IDs like '61273255' are invalid for Graph.
-        if "@" not in val and not _looks_like_guid(val):
+        # Reject bare values that have no '@' and are not GUIDs and are not
+        # purely alphanumeric (which may be an employeeId, e.g. 'E12345').
+        # e.g. mixed garbage like '61273255abc!!' is still rejected.
+        if "@" not in val and not _looks_like_guid(val) and not val.isalnum():
             logger.debug(
-                "[GroupACL] Skipping identifier '%s' for user %s — not a UPN, email, or GUID",
+                "[GroupACL] Skipping identifier '%s' for user %s — not a UPN, email, GUID, or alphanumeric employeeId",
                 val, user.id,
             )
             return
