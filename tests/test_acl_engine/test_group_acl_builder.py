@@ -193,7 +193,7 @@ class TestPrivateOwd:
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         acl = result["001X"]
         group_values = [a["value"] for a in acl if a["type"] == "externalGroup"]
-        assert "Account00E_PARENTRole" in group_values
+        assert "Account00EPARENTRole" in group_values
 
     def test_frozen_user_share_is_skipped(self):
         user1 = _make_sf_user(user_id="005FROZEN", permission_sets=[{"Id": "ps1"}])
@@ -258,7 +258,7 @@ class TestPrivateOwd:
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         acl = result["001X"]
         group_values = [a["value"] for a in acl if a["type"] == "externalGroup"]
-        assert "Account00E_ROLE1Role" in group_values
+        assert "Account00EROLE1Role" in group_values
 
     def test_group_share_organization_adds_all_internal_users(self):
         group = SfGroup(
@@ -329,7 +329,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account00E_RAS_ROLERoleAndSubordinates" in group_values
+        assert "Account00ERASROLERoleAndSubordinates" in group_values
 
     def test_group_share_public_group(self):
         group = SfGroup(
@@ -352,7 +352,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account00G_PGPublicGroup" in group_values
+        assert "Account00GPGPublicGroup" in group_values
 
     def test_no_shares_still_has_global_users(self):
         builder = _make_builder(
@@ -386,7 +386,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account0ML_TERR1Territory" in group_values
+        assert "Account0MLTERR1Territory" in group_values
 
     def test_group_share_territory_and_subordinates(self):
         group = SfGroup(
@@ -410,7 +410,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account0ML_TERR2TerritoryAndSubordinates" in group_values
+        assert "Account0MLTERR2TerritoryAndSubordinates" in group_values
 
     def test_group_share_territory_and_subordinates_internal(self):
         group = SfGroup(
@@ -434,7 +434,7 @@ class TestPrivateOwd:
         }]
         result = asyncio.run(builder._build_acl_map("Account", records, {}))
         group_values = [a["value"] for a in result["001X"] if a["type"] == "externalGroup"]
-        assert "Account0ML_TERR3TerritoryAndSubordinates" in group_values
+        assert "Account0MLTERR3TerritoryAndSubordinates" in group_values
 
 
 # ── CONTROLLED BY PARENT tests ───────────────────────────────────────────────

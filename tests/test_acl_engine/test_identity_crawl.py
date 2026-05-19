@@ -191,7 +191,7 @@ class TestIdentityGathererPrivate:
             gatherer.build_top_level_group("Account", EntityVisibility.NONE)
         )
         child_ids = [c.group_id for c in result.child_groups]
-        assert "Account00E_ROLE1Role" in child_ids
+        assert "Account00EROLE1Role" in child_ids
 
     def test_private_owd_creates_role_hierarchy(self):
         role_group = SfGroup(
@@ -210,8 +210,8 @@ class TestIdentityGathererPrivate:
             gatherer.build_top_level_group("Account", EntityVisibility.NONE)
         )
         child_ids = [c.group_id for c in result.child_groups]
-        assert "Account00E_CHILDRole" in child_ids
-        assert "Account00E_PARENTRole" in child_ids
+        assert "Account00ECHILDRole" in child_ids
+        assert "Account00EPARENTRole" in child_ids
 
     def test_private_owd_organization_share(self):
         org_group = SfGroup(
@@ -267,7 +267,7 @@ class TestIdentityGathererPrivate:
             gatherer.build_top_level_group("Account", EntityVisibility.NONE)
         )
         child_ids = [c.group_id for c in result.child_groups]
-        assert "Account00G_PGPublicGroup" in child_ids
+        assert "Account00GPGPublicGroup" in child_ids
 
     def test_empty_public_group_is_not_created(self):
         pg_group = SfGroup(
@@ -305,7 +305,7 @@ class TestIdentityGathererPrivate:
             gatherer.build_top_level_group("Account", EntityVisibility.NONE)
         )
         child_ids = [c.group_id for c in result.child_groups]
-        assert "Account0ML_TERR1Territory" in child_ids
+        assert "Account0MLTERR1Territory" in child_ids
 
     def test_private_owd_territory_and_subordinates_share(self):
         terr_group = SfGroup(
@@ -324,7 +324,7 @@ class TestIdentityGathererPrivate:
             gatherer.build_top_level_group("Account", EntityVisibility.NONE)
         )
         child_ids = [c.group_id for c in result.child_groups]
-        assert "Account0ML_TERR2TerritoryAndSubordinates" in child_ids
+        assert "Account0MLTERR2TerritoryAndSubordinates" in child_ids
 
 
 class TestIdentityGathererChildGroups:
@@ -355,7 +355,7 @@ class TestIdentityGathererChildGroups:
         result = asyncio.run(gatherer.gather_child_group("Account", ref))
         assert len(result.users) == 1
         assert len(result.child_groups) == 1
-        assert result.child_groups[0].group_id == "Account00E_PARENTRole"
+        assert result.child_groups[0].group_id == "Account00EPARENTRole"
         assert result.child_groups[0].needs_gather is False
 
     def test_gather_role_without_parent(self):
@@ -539,16 +539,16 @@ class TestGroupIdConsistencyAcrossModules:
         group_id = "00G_XYZ"
         identity_id = SfGroupIdFormats.PUBLIC_GROUP.format("Account", group_id)
         acl_id = SfGroupIdFormats.PUBLIC_GROUP.format("Account", group_id)
-        assert identity_id == acl_id == f"Account{group_id}PublicGroup"
+        assert identity_id == acl_id == "Account00GXYZPublicGroup"
 
     def test_territory_id_matches(self):
         terr_id = "0ML_ABC"
         identity_id = SfGroupIdFormats.TERRITORY.format("Account", terr_id)
         acl_id = SfGroupIdFormats.TERRITORY.format("Account", terr_id)
-        assert identity_id == acl_id == f"Account{terr_id}Territory"
+        assert identity_id == acl_id == "Account0MLABCTerritory"
 
     def test_territory_and_subordinates_id_matches(self):
         terr_id = "0ML_ABC"
         identity_id = SfGroupIdFormats.TERRITORY_AND_SUBORDINATES.format("Account", terr_id)
         acl_id = SfGroupIdFormats.TERRITORY_AND_SUBORDINATES.format("Account", terr_id)
-        assert identity_id == acl_id == f"Account{terr_id}TerritoryAndSubordinates"
+        assert identity_id == acl_id == "Account0MLABCTerritoryAndSubordinates"

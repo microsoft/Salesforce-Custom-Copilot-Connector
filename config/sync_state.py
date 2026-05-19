@@ -154,24 +154,38 @@ def append_failed_records(
     request_bodies = request_bodies or {}
     response_bodies = response_bodies or {}
     timestamp = datetime.now(timezone.utc).isoformat()
-    with open(file_path, "a", encoding="utf-8") as fh:
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "a", encoding="utf-8") as fh:
+            for entry in failures:
+                if isinstance(entry, tuple):
+                    item_id, item_error = entry
+                else:
+                    item_id, item_error = entry, error
+                record: dict[str, Any] = {
+                    "item_id": item_id,
+                    "object_type": object_type,
+                    "error": item_error,
+                    "timestamp": timestamp,
+                }
+                if item_id in request_bodies:
+                    record["request_body"] = request_bodies[item_id]
+                if item_id in response_bodies:
+                    record["response_body"] = response_bodies[item_id]
+                line = json.dumps(record, default=str)
+                fh.write(line + "\n")
+    except OSError as exc:
+        logger.error(
+            "Failed to write %d failed record(s) to dead-letter file %s: %s",
+            len(failures), file_path, exc,
+        )
         for entry in failures:
-            if isinstance(entry, tuple):
-                item_id, item_error = entry
-            else:
-                item_id, item_error = entry, error
-            record: dict[str, Any] = {
-                "item_id": item_id,
-                "object_type": object_type,
-                "error": item_error,
-                "timestamp": timestamp,
-            }
-            if item_id in request_bodies:
-                record["request_body"] = request_bodies[item_id]
-            if item_id in response_bodies:
-                record["response_body"] = response_bodies[item_id]
-            line = json.dumps(record, default=str)
-            fh.write(line + "\n")
+            item_id = entry[0] if isinstance(entry, tuple) else entry
+            item_error = entry[1] if isinstance(entry, tuple) else error
+            logger.error(
+                "  UNRECORDED FAILURE — object=%s id=%s error=%s",
+                object_type, item_id, item_error,
+            )
 
 
 def read_failed_records(connector_id: str) -> list[dict[str, Any]]:

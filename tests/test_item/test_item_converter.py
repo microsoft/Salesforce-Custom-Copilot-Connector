@@ -73,13 +73,13 @@ def test_content_field_mapped_to_parsed_data():
     """If Description is present, it should appear in the content.parsedData."""
     converter = SalesforceConverter(instance_url="https://test.my.salesforce.com")
     record = {
-        "Id": "500case",
+        "Id": "001desc",
         "IsDeleted": False,
-        "objectType": "Case",
-        "url": "https://test.my.salesforce.com/500case",
-        "attributes": {"type": "Case"},
-        "Description": "This is the case description.",
-        "Subject": "Test Case",
+        "objectType": "Account",
+        "url": "https://test.my.salesforce.com/001desc",
+        "attributes": {"type": "Account"},
+        "Name": "Acme Corp",
+        "Description": "This is the account description.",
         "OwnerId": "005abc",
         "Owner": {"Name": "Test User", "UserRole": {"Id": "role1", "ParentRoleId": None}},
         "CreatedDate": "2024-01-01T00:00:00.000+0000",
@@ -89,12 +89,12 @@ def test_content_field_mapped_to_parsed_data():
         "LastModifiedById": "005abc",
         "LastModifiedBy": {"Name": "Modifier"},
     }
-    items = converter.convert({"records": [record]}, object_name="Case")
+    items = converter.convert({"records": [record]}, object_name="Account")
     non_deleted = [i for i in items if i.get("type") != "deleted"]
     if non_deleted:
         content = non_deleted[0].get("content", {})
         if isinstance(content, dict):
-            assert "This is the case description" in (content.get("parsedData") or "")
+            assert "This is the account description" in (content.get("parsedData") or "")
 
 
 def test_metadata_columns_mapped():

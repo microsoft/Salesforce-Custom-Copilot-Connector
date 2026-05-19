@@ -252,6 +252,10 @@ class SalesforceObjectHandler:
         """Build ingestion items for a single record and its inline child records."""
         record_id = record.get("Id")
         if not record_id:
+            logger.warning(
+                "[%s] Skipping record with missing/null Id — record keys: %s",
+                self.object_name, list(record.keys()),
+            )
             return None
 
         child_items: list[dict[str, Any]] = []

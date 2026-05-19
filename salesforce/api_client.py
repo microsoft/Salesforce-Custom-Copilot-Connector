@@ -283,7 +283,11 @@ def get_all_items_from_api(config: AppConfig, since: datetime | None = None) -> 
                 record["url"] = clean_url
                 q.put(record)  # blocks when queue is full → natural back-pressure
         except Exception as exc:  # pragma: no cover
-            logger.error("Producer thread failed for %s: %s", obj_cfg.object_type, exc)
+            logger.error(
+                "Producer thread failed for %s: %s — remaining records for this "
+                "object type will NOT be fetched. This may cause missing items.",
+                obj_cfg.object_type, exc, exc_info=True,
+            )
         finally:
             q.put(_SENTINEL)
 
@@ -328,20 +332,32 @@ def iter_object_chunks(
 
     Each record is enriched with ``objectType`` and ``url`` fields,
     identical to the output of ``get_all_items_from_api``.
+
+    If the Salesforce fetch fails mid-pagination, any partially buffered
+    records are still yielded so they are not silently lost.
     """
     access_token = get_salesforce_access_token(config)
     buffer: list[dict[str, Any]] = []
-    for record in fetch_salesforce_records(config, access_token, object_config, since):
-        clean_url = (
-            f"{config.connector.salesforce.instance_url}/{record['Id']}"
-            .replace("'", "")
-            .replace('"', "")
+    try:
+        for record in fetch_salesforce_records(config, access_token, object_config, since):
+            clean_url = (
+                f"{config.connector.salesforce.instance_url}/{record['Id']}"
+                .replace("'", "")
+                .replace('"', "")
+            )
+            record["url"] = clean_url
+            buffer.append(record)
+            if len(buffer) >= chunk_size:
+                yield buffer
+                buffer = []
+    except _SkipObjectError:
+        raise  # Let skip-object errors propagate as-is
+    except Exception as exc:
+        logger.error(
+            "Salesforce fetch failed for %s mid-pagination — %d record(s) in buffer, "
+            "remaining pages will NOT be fetched: %s",
+            object_config.object_type, len(buffer), exc, exc_info=True,
         )
-        record["url"] = clean_url
-        buffer.append(record)
-        if len(buffer) >= chunk_size:
-            yield buffer
-            buffer = []
     if buffer:
         yield buffer
 
