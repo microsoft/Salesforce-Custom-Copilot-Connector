@@ -8,6 +8,7 @@ Usage:
 
 Commands:
     guide                    Show the complete setup and usage guide
+    setup-connection         Create/verify connection and register schema (no ingestion)
     full-deployment          Deploy connection → schema → ingest items with ACLs
     ingest                   Ingest items only (connection & schema must already exist)
     ingest-item              Ingest a single Salesforce record by its ID
@@ -25,12 +26,15 @@ Continuous mode (full-deployment and ingest only):
 
 Examples:
     python run.py guide
+    python run.py setup-connection
+    python run.py setup-connection --verbose
     python run.py full-deployment
     python run.py full-deployment --verbose
     python run.py full-deployment --continuous --full-crawl-hours 24 --incremental-hours 4
     python run.py ingest --verbose
     python run.py ingest --continuous
-    python run.py ingest-item --id 500f6000008iCNYAA2
+    python run.py ingest-item --id 001dN00000sh4neQAA
+    python run.py ingest-item --id 001dN00000sh4neQAA --object-type Account
     python run.py ingest-object --type Case
     python run.py identity-dry-run --verbose
     python run.py identity-dry-run --save --verbose

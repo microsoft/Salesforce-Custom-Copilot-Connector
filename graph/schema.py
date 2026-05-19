@@ -24,6 +24,7 @@ create_schema(config, client)
 
 from __future__ import annotations
 
+import json
 import logging
 
 from graph.client import GraphApiError, GraphClient, EXTERNAL_CONNECTIONS_PATH
@@ -40,14 +41,31 @@ def create_schema(config: AppConfig, client: GraphClient) -> None:
         "Creating schema for connection %s. This should take under 10 minutes...",
         config.connector.id,
     )
-    client.patch(
-        f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/schema",
-        json_body={
-            "baseType": "microsoft.graph.externalItem",
-            "properties": config.connector.schema,
-        },
-        headers={"content-type": "application/json"},
-    )
+    url = f"{EXTERNAL_CONNECTIONS_PATH}/{config.connector.id}/schema"
+    request_body = {
+        "baseType": "microsoft.graph.externalItem",
+        "properties": config.connector.schema,
+    }
+    try:
+        client.patch(
+            url,
+            json_body=request_body,
+            headers={"content-type": "application/json"},
+        )
+    except GraphApiError as e:
+        logger.error(
+            "Schema creation failed for connection %s.\n"
+            "  URL: PATCH %s\n"
+            "  Status: %s\n"
+            "  Request body:\n%s\n"
+            "  Response body:\n%s",
+            config.connector.id,
+            url,
+            e.status_code,
+            json.dumps(request_body, indent=2),
+            json.dumps(e.body, indent=2) if isinstance(e.body, (dict, list)) else e.body,
+        )
+        raise
     logger.info("Schema for connection %s was created", config.connector.id)
 
 
@@ -69,6 +87,7 @@ def schema_exists(config: AppConfig, client: GraphClient) -> bool:
 
 def ensure_schema(config: AppConfig, client: GraphClient) -> None:
     """Idempotently register the schema, creating it if not found."""
+    max_create_attempts = 3
     while True:
         try:
             get_schema(config, client)
@@ -77,7 +96,21 @@ def ensure_schema(config: AppConfig, client: GraphClient) -> None:
             if error.status_code == 404:
                 logger.info("Schema not found. Waiting 5 seconds before creating...")
                 delay(5)
-                create_schema(config, client)
+                for attempt in range(1, max_create_attempts + 1):
+                    try:
+                        create_schema(config, client)
+                        return
+                    except GraphApiError as create_err:
+                        if create_err.status_code == 400 and attempt < max_create_attempts:
+                            logger.warning(
+                                "Schema creation attempt %d/%d failed (400). "
+                                "Connection may still be provisioning — retrying in %ds...",
+                                attempt, max_create_attempts,
+                                config.tuning.schema_retry_interval_seconds,
+                            )
+                            delay(config.tuning.schema_retry_interval_seconds)
+                        else:
+                            raise
                 return
 
             logger.warning("Schema check failed for %s. Retrying...", config.connector.id)

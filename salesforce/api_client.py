@@ -283,7 +283,11 @@ def get_all_items_from_api(config: AppConfig, since: datetime | None = None) -> 
                 record["url"] = clean_url
                 q.put(record)  # blocks when queue is full → natural back-pressure
         except Exception as exc:  # pragma: no cover
-            logger.error("Producer thread failed for %s: %s", obj_cfg.object_type, exc)
+            logger.error(
+                "Producer thread failed for %s: %s — remaining records for this "
+                "object type will NOT be fetched. This may cause missing items.",
+                obj_cfg.object_type, exc, exc_info=True,
+            )
         finally:
             q.put(_SENTINEL)
 
@@ -328,20 +332,32 @@ def iter_object_chunks(
 
     Each record is enriched with ``objectType`` and ``url`` fields,
     identical to the output of ``get_all_items_from_api``.
+
+    If the Salesforce fetch fails mid-pagination, any partially buffered
+    records are still yielded so they are not silently lost.
     """
     access_token = get_salesforce_access_token(config)
     buffer: list[dict[str, Any]] = []
-    for record in fetch_salesforce_records(config, access_token, object_config, since):
-        clean_url = (
-            f"{config.connector.salesforce.instance_url}/{record['Id']}"
-            .replace("'", "")
-            .replace('"', "")
+    try:
+        for record in fetch_salesforce_records(config, access_token, object_config, since):
+            clean_url = (
+                f"{config.connector.salesforce.instance_url}/{record['Id']}"
+                .replace("'", "")
+                .replace('"', "")
+            )
+            record["url"] = clean_url
+            buffer.append(record)
+            if len(buffer) >= chunk_size:
+                yield buffer
+                buffer = []
+    except _SkipObjectError:
+        raise  # Let skip-object errors propagate as-is
+    except Exception as exc:
+        logger.error(
+            "Salesforce fetch failed for %s mid-pagination — %d record(s) in buffer, "
+            "remaining pages will NOT be fetched: %s",
+            object_config.object_type, len(buffer), exc, exc_info=True,
         )
-        record["url"] = clean_url
-        buffer.append(record)
-        if len(buffer) >= chunk_size:
-            yield buffer
-            buffer = []
     if buffer:
         yield buffer
 
@@ -398,7 +414,12 @@ def fetch_salesforce_records(
         )
 
     while True:
-        soql = build_soql_query(active_config, since, query_limit=config.tuning.salesforce_query_limit)
+        soql = build_soql_query(
+            active_config,
+            since,
+            query_limit=config.tuning.salesforce_query_limit,
+            record_id=config.debug_item_id,
+        )
         query_url = _build_query_url(base_url, api_version, soql)
         logger.info("Querying Salesforce %s: %s", active_config.object_type, soql)
 
@@ -559,8 +580,17 @@ def _match_exact_or_prefixed_fields(fields: tuple[str, ...], candidate: str) -> 
     return tuple(field for field in fields if field.lower().startswith(prefix))
 
 
-def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | None, query_limit: int = 0) -> str:
+def build_soql_query(
+    object_config: SalesforceObjectConfig,
+    since: datetime | None,
+    query_limit: int = 0,
+    record_id: str | None = None,
+) -> str:
     """Build a SOQL SELECT string for *object_config*, with optional *since* and *query_limit* clauses.
+
+    When *record_id* is provided, a ``WHERE Id = '<record_id>'`` clause is added
+    so that only the single matching record is returned.  This is used by the
+    ``ingest-item`` command to avoid fetching the entire object table.
 
     When *query_limit* is ``0`` (or negative) no ``LIMIT`` clause is added and Salesforce
     paginates the full result set automatically at 2 000 records per page via
@@ -568,6 +598,8 @@ def build_soql_query(object_config: SalesforceObjectConfig, since: datetime | No
     """
     soql = f"SELECT {', '.join(object_config.fields)} FROM {object_config.object_type}"
     where_clauses: list[str] = []
+    if record_id:
+        where_clauses.append(f"Id = '{record_id}'")
     if object_config.filter_condition:
         where_clauses.append(object_config.filter_condition)
     if since:

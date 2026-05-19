@@ -232,6 +232,12 @@ Edit `config/template.json` to change how results appear in Microsoft Search (Ad
 # Show the complete setup and usage guide
 python run.py guide
 
+# Setup only: create connection → register schema → configure search settings (no ingestion)
+python run.py setup-connection
+
+# Setup with detailed console output
+python run.py setup-connection --verbose
+
 # Full deployment: create connection → register schema → ingest items
 python run.py full-deployment
 

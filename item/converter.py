@@ -37,6 +37,7 @@ TYPE_CONVERTERS
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 import json
@@ -55,7 +56,7 @@ SYSTEM_CREATED_BY_USER_ID = "__System.User.CreatedBy.Id"
 SYSTEM_MODIFIED_BY_USER_ID = "__System.User.ModifiedBy.Id"
 
 METADATA_COLUMNS = [
-    "Id",
+    #"Id",
     "LastModifiedDate",
     "IsDeleted",
     "Owner.UserRole.Id",
@@ -128,6 +129,15 @@ def _convert_value(value: Any, type_tag: str) -> Any:
         return float(value)
     if type_tag == "int":
         return int(value)
+    if type_tag == "datetime":
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        else:
+            normalized = str(value).replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return str(value)
 
 
@@ -145,6 +155,8 @@ class SalesforceObjectHandler:
         self.object_name_as_child: Optional[str] = sf_object_config.get("objectNameAsChild")
         self.icon_url: str = icon_url or sf_object_config.get("iconUrl", "")
         self.fls_fields: set[str] = set(sf_object_config.get("flsFields", []))
+        # Set externally by the transformer to reflect the actual Graph schema properties
+        self.graph_schema_properties: set[str] | None = None
 
         raw_types: dict[str, str] = sf_object_config.get("SfColumnTypes", {})
         self.field_data_types: dict[str, str] = {}
@@ -240,6 +252,10 @@ class SalesforceObjectHandler:
         """Build ingestion items for a single record and its inline child records."""
         record_id = record.get("Id")
         if not record_id:
+            logger.warning(
+                "[%s] Skipping record with missing/null Id — record keys: %s",
+                self.object_name, list(record.keys()),
+            )
             return None
 
         child_items: list[dict[str, Any]] = []
@@ -276,11 +292,20 @@ class SalesforceObjectHandler:
         into the full-text content body.
         """
         props["ObjectName"] = self.object_name
-        props["Url"] = f"{instance_url}/{record['Id']}"
+        props["url"] = f"{instance_url}{record['Id']}"
         if "IconUrl" in schema_properties:
             props["IconUrl"] = self.icon_url
 
         content = Content()
+
+        # Collect field mapping trace for debug logging
+        # Use the real Graph schema properties if available; fall back to converter's schema_properties
+        _graph_props = self.graph_schema_properties or schema_properties
+        _field_mapping: list[tuple[str, str, str, bool]] = []  # (sf_field, graph_property, disposition, in_schema)
+        _field_mapping.append(("(object_name)", "ObjectName", "synthetic", "ObjectName" in _graph_props))
+        _field_mapping.append(("(instance_url + Id)", "url", "synthetic", "url" in _graph_props))
+        if "IconUrl" in schema_properties:
+            _field_mapping.append(("(icon_url)", "IconUrl", "synthetic", "IconUrl" in _graph_props))
 
         for field_key, field_value in record.items():
             if field_key == "attributes":
@@ -296,9 +321,12 @@ class SalesforceObjectHandler:
                         property_name,
                         instance_url,
                     )
+                    _field_mapping.append((field_key, property_name, "selectedFields", property_name in _graph_props))
                     if property_name == CONTENT_FIELD_NAME:
                         raw_value = record.get(field_key)
                         content = Content(raw_value if isinstance(raw_value, str) and raw_value else "")
+                else:
+                    _field_mapping.append((field_key, property_name, "SKIPPED (not in schema)", False))
             elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
                 property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
                 if property_name in schema_properties:
@@ -309,6 +337,9 @@ class SalesforceObjectHandler:
                         property_name,
                         instance_url,
                     )
+                    _field_mapping.append((field_key, property_name, "metadata", property_name in _graph_props))
+                else:
+                    _field_mapping.append((field_key, property_name, "SKIPPED (not in schema)", False))
             elif field_value is not None and isinstance(field_value, dict):
                 if field_key in self.object_fields:
                     self._add_schema_property_for_object_field(
@@ -374,11 +405,26 @@ class SalesforceObjectHandler:
                         and not isinstance(sub_value, (dict, list))
                     ):
                         content_parts.append(f"{field_key}.{sub_key}: {sub_value}")
+                        _field_mapping.append((f"{field_key}.{sub_key}", "content.value", "unmapped (nested)", False))
             elif not isinstance(field_value, list):
                 content_parts.append(f"{field_key}: {field_value}")
+                _field_mapping.append((field_key, "content.value", "unmapped", False))
 
         if content_parts:
             content.parsed_data = ", ".join(content_parts)
+
+        # Emit the field-mapping table at DEBUG level (visible with --verbose or in log file)
+        if _field_mapping:
+            record_id = record.get("Id", "?")
+            header = f"FIELD MAPPING TABLE — {self.object_name}/{record_id}"
+            lines = [
+                f"  {'SF Field':<45s} {'Graph Target':<35s} {'In Schema':<12s} {'Source'}",
+                f"  {'─' * 45} {'─' * 35} {'─' * 12} {'─' * 25}",
+            ]
+            for sf_field, graph_prop, source, in_schema in _field_mapping:
+                schema_flag = '✓' if in_schema else '✗'
+                lines.append(f"  {sf_field:<45s} {graph_prop:<35s} {schema_flag:<12s} {source}")
+            logger.debug("%s\n%s", header, "\n".join(lines))
 
         return content
 
@@ -537,7 +583,7 @@ def build_handlers_from_config(
 
 def _build_schema_properties(handlers: dict[str, SalesforceObjectHandler]) -> set[str]:
     """Collect the full set of Graph schema property names from all handlers."""
-    props: set[str] = {"ObjectName", "Url", "IconUrl", "AccountUrl"}
+    props: set[str] = {"ObjectName", "url", "IconUrl", "AccountUrl"}
     props.update(METADATA_COLUMN_SCHEMA_MAPPING.values())
     props.update({AUTHORS_SOURCE_PROPERTY, SYSTEM_CREATED_BY_USER_ID, SYSTEM_MODIFIED_BY_USER_ID})
     for handler in handlers.values():

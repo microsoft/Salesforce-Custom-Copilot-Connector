@@ -41,6 +41,10 @@ class SalesforceItemTransformer:
         self._schema_properties = set(self._schema_property_types)
         self._converter = SalesforceConverter(instance_url=instance_url)
         self._supported_objects = set(self._converter.object_names)
+        # Inject the real Graph schema properties into each handler so the
+        # debug mapping table can accurately report "In Schema" status.
+        for handler in self._converter._handlers.values():
+            handler.graph_schema_properties = set(self._schema_properties)
 
     @property
     def handlers(self) -> dict[str, Any]:
@@ -76,12 +80,12 @@ class SalesforceItemTransformer:
         """Assemble a Graph connector external item dict from raw and converted data."""
         converted_properties = converted_item.get("properties") or {}
         properties: dict[str, Any] = {
-            "Url": converted_properties.get("Url") or raw_item["url"],
-            "ObjectName": raw_item["objectType"],
+            "url": converted_properties.get("url") or raw_item["url"],
+            "ObjectName": raw_item["objectType"]
         }
 
         for key, value in converted_properties.items():
-            if key in {"ObjectName", "Url"} or value is None:
+            if key in {"ObjectName", "url"} or value is None:
                 continue
             if key not in self._schema_properties:
                 continue

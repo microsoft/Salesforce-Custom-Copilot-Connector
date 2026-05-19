@@ -66,3 +66,31 @@ class TestSfGroupIdFormats:
         result = SfGroupIdFormats.ROLE.format("Account", sf_id)
         assert result == f"Account{sf_id}Role"
         assert sf_id in result
+
+    # ── Sanitization tests ────────────────────────────────────────────────
+
+    def test_custom_object_underscores_stripped(self):
+        """Custom object names like 'My_Custom__c' must produce alphanumeric IDs."""
+        result = SfGroupIdFormats.TOP_LEVEL.format("Account_Owner_Name__c")
+        assert result == "AccountOwnerNamecTopLevel"
+        assert "_" not in result
+
+    def test_custom_object_role_stripped(self):
+        result = SfGroupIdFormats.ROLE.format("ACS_Customer__c", "00E123")
+        assert result == "ACSCustomerc00E123Role"
+        assert "_" not in result
+
+    def test_hyphens_stripped(self):
+        result = SfGroupIdFormats.PUBLIC_GROUP.format("Account", "00G-456-XYZ")
+        assert result == "Account00G456XYZPublicGroup"
+        assert "-" not in result
+
+    def test_spaces_stripped(self):
+        result = SfGroupIdFormats.GLOBAL_USERS.format("My Object")
+        assert result == "MyObjectGlobalUsers"
+        assert " " not in result
+
+    def test_clean_input_unchanged(self):
+        """Already-clean inputs produce the same result as before."""
+        assert SfGroupIdFormats.TOP_LEVEL.format("Account") == "AccountTopLevel"
+        assert SfGroupIdFormats.ROLE.format("Lead", "00E123") == "Lead00E123Role"

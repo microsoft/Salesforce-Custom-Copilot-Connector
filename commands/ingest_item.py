@@ -29,6 +29,12 @@ def cmd_ingest_item(args) -> None:
 
     log_file, summary_file = setup_logging("ingest_item", verbose=getattr(args, "verbose", False))
     logger = logging.getLogger("ingest_item")
+    # Enable DEBUG on the converter logger so the field-mapping table is captured in the log file
+    _connector_logger = logging.getLogger("salesforce_connector")
+    _connector_logger.setLevel(logging.DEBUG)
+    for h in logging.getLogger().handlers:
+        if hasattr(h, 'baseFilename'):  # file handler
+            h.setLevel(logging.DEBUG)
     progress = logging.getLogger("progress")
     start_time = time.monotonic()
     stats = None
@@ -45,7 +51,11 @@ def cmd_ingest_item(args) -> None:
         logger.info("  Connector ID: %s", config.connector.id)
         logger.info("  Salesforce Instance: %s", config.connector.salesforce.instance_url)
 
+        object_type = getattr(args, "object_type", None)
         config = replace(config, debug_item_id=item_id)
+        if object_type:
+            config = replace(config, debug_object_type=object_type)
+            logger.info("  Object Type: %s (user-supplied)", object_type)
         logger.info("  Item ID: %s", item_id)
 
         logger.info("\n" + "=" * 70)

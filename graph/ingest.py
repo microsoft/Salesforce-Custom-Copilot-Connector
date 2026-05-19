@@ -267,10 +267,10 @@ async def _resolve_acl_new_engine(
             record_id = str(record["Id"])
             if isinstance(acl_result, Exception):
                 logger.error(
-                    "[NewACL] resolve_async failed for %s/%s: %s – using public ACL",
+                    "[NewACL] resolve_async failed for %s/%s: %s – using deny-everyone ACL",
                     object_type, record_id, acl_result,
                 )
-                object_acl[record_id] = _public_acl_entry(config.tenant_id)
+                object_acl[record_id] = _deny_all_acl_entry(config.tenant_id)
             else:
                 valid_pairs.append((record_id, acl_result))
 
@@ -283,8 +283,8 @@ async def _resolve_acl_new_engine(
             )
             for (record_id, _), acl_entries in zip(valid_pairs, acl_entry_results):
                 if isinstance(acl_entries, Exception):
-                    logger.error("[NewACL] to_acl_entries failed for %s/%s: %s", object_type, record_id, acl_entries)
-                    object_acl[record_id] = _public_acl_entry(config.tenant_id)
+                    logger.error("[NewACL] to_acl_entries failed for %s/%s: %s — using deny-everyone ACL", object_type, record_id, acl_entries)
+                    object_acl[record_id] = _deny_all_acl_entry(config.tenant_id)
                 else:
                     object_acl[record_id] = acl_entries
 
@@ -297,11 +297,16 @@ async def _resolve_acl_new_engine(
     return acl_map_by_object
 
 
-def _public_acl_entry(tenant_id: str) -> list[dict[str, str]]:
-    """Return a public ACL entry granting access to everyone in the tenant."""
-    return [{"accessType": "grant", "type": "everyone", "value": tenant_id}]
+def _deny_all_acl_entry(tenant_id: str) -> list[dict[str, str]]:
+    """Return a deny-everyone ACL when ACL resolution fails.
 
+    Items ingested with this ACL will not appear in any user's search results.
+    This is the safe default — it prevents accidental data exposure when ACL
+    resolution fails.
+    """
+    return [{"accessType": "deny", "type": "everyone", "value": tenant_id}]
 
+###Dead code. Can be removed
 def _iter_record_chunks(
     config: AppConfig,
     since: datetime | None,
@@ -383,16 +388,45 @@ def _ingest_chunk_graph_batch(
     # 1. Transform all records into Graph external-item payloads
     _transform_t0 = time.monotonic()
     items_to_process: list[dict] = []
+    transform_failures: list[tuple[str, str]] = []
     for record in records:
-        item_id = record["Id"]
+        item_id = record.get("Id", "unknown")
         acl = acl_map.get(item_id)
         if acl is None:
             logger.warning(
                 "No ACL found for item %s (%s) — using fallback ACL",
                 item_id, record.get("objectType"),
             )
-        for transformed in transformer.transform_record(record, acl):
-            items_to_process.append(transformed)
+        try:
+            transformed_items = transformer.transform_record(record, acl)
+            if not transformed_items:
+                logger.warning(
+                    "[%s] transform_record returned empty for item %s — record dropped",
+                    object_type, item_id,
+                )
+                transform_failures.append((item_id, f"[Transform] Returned empty result for {object_type}"))
+                continue
+            for transformed in transformed_items:
+                items_to_process.append(transformed)
+        except Exception as exc:
+            logger.error(
+                "[%s] transform_record failed for item %s: %s",
+                object_type, item_id, exc,
+            )
+            transform_failures.append((item_id, f"[Transform] {type(exc).__name__}: {exc}"))
+
+    if transform_failures:
+        with stats_lock:
+            stats.failed_count += len(transform_failures)
+            for fid, _ in transform_failures:
+                if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                    stats.failed_ids.append(fid)
+        if dl_path:
+            append_failed_records(dl_path, transform_failures, object_type)
+        logger.warning(
+            "[%s] %d record(s) failed during transform and were written to dead-letter file",
+            object_type, len(transform_failures),
+        )
 
     _transform_dur = time.monotonic() - _transform_t0
 
@@ -532,53 +566,88 @@ def _ingest_chunk_graph_batch(
             id_to_req = {str(j): req for j, req in enumerate(cur_payload)}
             failed_request_bodies: dict[str, Any] = {}
             failed_response_bodies: dict[str, Any] = {}
+            accounted_ids: set[str] = set()  # Track which items got a response
 
             with stats_lock:
-                for resp in responses:
-                    idx_str = str(resp.get("id", ""))
-                    item = id_to_item.get(idx_str)
-                    status = resp.get("status", 0)
-                    if item is None:
-                        continue
-
-                    if 200 <= status < 300:
-                        if item.get("type") == "deleted":
-                            stats.deleted_count += 1
-                        else:
-                            stats.success_count += 1
-                        ok_this_round += 1
-
-                    elif status == 429:
-                        saw_throttle = True
-                        # Queue for retry — don't count as failed yet
-                        retry_items.append(item)
-                        req = id_to_req.get(idx_str)
-                        if req:
-                            retry_payload.append(req)
-
-                    elif status == 503:
-                        # Transient Graph outage — retry without signalling
-                        # throttle (503 is not a rate-limit, don't penalise
-                        # adaptive concurrency for it).
-                        retry_items.append(item)
-                        req = id_to_req.get(idx_str)
-                        if req:
-                            retry_payload.append(req)
-                        logger.warning("Graph 503 on item %s — will retry", item.get("id", "?"))
-
-                    else:
-                        # Permanent failure — capture request + response for debugging
+                if not responses:
+                    # Graph returned empty/null response — all items unaccounted
+                    logger.error(
+                        "Graph $batch returned empty response for %d items — "
+                        "marking all as failed",
+                        len(cur_items),
+                    )
+                    for item in cur_items:
                         stats.failed_count += 1
                         fid = item.get("id", "unknown")
-                        detail = _extract_error(status, resp)
-                        all_failed.append((fid, detail))
+                        all_failed.append((fid, "[Graph] $batch returned empty response"))
                         if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
                             stats.failed_ids.append(fid)
-                        req = id_to_req.get(idx_str)
-                        if req:
-                            failed_request_bodies[fid] = req.get("body", {})
-                        failed_response_bodies[fid] = resp
-                        logger.error("Graph batch item %s failed — %s", fid, detail)
+                else:
+                    for resp in responses:
+                        idx_str = str(resp.get("id", ""))
+                        item = id_to_item.get(idx_str)
+                        status = resp.get("status", 0)
+                        if item is None:
+                            logger.warning(
+                                "Graph $batch response has unrecognised id '%s' — "
+                                "cannot match to a submitted item",
+                                idx_str,
+                            )
+                            continue
+
+                        accounted_ids.add(idx_str)
+
+                        if 200 <= status < 300:
+                            if item.get("type") == "deleted":
+                                stats.deleted_count += 1
+                            else:
+                                stats.success_count += 1
+                            ok_this_round += 1
+
+                        elif status == 429:
+                            saw_throttle = True
+                            # Queue for retry — don't count as failed yet
+                            retry_items.append(item)
+                            req = id_to_req.get(idx_str)
+                            if req:
+                                retry_payload.append(req)
+
+                        elif status == 503:
+                            # Transient Graph outage — retry without signalling
+                            # throttle (503 is not a rate-limit, don't penalise
+                            # adaptive concurrency for it).
+                            retry_items.append(item)
+                            req = id_to_req.get(idx_str)
+                            if req:
+                                retry_payload.append(req)
+                            logger.warning("Graph 503 on item %s — will retry", item.get("id", "?"))
+
+                        else:
+                            # Permanent failure — capture request + response for debugging
+                            stats.failed_count += 1
+                            fid = item.get("id", "unknown")
+                            detail = _extract_error(status, resp)
+                            all_failed.append((fid, detail))
+                            if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                                stats.failed_ids.append(fid)
+                            req = id_to_req.get(idx_str)
+                            if req:
+                                failed_request_bodies[fid] = req.get("body", {})
+                            failed_response_bodies[fid] = resp
+                            logger.error("Graph batch item %s failed — %s", fid, detail)
+
+                    # Detect items that got NO response at all (missing from Graph batch response)
+                    for idx_str, item in id_to_item.items():
+                        if idx_str not in accounted_ids:
+                            stats.failed_count += 1
+                            fid = item.get("id", "unknown")
+                            all_failed.append((fid, "[Graph] No response received for this item in $batch"))
+                            if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                                stats.failed_ids.append(fid)
+                            logger.error(
+                                "Graph batch item %s — no response received (missing from $batch response)",
+                                fid,
+                            )
 
             total_ok += ok_this_round
 
@@ -631,12 +700,47 @@ def _ingest_chunk_graph_batch(
         window = sub_batches[i : i + workers]
         if workers <= 1:
             for batch_items, payload in window:
-                _send_one(batch_items, payload)
+                try:
+                    _send_one(batch_items, payload)
+                except Exception as exc:
+                    logger.error(
+                        "[%s] Unexpected error in _send_one for sub-batch — "
+                        "%d item(s) in this sub-batch may be lost: %s",
+                        object_type, len(batch_items), exc, exc_info=True,
+                    )
+                    _sb_failed = [(it.get("id", "unknown"), f"[Graph] sub-batch crash: {exc}") for it in batch_items]
+                    with stats_lock:
+                        for it in batch_items:
+                            stats.failed_count += 1
+                            fid = it.get("id", "unknown")
+                            if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                                stats.failed_ids.append(fid)
+                        submitted += len(batch_items)
+                    if dl_path:
+                        append_failed_records(dl_path, _sb_failed, object_type)
         else:
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [pool.submit(_send_one, bi, pl) for bi, pl in window]
+                futures = {pool.submit(_send_one, bi, pl): bi for bi, pl in window}
                 for f in as_completed(futures):
-                    f.result()  # propagate exceptions
+                    try:
+                        f.result()
+                    except Exception as exc:
+                        failed_batch = futures[f]
+                        logger.error(
+                            "[%s] Unexpected error in _send_one for sub-batch — "
+                            "%d item(s) in this sub-batch may be lost: %s",
+                            object_type, len(failed_batch), exc, exc_info=True,
+                        )
+                        _sb_failed = [(it.get("id", "unknown"), f"[Graph] sub-batch crash: {exc}") for it in failed_batch]
+                        with stats_lock:
+                            for it in failed_batch:
+                                stats.failed_count += 1
+                                fid = it.get("id", "unknown")
+                                if len(stats.failed_ids) < _FAILED_IDS_DISPLAY_LIMIT:
+                                    stats.failed_ids.append(fid)
+                            submitted += len(failed_batch)
+                        if dl_path:
+                            append_failed_records(dl_path, _sb_failed, object_type)
         i += len(window)
 
     _graph_dur = time.monotonic() - _graph_t0
@@ -708,6 +812,12 @@ def _ingest_single_object_type(
                 records = [r for r in records if r.get("Id") == _debug_item_id]
                 if not records:
                     continue
+                # Log the raw Salesforce record for single-item debugging
+                logger.info(
+                    "SALESFORCE RECORD — %s/%s\n%s",
+                    object_type, _debug_item_id,
+                    json.dumps(records[0], indent=2, default=str),
+                )
 
             # ── Graceful stop ─────────────────────────────────────────────
             if dashboard and dashboard.stop_requested:
@@ -792,16 +902,36 @@ def _ingest_single_object_type(
                 stats.record_phase_time(object_type, "ACL", _acl_dur)
             except Exception as error:
                 logger.exception(
-                    "ACL resolution failed for %s chunk #%d, falling back to public ACLs: %s",
-                    object_type, chunk_index, error,
+                    "ACL resolution failed for %s chunk #%d (%d records), falling back to deny-everyone ACL: %s",
+                    object_type, chunk_index, batch_size, error,
                 )
                 with stats_lock:
                     stats.acl_fallback_used = True
+                # Log every affected item so operators can identify which items
+                # received deny-everyone ACLs and need re-ingestion.
+                affected_ids = [str(r.get("Id", "unknown")) for r in records]
+                acl_fallback_failures = [
+                    (rid, f"[ACL] Resolution failed — deny-everyone ACL fallback applied: {error}")
+                    for rid in affected_ids
+                ]
+                if dl_path:
+                    append_failed_records(dl_path, acl_fallback_failures, object_type)
+                logger.warning(
+                    "[%s] %d item(s) in chunk #%d received deny-everyone ACL fallback due to ACL engine error",
+                    object_type, len(affected_ids), chunk_index,
+                )
 
             # ── Wait for previous chunk's Graph upload (pipeline) ─────────
             if _pending_graph_future is not None:
                 _wait_t0 = time.monotonic()
-                ingested_count += _pending_graph_future.result()
+                try:
+                    ingested_count += _pending_graph_future.result()
+                except Exception as exc:
+                    logger.error(
+                        "[%s] Graph upload of previous chunk failed — "
+                        "continuing with next chunk: %s",
+                        object_type, exc, exc_info=True,
+                    )
                 _wait_dur = time.monotonic() - _wait_t0
                 if _wait_dur > 0.5:
                     logger.info(
@@ -838,7 +968,13 @@ def _ingest_single_object_type(
 
         # ── Drain last pending upload ─────────────────────────────────────
         if _pending_graph_future is not None:
-            ingested_count += _pending_graph_future.result()
+            try:
+                ingested_count += _pending_graph_future.result()
+            except Exception as exc:
+                logger.error(
+                    "[%s] Graph upload of final chunk failed: %s",
+                    object_type, exc, exc_info=True,
+                )
             _pending_graph_future = None
     finally:
         _pipeline_pool.shutdown(wait=True)
@@ -974,7 +1110,11 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
     # ── Checkpointing & dead-letter setup ────────────────────────────────────
     _connector_id = config.connector.id
     _since_iso = since.isoformat() if since else None
-    _checkpoint = read_checkpoint(_connector_id)
+    # Skip checkpoint for single-item ingestion — always re-ingest the requested record
+    if config.debug_item_id:
+        _checkpoint = None
+    else:
+        _checkpoint = read_checkpoint(_connector_id)
     if _checkpoint and _checkpoint.get("since") == _since_iso:
         logger.info("Checkpoint found — resuming from: %s", _checkpoint["completed"])
     else:
@@ -1041,8 +1181,24 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
                 logger.info("[%s] completed — %d items", obj_type, count)
             except _SkipObjectError as exc:
                 logger.warning("[%s] skipped — %s", obj_type, exc)
-            except Exception:
+            except Exception as exc:
                 logger.exception("[%s] worker failed with an exception", obj_type)
+                # Track the failure so it surfaces in the final stats
+                with stats_lock:
+                    obj_fetched = stats.object_type_counts.get(obj_type, 0)
+                    if obj_fetched > 0:
+                        stats.failed_count += obj_fetched
+                        logger.error(
+                            "[%s] Worker crash — %d fetched record(s) for this object type "
+                            "may not have been ingested",
+                            obj_type, obj_fetched,
+                        )
+                if _dl_path:
+                    append_failed_records(
+                        _dl_path,
+                        [("WORKER_CRASH", f"[Worker] {obj_type} worker thread failed: {exc}")],
+                        obj_type,
+                    )
 
     # ── Finalise ─────────────────────────────────────────────────────────────
     if dashboard:
@@ -1053,6 +1209,24 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
         stats.success_count, stats.failed_count, stats.deleted_count,
     )
     logger.info("Ingestion complete. Total items ingested: %d", total_ingested)
+
+    # ── Count reconciliation — detect silent drops ───────────────────────────
+    accounted = stats.success_count + stats.failed_count + stats.deleted_count + stats.skipped_count
+    if stats.total_fetched > 0 and accounted < stats.total_fetched:
+        gap = stats.total_fetched - accounted
+        logger.error(
+            "COUNT MISMATCH — %d item(s) unaccounted for! "
+            "fetched=%d, success=%d, failed=%d, deleted=%d, skipped=%d, accounted=%d",
+            gap, stats.total_fetched, stats.success_count,
+            stats.failed_count, stats.deleted_count, stats.skipped_count, accounted,
+        )
+    elif stats.total_fetched > 0:
+        logger.info(
+            "Count reconciliation OK — fetched=%d, accounted=%d "
+            "(success=%d + failed=%d + deleted=%d + skipped=%d)",
+            stats.total_fetched, accounted, stats.success_count,
+            stats.failed_count, stats.deleted_count, stats.skipped_count,
+        )
 
     _was_stopped = dashboard and dashboard.stop_requested
     if not _was_stopped:
