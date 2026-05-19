@@ -1,9 +1,11 @@
 """Tests for the item conversion engine (item.converter)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
-from item.converter import load_converter_config, SalesforceConverter
+from item.converter import _convert_value, load_converter_config, SalesforceConverter
 from acl_engine.share_fetcher import _share_table_name
 
 
@@ -133,3 +135,61 @@ def test_share_table_name_standard_object():
 def test_share_table_name_custom_object():
     assert _share_table_name("Work_Order__c") == "Work_Order__Share"
     assert _share_table_name("Customer_Project__c") == "Customer_Project__Share"
+
+
+# ---------------------------------------------------------------------------
+# _convert_value – datetime handling
+# ---------------------------------------------------------------------------
+
+class TestConvertValueDatetime:
+    """Verify that all Salesforce datetime formats are normalised to ISO 8601 with Z."""
+
+    def test_salesforce_offset_format(self):
+        """Salesforce standard: +0000 offset without colon."""
+        assert _convert_value("2024-04-11T09:10:06.000+0000", "datetime") == "2024-04-11T09:10:06Z"
+
+    def test_salesforce_offset_with_colon(self):
+        """Offset with colon (+00:00)."""
+        assert _convert_value("2024-01-01T00:00:00.000+00:00", "datetime") == "2024-01-01T00:00:00Z"
+
+    def test_z_suffix(self):
+        """Trailing Z suffix."""
+        assert _convert_value("2024-06-15T14:30:00Z", "datetime") == "2024-06-15T14:30:00Z"
+
+    def test_z_suffix_with_milliseconds(self):
+        """Z suffix with milliseconds."""
+        assert _convert_value("2024-06-15T14:30:00.123Z", "datetime") == "2024-06-15T14:30:00.123000Z"
+
+    def test_non_utc_positive_offset(self):
+        """Non-UTC positive offset is converted to UTC."""
+        assert _convert_value("2024-03-20T15:00:00+05:30", "datetime") == "2024-03-20T09:30:00Z"
+
+    def test_non_utc_negative_offset(self):
+        """Non-UTC negative offset is converted to UTC."""
+        assert _convert_value("2024-03-20T10:00:00-07:00", "datetime") == "2024-03-20T17:00:00Z"
+
+    def test_no_fractional_seconds(self):
+        """Date string without fractional seconds."""
+        assert _convert_value("2024-04-11T09:10:06+0000", "datetime") == "2024-04-11T09:10:06Z"
+
+    def test_date_only_no_time(self):
+        """Date-only string (Salesforce Date fields)."""
+        assert _convert_value("2024-04-11", "datetime") == "2024-04-11T00:00:00Z"
+
+    def test_none_returns_none(self):
+        """None input returns None."""
+        assert _convert_value(None, "datetime") is None
+
+    def test_aware_datetime_object(self):
+        """Already-aware Python datetime object."""
+        dt = datetime(2024, 4, 11, 9, 10, 6, tzinfo=timezone.utc)
+        assert _convert_value(dt, "datetime") == "2024-04-11T09:10:06Z"
+
+    def test_naive_datetime_object_assumed_utc(self):
+        """Naive Python datetime is assumed UTC."""
+        dt = datetime(2024, 4, 11, 9, 10, 6)
+        assert _convert_value(dt, "datetime") == "2024-04-11T09:10:06Z"
+
+    def test_non_zero_milliseconds_preserved(self):
+        """Non-zero fractional seconds are preserved."""
+        assert _convert_value("2024-04-11T09:10:06.500+0000", "datetime") == "2024-04-11T09:10:06.500000Z"

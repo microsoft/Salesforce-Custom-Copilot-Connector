@@ -37,6 +37,7 @@ TYPE_CONVERTERS
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 import json
@@ -128,6 +129,15 @@ def _convert_value(value: Any, type_tag: str) -> Any:
         return float(value)
     if type_tag == "int":
         return int(value)
+    if type_tag == "datetime":
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        else:
+            normalized = str(value).replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return str(value)
 
 
