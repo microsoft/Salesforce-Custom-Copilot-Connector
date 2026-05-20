@@ -442,6 +442,7 @@ class TestPrivateOwd:
 
 class TestControlledByParent:
     def test_controlled_by_parent_with_public_parent(self):
+        """If parent object is PUBLIC, child gets grant-everyone ACL."""
         builder = _make_builder(
             owd_map={
                 "Account": EntityVisibility.READ,
@@ -453,8 +454,12 @@ class TestControlledByParent:
         result = asyncio.run(builder._build_acl_map("Contact", records, {}))
         assert result["003C1"][0]["value"] == "everyone"
 
-    def test_controlled_by_parent_with_private_parent_uses_owner(self):
-        owner = _make_sf_user(user_id="005OWNER", federation_id="a2b3c4d5-e6f7-8901-2345-678901234567")
+    def test_cbp_inherits_parent_private_acl(self):
+        """Child inherits parent's full private ACL (GlobalUsers + shares)."""
+        owner = _make_sf_user(
+            user_id="005OWNER",
+            federation_id="a2b3c4d5-e6f7-8901-2345-678901234567",
+        )
         builder = _make_builder(
             owd_map={
                 "Account": EntityVisibility.NONE,
@@ -463,13 +468,39 @@ class TestControlledByParent:
             users=[owner],
             parent_map={"Contact": ("AccountId", "Account")},
         )
-        records = [{"Id": "003C1", "OwnerId": "005OWNER"}]
-        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
-        acl = result["003C1"]
-        assert any(a["value"] == "ContactGlobalUsers" for a in acl)
-        assert any(a["value"] == "a2b3c4d5-e6f7-8901-2345-678901234567" and a["type"] == "user" for a in acl)
+        # Mock SOQL to return parent record
+        builder._sf.query_all = AsyncMock(return_value=[
+            {"Id": "001ACC", "OwnerId": "005OWNER"},
+        ])
 
-    def test_controlled_by_parent_without_owner(self):
+        contact_records = [{
+            "Id": "003C1",
+            "AccountId": "001ACC",
+        }]
+
+        # Pre-inject shares on parent (simulate _fetch_and_inject_shares)
+        async def _mock_fetch_shares(obj_type, records):
+            for r in records:
+                r["Shares"] = {
+                    "records": [{
+                        "UserOrGroupId": "005OWNER",
+                        "UserOrGroup": {"Type": "User"},
+                    }]
+                }
+
+        builder._fetch_and_inject_shares = AsyncMock(side_effect=_mock_fetch_shares)
+
+        result = asyncio.run(builder._build_acl_map("Contact", contact_records, {}))
+        acl = result["003C1"]
+
+        # Should have child's GlobalUsers + parent's GlobalUsers + owner user ACE
+        values = [a["value"] for a in acl]
+        assert "ContactGlobalUsers" in values, "child GlobalUsers missing"
+        assert "AccountGlobalUsers" in values, "parent GlobalUsers missing"
+        assert "a2b3c4d5-e6f7-8901-2345-678901234567" in values, "parent owner ACE missing"
+
+    def test_cbp_orphan_no_parent_id_gets_deny_everyone(self):
+        """Contact with no AccountId gets deny-everyone ACL."""
         builder = _make_builder(
             owd_map={
                 "Account": EntityVisibility.NONE,
@@ -478,12 +509,242 @@ class TestControlledByParent:
             users=[],
             parent_map={"Contact": ("AccountId", "Account")},
         )
-        records = [{"Id": "003C1"}]
+        records = [{"Id": "003ORPHAN"}]  # No AccountId
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+        acl = result["003ORPHAN"]
+        assert acl[0]["accessType"] == "deny"
+        assert acl[0]["value"] == "everyone"
+
+    def test_cbp_no_parent_map_entry_gets_deny_everyone(self):
+        """CBP object type with no parent_map entry falls back to deny-everyone."""
+        builder = _make_builder(
+            owd_map={"CustomObj__c": EntityVisibility.CONTROLLED_BY_PARENT},
+            users=[],
+            parent_map={},  # No entry for CustomObj__c
+        )
+        records = [{"Id": "a01001"}]
+        result = asyncio.run(builder._build_acl_map("CustomObj__c", records, {}))
+        acl = result["a01001"]
+        assert acl[0]["accessType"] == "deny"
+
+    def test_cbp_cache_reuse_across_chunks(self):
+        """Second chunk should reuse cached parent ACLs without re-fetching."""
+        owner = _make_sf_user(
+            user_id="005OWNER",
+            federation_id="a2b3c4d5-e6f7-8901-2345-678901234567",
+        )
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[owner],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        builder._sf.query_all = AsyncMock(return_value=[
+            {"Id": "001ACC", "OwnerId": "005OWNER"},
+        ])
+
+        async def _mock_fetch_shares(obj_type, records):
+            for r in records:
+                r["Shares"] = {"records": []}
+
+        builder._fetch_and_inject_shares = AsyncMock(side_effect=_mock_fetch_shares)
+
+        # First chunk
+        chunk1 = [{"Id": "003C1", "AccountId": "001ACC"}]
+        result1 = asyncio.run(builder._build_acl_map("Contact", chunk1, {}))
+        assert "003C1" in result1
+
+        # Second chunk — same parent, should be cached
+        chunk2 = [{"Id": "003C2", "AccountId": "001ACC"}]
+        result2 = asyncio.run(builder._build_acl_map("Contact", chunk2, {}))
+        assert "003C2" in result2
+
+        # query_all should only have been called once (for the first chunk's parent fetch)
+        assert builder._sf.query_all.call_count == 1
+        # _fetch_and_inject_shares called only once (for parent shares in first chunk)
+        assert builder._fetch_and_inject_shares.call_count == 1
+
+    def test_cbp_parent_with_group_shares(self):
+        """Parent role/group shares are inherited by child."""
+        group = SfGroup(
+            id="00G_ROLE_GRP",
+            type=UserOrGroupType.ROLE,
+            related_id="00E_ROLE1",
+        )
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[],
+            groups=[group],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        builder._sf.query_all = AsyncMock(return_value=[
+            {"Id": "001ACC", "OwnerId": ""},
+        ])
+
+        async def _mock_fetch_shares(obj_type, records):
+            for r in records:
+                r["Shares"] = {
+                    "records": [{
+                        "UserOrGroupId": "00G_ROLE_GRP",
+                        "UserOrGroup": {"Type": "Queue"},
+                    }]
+                }
+
+        builder._fetch_and_inject_shares = AsyncMock(side_effect=_mock_fetch_shares)
+
+        records = [{"Id": "003C1", "AccountId": "001ACC"}]
         result = asyncio.run(builder._build_acl_map("Contact", records, {}))
         acl = result["003C1"]
-        # Only GlobalUsers, no owner
-        assert len(acl) == 1
-        assert acl[0]["value"] == "ContactGlobalUsers"
+
+        # Parent's role group should be in child's ACL
+        values = [a["value"] for a in acl if a["type"] == "externalGroup"]
+        assert "ContactGlobalUsers" in values, "child GlobalUsers"
+        assert "Account00EROLE1Role" in values, "parent role group inherited"
+
+    def test_cbp_multiple_children_different_parents(self):
+        """Two contacts pointing to different accounts get different ACLs."""
+        owner_a = _make_sf_user(user_id="005A", federation_id="aaaa1111-2222-3333-4444-555566667777")
+        owner_b = _make_sf_user(user_id="005B", federation_id="bbbb1111-2222-3333-4444-555566667777")
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[owner_a, owner_b],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        builder._sf.query_all = AsyncMock(return_value=[
+            {"Id": "001A", "OwnerId": "005A"},
+            {"Id": "001B", "OwnerId": "005B"},
+        ])
+
+        async def _mock_fetch_shares(obj_type, records):
+            for r in records:
+                owner_id = r.get("OwnerId", "")
+                r["Shares"] = {
+                    "records": [{
+                        "UserOrGroupId": owner_id,
+                        "UserOrGroup": {"Type": "User"},
+                    }] if owner_id else []
+                }
+
+        builder._fetch_and_inject_shares = AsyncMock(side_effect=_mock_fetch_shares)
+
+        records = [
+            {"Id": "003C1", "AccountId": "001A"},
+            {"Id": "003C2", "AccountId": "001B"},
+        ]
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+
+        # Contact 1 should have owner A's GUID
+        vals_c1 = [a["value"] for a in result["003C1"]]
+        assert "aaaa1111-2222-3333-4444-555566667777" in vals_c1
+        assert "bbbb1111-2222-3333-4444-555566667777" not in vals_c1
+
+        # Contact 2 should have owner B's GUID
+        vals_c2 = [a["value"] for a in result["003C2"]]
+        assert "bbbb1111-2222-3333-4444-555566667777" in vals_c2
+        assert "aaaa1111-2222-3333-4444-555566667777" not in vals_c2
+
+    def test_cbp_parent_deleted_gets_deny_everyone(self):
+        """Child pointing to a parent that SOQL can't find gets deny-everyone."""
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        # SOQL returns empty — parent was deleted
+        builder._sf.query_all = AsyncMock(return_value=[])
+
+        async def _mock_fetch_shares(obj_type, records):
+            for r in records:
+                r["Shares"] = {"records": []}
+
+        builder._fetch_and_inject_shares = AsyncMock(side_effect=_mock_fetch_shares)
+
+        records = [{"Id": "003C1", "AccountId": "001DELETED"}]
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+        acl = result["003C1"]
+        assert acl[0]["accessType"] == "deny"
+        assert acl[0]["value"] == "everyone"
+
+    def test_cbp_mixed_orphans_and_valid_in_same_chunk(self):
+        """Chunk with both valid parent refs and orphans: each gets correct ACL."""
+        owner = _make_sf_user(
+            user_id="005OWN",
+            federation_id="cccc1111-2222-3333-4444-555566667777",
+        )
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[owner],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        builder._sf.query_all = AsyncMock(return_value=[
+            {"Id": "001ACC", "OwnerId": "005OWN"},
+        ])
+
+        async def _mock_fetch_shares(obj_type, records):
+            for r in records:
+                owner_id = r.get("OwnerId", "")
+                r["Shares"] = {
+                    "records": [{
+                        "UserOrGroupId": owner_id,
+                        "UserOrGroup": {"Type": "User"},
+                    }] if owner_id else []
+                }
+
+        builder._fetch_and_inject_shares = AsyncMock(side_effect=_mock_fetch_shares)
+
+        records = [
+            {"Id": "003VALID", "AccountId": "001ACC"},
+            {"Id": "003ORPHAN"},  # No AccountId
+        ]
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+
+        # Valid child inherits parent ACL
+        valid_vals = [a["value"] for a in result["003VALID"]]
+        assert "ContactGlobalUsers" in valid_vals
+        assert "cccc1111-2222-3333-4444-555566667777" in valid_vals
+
+        # Orphan gets deny-everyone
+        orphan_acl = result["003ORPHAN"]
+        assert orphan_acl[0]["accessType"] == "deny"
+
+    def test_cbp_parent_fetch_soql_failure_deny_everyone(self):
+        """If parent SOQL query fails, affected children get deny-everyone."""
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        # SOQL raises exception
+        builder._sf.query_all = AsyncMock(side_effect=Exception("SOQL timeout"))
+
+        async def _mock_fetch_shares(obj_type, records):
+            for r in records:
+                r["Shares"] = {"records": []}
+
+        builder._fetch_and_inject_shares = AsyncMock(side_effect=_mock_fetch_shares)
+
+        records = [{"Id": "003C1", "AccountId": "001ACC"}]
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+        acl = result["003C1"]
+        assert acl[0]["accessType"] == "deny"
+        assert acl[0]["value"] == "everyone"
 
 
 # ── OWD override tests ──────────────────────────────────────────────────────

@@ -361,11 +361,11 @@ class PrincipalMapper:
 
     def _public_acl(self) -> list[dict[str, str]]:
         """Return a single tenant-wide grant entry for publicly visible records."""
-        return [{"accessType": "grant", "type": "everyone", "value": self._tenant_id}]
+        return [{"accessType": "grant", "type": "everyone", "value": "everyone"}]
 
     def _deny_all_acl(self) -> list[dict[str, str]]:
         """Return a deny-all entry when no users could be resolved."""
-        return [{"accessType": "deny", "type": "everyone", "value": self._tenant_id}]
+        return [{"accessType": "deny", "type": "everyone", "value": "everyone"}]
 
 
 # ── Standalone helpers ────────────────────────────────────────────────────────

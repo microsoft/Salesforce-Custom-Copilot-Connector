@@ -272,7 +272,7 @@ async def _resolve_acl_new_engine(
                     "[NewACL] resolve_async failed for %s/%s: %s – using deny-everyone ACL",
                     object_type, record_id, acl_result,
                 )
-                object_acl[record_id] = _deny_all_acl_entry(config.tenant_id)
+                object_acl[record_id] = _deny_all_acl_entry()
             else:
                 valid_pairs.append((record_id, acl_result))
 
@@ -286,7 +286,7 @@ async def _resolve_acl_new_engine(
             for (record_id, _), acl_entries in zip(valid_pairs, acl_entry_results):
                 if isinstance(acl_entries, Exception):
                     logger.error("[NewACL] to_acl_entries failed for %s/%s: %s — using deny-everyone ACL", object_type, record_id, acl_entries)
-                    object_acl[record_id] = _deny_all_acl_entry(config.tenant_id)
+                    object_acl[record_id] = _deny_all_acl_entry()
                 else:
                     object_acl[record_id] = acl_entries
 
@@ -299,14 +299,14 @@ async def _resolve_acl_new_engine(
     return acl_map_by_object
 
 
-def _deny_all_acl_entry(tenant_id: str) -> list[dict[str, str]]:
+def _deny_all_acl_entry() -> list[dict[str, str]]:
     """Return a deny-everyone ACL when ACL resolution fails.
 
     Items ingested with this ACL will not appear in any user's search results.
     This is the safe default — it prevents accidental data exposure when ACL
     resolution fails.
     """
-    return [{"accessType": "deny", "type": "everyone", "value": tenant_id}]
+    return [{"accessType": "deny", "type": "everyone", "value": "everyone"}]
 
 ###Dead code. Can be removed
 def _iter_record_chunks(
@@ -1065,6 +1065,24 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             batch_size=config.tuning.salesforce_batch_size,
         )
         logger.info("New ACL engine initialised (identity cache persists across chunks)")
+        # Pre-fetch OWD for each object so the dashboard can show ACL types
+        _owd_fetcher = _new_acl_resolver._owd_fetcher
+        _new_owd_labels: dict[str, str] = {}
+        _OWD_LABELS = {
+            "Private": "Private",
+            "Read": "Public Read",
+            "Edit": "Public Read/Write",
+            "ReadEditTransfer": "Public Read/Write/Transfer",
+            "All": "Public Full Access",
+            "ControlledByParent": "ControlledByParent",
+            "ControlledByCampaign": "ControlledByParent",
+            "ControlledByLeadOrContact": "ControlledByParent",
+        }
+        for obj_name in config.object_names:
+            raw = asyncio.run(_owd_fetcher.get_owd(obj_name))
+            _new_owd_labels[obj_name] = _OWD_LABELS.get(raw, raw)
+        if dashboard:
+            dashboard.set_acl_types(_new_owd_labels)
 
     # Group ACL builder — initialise once (when USE_GROUP_ACL=true)
     _group_acl_builder = None

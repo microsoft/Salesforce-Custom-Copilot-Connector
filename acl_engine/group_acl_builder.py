@@ -14,7 +14,8 @@ the legacy user-only engines remain active.
 ACL Construction Rules:
     - PUBLIC OWD   → single group ACE: "{Object}-TopLevel"
     - PRIVATE OWD  → "{Object}-GlobalUsers" + per-share user/group ACEs
-    - ControlledByParent → "{Object}-GlobalUsers" + owner user ACE
+    - ControlledByParent → inherits parent record's private ACLs
+      (parent shares fetched and cached lazily across chunks)
 """
 from __future__ import annotations
 
@@ -87,6 +88,9 @@ class GroupAclBuilder:
         self._groups_by_id: dict[str, SfGroup] | None = None
         self._frozen_users: set[str] | None = None
         self._no_share_table_types: set[str] = set()
+        # Lazy cache: {parent_record_id: [acl_entry, ...]}
+        # Accumulates across chunks so repeated parent lookups are free.
+        self._parent_acl_cache: dict[str, list[dict[str, str]]] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -179,7 +183,7 @@ class GroupAclBuilder:
                     logger.info("[GroupACL] %s: ControlledByParent, parent %s is PUBLIC", object_type, parent_obj)
                     return self._build_public_acls(object_type, records)
 
-            logger.info("[GroupACL] %s: ControlledByParent → GlobalUsers + owner", object_type)
+            logger.info("[GroupACL] %s: ControlledByParent → inheriting parent share ACLs", object_type)
             return await self._build_controlled_by_parent_acls(object_type, records)
 
         # PRIVATE
@@ -481,76 +485,155 @@ class GroupAclBuilder:
         object_type: str,
         records: list[dict[str, Any]],
     ) -> dict[str, list[dict[str, str]]]:
-        """Build ACLs for ControlledByParent objects: GlobalUsers + record owner."""
+        """Build ACLs for ControlledByParent objects by inheriting parent record ACLs.
+
+        For each child record:
+        1. Look up the parent record ID (e.g. Contact.AccountId).
+        2. If the parent's ACL is already cached, reuse it.
+        3. Otherwise, fetch the parent record + its share entries and build
+           private ACLs using the same logic as ``_build_private_acls``.
+        4. The child inherits the parent's ACL entries plus its own
+           ``{child_object}-GlobalUsers`` group (ViewAll/ModifyAll admins
+           for the child object type).
+
+        The ``_parent_acl_cache`` accumulates across chunks so repeated
+        parent lookups are free.
+        """
+        import time as _time
+
+        parent_info = self._parent_map.get(object_type)
+        if not parent_info:
+            logger.warning(
+                "[GroupACL] %s: ControlledByParent but no parent_map entry — "
+                "falling back to GlobalUsers + deny-everyone",
+                object_type,
+            )
+            return {
+                str(r["Id"]): _deny_everyone_acl()
+                for r in records if r.get("Id")
+            }
+
+        parent_field, parent_obj = parent_info
+
+        # Ensure user data is loaded (needed for owner resolution on parent records)
         if self._users_by_id is None:
             users = await self._query_client.get_users_with_roles(object_type)
             self._users_by_id = {u.id: u for u in users}
 
+        if self._frozen_users is None:
+            self._frozen_users = await self._query_client.get_frozen_user_ids()
+
+        # 1. Collect unique parent IDs that are NOT already cached
+        parent_ids_needed: set[str] = set()
+        for record in records:
+            pid = record.get(parent_field)
+            if pid and pid not in self._parent_acl_cache:
+                parent_ids_needed.add(pid)
+
+        # 2. Fetch and resolve uncached parent records
+        if parent_ids_needed:
+            _t0 = _time.monotonic()
+            parent_records = await self._fetch_parent_records(
+                parent_obj, parent_ids_needed,
+            )
+            logger.info(
+                "[GroupACL][TIMING] Fetch %d parent %s record(s): %.1fs",
+                len(parent_records), parent_obj, _time.monotonic() - _t0,
+            )
+
+            # Build private ACLs for the parent records (reuse existing logic).
+            # _build_private_acls internally calls _fetch_and_inject_shares,
+            # so we don't need to call it separately here.
+            parent_acl_map = await self._build_private_acls(parent_obj, parent_records)
+
+            # Store in cache
+            for pid, acls in parent_acl_map.items():
+                self._parent_acl_cache[pid] = acls
+
+            logger.info(
+                "[GroupACL] Cached %d new parent %s ACL(s) (total cache: %d)",
+                len(parent_acl_map), parent_obj, len(self._parent_acl_cache),
+            )
+
+        # 3. Map each child record to its parent's ACL
+        cache_hits = 0
+        cache_misses = 0
         acl_map: dict[str, list[dict[str, str]]] = {}
+
+        # Child's own GlobalUsers group — admins with ViewAll/ModifyAll on the
+        # child object type can see all children regardless of parent ACL.
+        child_global_ace = _group_ace(
+            SfGroupIdFormats.GLOBAL_USERS.format(object_type)
+        )
 
         for record in records:
             record_id = str(record.get("Id", ""))
             if not record_id:
                 continue
 
-            acls: list[dict[str, str]] = [
-                _group_ace(SfGroupIdFormats.GLOBAL_USERS.format(object_type))
-            ]
-
-            owner_id = record.get("OwnerId", "")
-            if owner_id:
-                owner = (self._users_by_id or {}).get(owner_id)
-                if owner:
-                    # Try FederationIdentifier → stripped UserName → Email → employeeId in order,
-                    # stopping at the first candidate that resolves to an AAD GUID.
-                    # _resolve_identifier chains to _lookup_graph_user_id which covers both
-                    # Attempt 1 (direct path) and Attempt 2 (filter, including employeeId for alphanumeric identifiers).
-                    candidates = _best_user_identifiers(owner)
-                    ace = None
-                    resolved_via: str | None = None
-                    for identifier in candidates:
-                        if self._principal_mapper is not None:
-                            resolved = self._principal_mapper._resolve_identifier(identifier)
-                            if resolved:
-                                ace = _user_ace_aad(resolved)
-                                if ace:
-                                    resolved_via = identifier
-                                    break
-                        else:
-                            ace = _user_ace_aad(identifier)
-                            if ace:
-                                resolved_via = identifier
-                                break
-
-                    if ace:
-                        logger.debug(
-                            "[GroupACL] Owner %s (%s) — resolved via '%s' → adding user ACE",
-                            owner_id, owner.name, resolved_via,
-                        )
-                        acls.append(ace)
-                    else:
-                        if not candidates:
-                            logger.warning(
-                                "[GroupACL] Owner %s (%s) — no valid identifier available "
-                                "(FederationIdentifier/UserName/Email/employeeId all missing or invalid) → deny-everyone for record %s",
-                                owner_id, owner.name, record_id,
-                            )
-                        else:
-                            logger.warning(
-                                "[GroupACL] Owner %s (%s) — tried %d candidate(s) %s, none resolved to AAD GUID → deny-everyone for record %s",
-                                owner_id, owner.name, len(candidates), candidates, record_id,
-                            )
-                        acl_map[record_id] = _deny_everyone_acl()
-                        continue
+            pid = record.get(parent_field)
+            if pid and pid in self._parent_acl_cache:
+                cache_hits += 1
+                # Inherit parent ACL + child's own GlobalUsers
+                parent_acls = self._parent_acl_cache[pid]
+                # Prepend child GlobalUsers if not already present
+                # (parent ACLs have parent's GlobalUsers; child needs its own too)
+                acl_map[record_id] = [child_global_ace] + parent_acls
+            else:
+                cache_misses += 1
+                if not pid:
+                    logger.debug(
+                        "[GroupACL] %s/%s: no %s value — deny-everyone",
+                        object_type, record_id, parent_field,
+                    )
                 else:
                     logger.warning(
-                        "[GroupACL] Owner %s not found in user cache — no user ACE added for record %s",
-                        owner_id, record_id,
+                        "[GroupACL] %s/%s: parent %s/%s not resolved — deny-everyone",
+                        object_type, record_id, parent_obj, pid,
                     )
+                acl_map[record_id] = _deny_everyone_acl()
 
-            acl_map[record_id] = acls
-
+        logger.info(
+            "[GroupACL] %s CBP: %d records, %d cache hits, %d misses (no parent)",
+            object_type, len(acl_map), cache_hits, cache_misses,
+        )
         return acl_map
+
+    async def _fetch_parent_records(
+        self,
+        parent_obj: str,
+        parent_ids: set[str],
+        batch_size: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Fetch minimal parent records (Id + OwnerId) for ACL resolution.
+
+        Returns synthetic record dicts suitable for ``_build_private_acls``.
+        """
+        records: list[dict[str, Any]] = []
+        parent_id_list = sorted(parent_ids)
+
+        for i in range(0, len(parent_id_list), batch_size):
+            batch = parent_id_list[i : i + batch_size]
+            ids_in = ", ".join(f"'{pid}'" for pid in batch)
+            soql = f"SELECT Id, OwnerId FROM {parent_obj} WHERE Id IN ({ids_in})"
+            try:
+                rows = await self._sf.query_all(soql)
+                for row in rows:
+                    records.append({
+                        "Id": row.get("Id"),
+                        "OwnerId": row.get("OwnerId", ""),
+                    })
+            except Exception as exc:
+                logger.warning(
+                    "[GroupACL] Failed to fetch parent %s records (batch %d): %s",
+                    parent_obj, i // batch_size + 1, exc,
+                )
+
+        logger.info(
+            "[GroupACL] Fetched %d/%d parent %s record(s)",
+            len(records), len(parent_ids), parent_obj,
+        )
+        return records
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

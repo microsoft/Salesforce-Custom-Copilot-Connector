@@ -80,7 +80,7 @@ def test_fallback_acl_used_when_none(mock_converter_cls, schema, monkeypatch):
     t = SalesforceItemTransformer("https://test.my.salesforce.com", schema, tenant_id="test-tenant")
     result = t.transform_record({"Id": "001", "objectType": "Account", "url": "https://sf.com/001"}, acl=None)
     assert result[0]["acl"][0]["type"] == "everyone"
-    assert result[0]["acl"][0]["value"] == "test-tenant"
+    assert result[0]["acl"][0]["value"] == "everyone"
 
 
 @patch("salesforce.item_transformer.SalesforceConverter")

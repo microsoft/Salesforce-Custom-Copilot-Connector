@@ -13,7 +13,7 @@ COLLECTION_SCHEMA_TO_ODATA_TYPE = {
     "DateTimeCollection": "DateTime",
 }
 
-def _fallback_acl(tenant_id: str) -> list[dict[str, str]]:
+def _fallback_acl() -> list[dict[str, str]]:
     """Return a deny-everyone ACL when no ACL could be resolved.
 
     Items ingested with this ACL will not appear in any user's search results.
@@ -24,7 +24,7 @@ def _fallback_acl(tenant_id: str) -> list[dict[str, str]]:
         {
             "accessType": "deny",
             "type": "everyone",
-            "value": tenant_id,
+            "value": "everyone",
         }
     ]
 
@@ -104,7 +104,7 @@ class SalesforceItemTransformer:
                 "value": content_value or "",
                 "type": "text",
             },
-            "acl": acl or _fallback_acl(self._tenant_id),
+            "acl": acl or _fallback_acl(),
         }
 
     def _normalize_schema_value(self, live_key: str, value: Any) -> Any:

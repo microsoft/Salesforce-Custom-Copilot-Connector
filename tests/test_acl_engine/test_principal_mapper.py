@@ -379,26 +379,26 @@ class TestToAclEntries:
     async def test_public_sentinel_returns_everyone_grant(self):
         mapper = _make_mapper()
         result = await mapper.to_acl_entries(_acl_result([PUBLIC_SENTINEL]))
-        assert result == [{"accessType": "grant", "type": "everyone", "value": TENANT_ID}]
+        assert result == [{"accessType": "grant", "type": "everyone", "value": "everyone"}]
 
     @pytest.mark.asyncio
     async def test_is_public_flag_returns_everyone_grant(self):
         mapper = _make_mapper()
         result = await mapper.to_acl_entries(_acl_result([], is_public=True))
-        assert result == [{"accessType": "grant", "type": "everyone", "value": TENANT_ID}]
+        assert result == [{"accessType": "grant", "type": "everyone", "value": "everyone"}]
 
     @pytest.mark.asyncio
     async def test_empty_user_ids_returns_deny_all(self):
         mapper = _make_mapper()
         result = await mapper.to_acl_entries(_acl_result([]))
-        assert result == [{"accessType": "deny", "type": "everyone", "value": TENANT_ID}]
+        assert result == [{"accessType": "deny", "type": "everyone", "value": "everyone"}]
 
     @pytest.mark.asyncio
     async def test_unresolvable_users_returns_deny_all(self):
         sf = self._sf_with_users([])
         mapper = _make_mapper(sf_client=sf)
         result = await mapper.to_acl_entries(_acl_result(["005USER1"]))
-        assert result == [{"accessType": "deny", "type": "everyone", "value": TENANT_ID}]
+        assert result == [{"accessType": "deny", "type": "everyone", "value": "everyone"}]
 
     @pytest.mark.asyncio
     async def test_resolved_user_returns_grant_entry(self):
