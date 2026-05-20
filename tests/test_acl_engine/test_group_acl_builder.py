@@ -499,8 +499,29 @@ class TestControlledByParent:
         assert "AccountGlobalUsers" in values, "parent GlobalUsers missing"
         assert "a2b3c4d5-e6f7-8901-2345-678901234567" in values, "parent owner ACE missing"
 
-    def test_cbp_orphan_no_parent_id_gets_deny_everyone(self):
-        """Contact with no AccountId gets deny-everyone ACL."""
+    def test_cbp_orphan_no_parent_id_gets_owner_acl(self):
+        """Contact with no AccountId gets GlobalUsers + owner ACL."""
+        owner = _make_sf_user(
+            user_id="005ORPHAN_OWN",
+            federation_id="dddd1111-2222-3333-4444-555566667777",
+        )
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[owner],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        records = [{"Id": "003ORPHAN", "OwnerId": "005ORPHAN_OWN"}]  # No AccountId
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+        acl = result["003ORPHAN"]
+        values = [a["value"] for a in acl]
+        assert "ContactGlobalUsers" in values
+        assert "dddd1111-2222-3333-4444-555566667777" in values
+
+    def test_cbp_orphan_no_parent_no_owner_gets_global_users_only(self):
+        """Contact with no AccountId and no OwnerId gets GlobalUsers only."""
         builder = _make_builder(
             owd_map={
                 "Account": EntityVisibility.NONE,
@@ -509,11 +530,77 @@ class TestControlledByParent:
             users=[],
             parent_map={"Contact": ("AccountId", "Account")},
         )
-        records = [{"Id": "003ORPHAN"}]  # No AccountId
+        records = [{"Id": "003ORPHAN"}]  # No AccountId, no OwnerId
         result = asyncio.run(builder._build_acl_map("Contact", records, {}))
         acl = result["003ORPHAN"]
-        assert acl[0]["accessType"] == "deny"
-        assert acl[0]["value"] == "everyone"
+        assert len(acl) == 1
+        assert acl[0]["value"] == "ContactGlobalUsers"
+
+    def test_cbp_orphan_owner_not_in_cache_gets_global_users_only(self):
+        """Orphan whose OwnerId isn't in user cache gets GlobalUsers only."""
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[],  # Owner not loaded
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        records = [{"Id": "003X", "OwnerId": "005UNKNOWN"}]
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+        acl = result["003X"]
+        assert len(acl) == 1
+        assert acl[0]["value"] == "ContactGlobalUsers"
+
+    def test_cbp_orphan_owner_unresolvable_gets_global_users_only(self):
+        """Orphan whose owner has no valid AAD identifier gets GlobalUsers only."""
+        owner = _make_sf_user(
+            user_id="005BAD",
+            federation_id="",  # No federation ID
+            email="",
+        )
+        # Override user_name to be non-email so it's rejected
+        owner.user_name = ""
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[owner],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        records = [{"Id": "003X", "OwnerId": "005BAD"}]
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+        acl = result["003X"]
+        assert len(acl) == 1
+        assert acl[0]["value"] == "ContactGlobalUsers"
+
+    def test_cbp_orphan_with_principal_mapper_resolves_owner(self):
+        """Orphan with principal_mapper resolves owner to AAD GUID."""
+        owner = _make_sf_user(
+            user_id="005MAP",
+            federation_id="user@example.com",
+        )
+        mapper = MagicMock()
+        mapper._resolve_identifier.return_value = "eeee1111-2222-3333-4444-555566667777"
+
+        builder = _make_builder(
+            owd_map={
+                "Account": EntityVisibility.NONE,
+                "Contact": EntityVisibility.CONTROLLED_BY_PARENT,
+            },
+            users=[owner],
+            parent_map={"Contact": ("AccountId", "Account")},
+        )
+        builder._principal_mapper = mapper
+
+        records = [{"Id": "003X", "OwnerId": "005MAP"}]
+        result = asyncio.run(builder._build_acl_map("Contact", records, {}))
+        acl = result["003X"]
+        values = [a["value"] for a in acl]
+        assert "ContactGlobalUsers" in values
+        assert "eeee1111-2222-3333-4444-555566667777" in values
+        mapper._resolve_identifier.assert_called()
 
     def test_cbp_no_parent_map_entry_gets_deny_everyone(self):
         """CBP object type with no parent_map entry falls back to deny-everyone."""
@@ -717,9 +804,9 @@ class TestControlledByParent:
         assert "ContactGlobalUsers" in valid_vals
         assert "cccc1111-2222-3333-4444-555566667777" in valid_vals
 
-        # Orphan gets deny-everyone
+        # Orphan gets owner-based ACL (GlobalUsers only since no OwnerId)
         orphan_acl = result["003ORPHAN"]
-        assert orphan_acl[0]["accessType"] == "deny"
+        assert orphan_acl[0]["value"] == "ContactGlobalUsers"
 
     def test_cbp_parent_fetch_soql_failure_deny_everyone(self):
         """If parent SOQL query fails, affected children get deny-everyone."""

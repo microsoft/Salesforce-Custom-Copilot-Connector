@@ -582,8 +582,16 @@ class GroupAclBuilder:
             else:
                 cache_misses += 1
                 if not pid:
+                    # No parent reference — fall back to owner-based ACL
+                    owner_acl = self._resolve_owner_acl(
+                        record, object_type, child_global_ace,
+                    )
+                    if owner_acl is not None:
+                        acl_map[record_id] = owner_acl
+                    else:
+                        acl_map[record_id] = _deny_everyone_acl()
                     logger.debug(
-                        "[GroupACL] %s/%s: no %s value — deny-everyone",
+                        "[GroupACL] %s/%s: no %s value — owner-based ACL",
                         object_type, record_id, parent_field,
                     )
                 else:
@@ -591,13 +599,59 @@ class GroupAclBuilder:
                         "[GroupACL] %s/%s: parent %s/%s not resolved — deny-everyone",
                         object_type, record_id, parent_obj, pid,
                     )
-                acl_map[record_id] = _deny_everyone_acl()
+                    acl_map[record_id] = _deny_everyone_acl()
 
         logger.info(
             "[GroupACL] %s CBP: %d records, %d cache hits, %d misses (no parent)",
             object_type, len(acl_map), cache_hits, cache_misses,
         )
         return acl_map
+
+    def _resolve_owner_acl(
+        self,
+        record: dict[str, Any],
+        object_type: str,
+        global_ace: dict[str, str],
+    ) -> list[dict[str, str]] | None:
+        """Build a GlobalUsers + owner ACL for a record.
+
+        Returns the ACL list, or ``None`` if the owner cannot be resolved
+        (caller should fall back to deny-everyone).
+        """
+        acls: list[dict[str, str]] = [global_ace]
+        owner_id = record.get("OwnerId", "")
+        if not owner_id:
+            return acls  # GlobalUsers only — no owner to resolve
+
+        owner = (self._users_by_id or {}).get(owner_id)
+        if not owner:
+            logger.debug(
+                "[GroupACL] Owner %s not in user cache for %s/%s — GlobalUsers only",
+                owner_id, object_type, record.get("Id", ""),
+            )
+            return acls
+
+        candidates = _best_user_identifiers(owner)
+        for identifier in candidates:
+            if self._principal_mapper is not None:
+                resolved = self._principal_mapper._resolve_identifier(identifier)
+                if resolved:
+                    ace = _user_ace_aad(resolved)
+                    if ace:
+                        acls.append(ace)
+                        return acls
+            else:
+                ace = _user_ace_aad(identifier)
+                if ace:
+                    acls.append(ace)
+                    return acls
+
+        # Couldn't resolve owner — still return GlobalUsers-only ACL
+        logger.debug(
+            "[GroupACL] Owner %s (%s) unresolvable — GlobalUsers only for %s/%s",
+            owner_id, owner.name, object_type, record.get("Id", ""),
+        )
+        return acls
 
     async def _fetch_parent_records(
         self,
