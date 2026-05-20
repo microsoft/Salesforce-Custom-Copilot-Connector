@@ -85,6 +85,16 @@ def build_owd_field_map(schema: dict[str, Any] | None = None) -> dict[str, str]:
     }
 
 
+def build_object_name_list(schema: dict[str, Any] | None = None) -> list[str]:
+    """Return a list of *all* object names declared in schema.json."""
+    data = schema if schema is not None else load_schema_config()
+    return [
+        obj["objectName"]
+        for obj in data.get("objectList", [])
+        if "objectName" in obj
+    ]
+
+
 def build_parent_map(schema: dict[str, Any] | None = None) -> dict[str, tuple[str, str]]:
     """``{objectName: (parentFieldName, parentObjectName)}``."""
     data = schema if schema is not None else load_schema_config()
@@ -137,8 +147,10 @@ class AppConfig:
     owd_field_map: dict[str, str]
     parent_map: dict[str, tuple[str, str]]
     owd_overrides: dict[str, str]
+    object_names: list[str]
     use_new_acl_engine: bool
     use_group_acl: bool
+    use_entity_definition_owd: bool
     debug_object_type: str | None
     debug_item_id: str | None
 
@@ -223,8 +235,10 @@ def load_config() -> AppConfig:
         owd_field_map=build_owd_field_map(cfg),
         parent_map=build_parent_map(cfg),
         owd_overrides=owd_overrides,
+        object_names=build_object_name_list(cfg),
         use_new_acl_engine=os.getenv("USE_NEW_ACL_ENGINE", "false").lower() in ("true", "1", "yes"),
         use_group_acl=os.getenv("USE_GROUP_ACL", "false").lower() in ("true", "1", "yes"),
+        use_entity_definition_owd=os.getenv("USE_ENTITY_DEFINITION_OWD", "false").lower() in ("true", "1", "yes"),
         debug_object_type=os.getenv("DEBUG_OBJECT_TYPE") or None,
         debug_item_id=os.getenv("DEBUG_ITEM_ID") or None,
         tuning=TuningSettings(

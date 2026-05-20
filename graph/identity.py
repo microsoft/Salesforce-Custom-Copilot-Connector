@@ -77,6 +77,7 @@ def run_identity_sync(config: AppConfig, graph_client: GraphClient) -> SyncSessi
         parent_map=config.parent_map,
         owd_overrides=config.owd_overrides,
         owd_field_map=config.owd_field_map,
+        use_entity_definition_owd=config.use_entity_definition_owd,
     )
     crawl_result = handler.run_full_crawl()
 

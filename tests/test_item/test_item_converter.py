@@ -123,6 +123,128 @@ def test_metadata_columns_mapped():
         assert "Id" in props or "CreatedDate" in props or "Owner" in props
 
 
+class TestNonSchemaFieldsInContent:
+    """Non-graph-schema selectedFields must appear in content, not be silently dropped."""
+
+    @staticmethod
+    def _build_contact_record(**overrides: str) -> dict:
+        base = {
+            "attributes": {"type": "Contact"},
+            "Id": "003abc",
+            "Name": "Test User",
+            "IsDeleted": False,
+            "OwnerId": "005abc",
+            "Owner": {"attributes": {"type": "User"}, "Name": "Owner", "UserRole": None},
+            "CreatedDate": "2024-01-01T00:00:00.000+0000",
+            "LastModifiedDate": "2024-06-01T00:00:00.000+0000",
+            "CreatedById": "005abc",
+            "CreatedBy": {"attributes": {"type": "User"}, "Name": "Creator"},
+            "LastModifiedById": "005abc",
+            "LastModifiedBy": {"attributes": {"type": "User"}, "Name": "Modifier"},
+        }
+        base.update(overrides)
+        return base
+
+    def test_non_schema_selected_fields_appear_in_content(self):
+        """Fields in selectedFields but NOT in graph-schema should appear in content.parsedData."""
+        converter = SalesforceConverter(instance_url="https://test.my.salesforce.com")
+        handler = converter.get_handler("Contact")
+        assert handler is not None
+
+        # Simulate the transformer setting the real Graph schema properties
+        # (a small subset — only Id, Name, ObjectName, url, AccountId, Status exist in graph-schema)
+        handler.graph_schema_properties = {"Id", "Name", "ObjectName", "url", "AccountId", "Status"}
+
+        record = self._build_contact_record(
+            Email="anna@example.com",
+            FirstName="Anna",
+            LastName="Smith",
+            Phone="+1-555-1234",
+            Title="Architect",
+        )
+        items = converter.convert({"records": [record]}, object_name="Contact")
+        non_deleted = [i for i in items if i.get("type") != "deleted"]
+        assert len(non_deleted) == 1
+
+        item = non_deleted[0]
+        props = item["properties"]
+        content_value = item.get("content", {}).get("parsedData", "")
+
+        # These ARE in graph-schema → should be in properties
+        assert props.get("Name") == "Test User"
+        assert "ObjectName" in props
+
+        # These are NOT in graph-schema → should NOT be in properties
+        assert "Email" not in props
+        assert "FirstName" not in props
+        assert "LastName" not in props
+        assert "Phone" not in props
+        assert "JobTitle" not in props  # Title maps to JobTitle
+
+        # They SHOULD appear in content.parsedData instead
+        assert "anna@example.com" in content_value
+        assert "Anna" in content_value
+        assert "Smith" in content_value
+        assert "+1-555-1234" in content_value
+        assert "Architect" in content_value
+
+    def test_schema_fields_not_duplicated_in_content(self):
+        """Fields that ARE in the graph-schema should be in properties, NOT in content."""
+        converter = SalesforceConverter(instance_url="https://test.my.salesforce.com")
+        handler = converter.get_handler("Contact")
+        assert handler is not None
+        handler.graph_schema_properties = {"Id", "Name", "ObjectName", "url", "AccountId", "Status"}
+
+        record = self._build_contact_record(Name="Anna Smith")
+        items = converter.convert({"records": [record]}, object_name="Contact")
+        item = [i for i in items if i.get("type") != "deleted"][0]
+
+        assert item["properties"].get("Name") == "Anna Smith"
+        content_value = item.get("content", {}).get("parsedData", "")
+        # Name should NOT appear in content (it's in graph-schema → properties)
+        assert "Name: Anna Smith" not in content_value
+
+    def test_null_non_schema_fields_omitted_from_content(self):
+        """Null-valued non-schema fields should not appear in content."""
+        converter = SalesforceConverter(instance_url="https://test.my.salesforce.com")
+        handler = converter.get_handler("Contact")
+        assert handler is not None
+        handler.graph_schema_properties = {"Id", "Name", "ObjectName", "url"}
+
+        record = self._build_contact_record(Email=None, Phone=None)
+        # Explicitly set to None (simulates Salesforce null return)
+        record["Email"] = None
+        record["Phone"] = None
+        items = converter.convert({"records": [record]}, object_name="Contact")
+        item = [i for i in items if i.get("type") != "deleted"][0]
+        content_value = item.get("content", {}).get("parsedData", "")
+
+        assert "Email" not in content_value
+        assert "Phone" not in content_value
+
+    def test_synthetic_url_and_objecttype_not_in_content(self):
+        """Synthetic 'url' and 'objectType' keys on the record must not leak into content."""
+        converter = SalesforceConverter(instance_url="https://test.my.salesforce.com")
+        handler = converter.get_handler("Contact")
+        assert handler is not None
+        handler.graph_schema_properties = {"Id", "Name", "ObjectName", "url"}
+
+        record = self._build_contact_record()
+        # These are added by api_client before converter sees the record
+        record["url"] = "https://test.my.salesforce.com/003abc"
+        record["objectType"] = "Contact"
+
+        items = converter.convert({"records": [record]}, object_name="Contact")
+        item = [i for i in items if i.get("type") != "deleted"][0]
+        content_value = item.get("content", {}).get("parsedData", "")
+
+        assert "objectType" not in content_value
+        assert "objectType: Contact" not in content_value
+        # url as a standalone content entry should not appear
+        # (url is a schema property set synthetically, not a content field)
+        assert "url: https://" not in content_value
+
+
 # ---------------------------------------------------------------------------
 # _share_table_name from acl_engine
 # ---------------------------------------------------------------------------

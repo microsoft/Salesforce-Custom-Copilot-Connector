@@ -68,9 +68,16 @@ class GroupAclBuilder:
         parent_map: dict[str, tuple[str, str]] | None = None,
         owd_field_map: dict[str, str] | None = None,
         principal_mapper: Any | None = None,
+        use_entity_definition_owd: bool = False,
+        object_names: list[str] | None = None,
     ) -> None:
         self._sf = sf_client
-        self._query_client = IdentityQueryClient(sf_client, owd_field_map=owd_field_map)
+        self._query_client = IdentityQueryClient(
+            sf_client,
+            owd_field_map=owd_field_map,
+            use_entity_definition_owd=use_entity_definition_owd,
+            object_names=object_names,
+        )
         self._owd_overrides = owd_overrides or {}
         self._parent_map = parent_map or {}
         self._principal_mapper = principal_mapper

@@ -121,7 +121,9 @@ def test_identity_sync_skipped_on_incremental(mock_args, _deployment_patches, te
         tuning=test_config.tuning, schema_config=test_config.schema_config,
         owd_field_map=test_config.owd_field_map, parent_map=test_config.parent_map,
         owd_overrides=test_config.owd_overrides,
+        object_names=test_config.object_names,
         use_new_acl_engine=False, use_group_acl=True,
+        use_entity_definition_owd=False,
         debug_object_type=None, debug_item_id=None,
     )
     _deployment_patches["load_config"].return_value = new_config
@@ -143,7 +145,9 @@ def test_identity_sync_runs_on_full(mock_args, _deployment_patches, test_config)
         tuning=test_config.tuning, schema_config=test_config.schema_config,
         owd_field_map=test_config.owd_field_map, parent_map=test_config.parent_map,
         owd_overrides=test_config.owd_overrides,
+        object_names=test_config.object_names,
         use_new_acl_engine=False, use_group_acl=True,
+        use_entity_definition_owd=False,
         debug_object_type=None, debug_item_id=None,
     )
     _deployment_patches["load_config"].return_value = new_config

@@ -291,20 +291,22 @@ class SalesforceObjectHandler:
         property names, performs type coercion, and collects remaining fields
         into the full-text content body.
         """
+        # Use the real Graph schema properties if available; fall back to converter's schema_properties
+        _graph_props = self.graph_schema_properties or schema_properties
+
         props["ObjectName"] = self.object_name
         props["url"] = f"{instance_url}{record['Id']}"
-        if "IconUrl" in schema_properties:
+        if "IconUrl" in _graph_props:
             props["IconUrl"] = self.icon_url
 
         content = Content()
 
         # Collect field mapping trace for debug logging
         # Use the real Graph schema properties if available; fall back to converter's schema_properties
-        _graph_props = self.graph_schema_properties or schema_properties
         _field_mapping: list[tuple[str, str, str, bool]] = []  # (sf_field, graph_property, disposition, in_schema)
         _field_mapping.append(("(object_name)", "ObjectName", "synthetic", "ObjectName" in _graph_props))
         _field_mapping.append(("(instance_url + Id)", "url", "synthetic", "url" in _graph_props))
-        if "IconUrl" in schema_properties:
+        if "IconUrl" in _graph_props:
             _field_mapping.append(("(icon_url)", "IconUrl", "synthetic", "IconUrl" in _graph_props))
 
         for field_key, field_value in record.items():
@@ -313,7 +315,7 @@ class SalesforceObjectHandler:
 
             if field_key in self.selected_fields:
                 property_name = self.selected_fields[field_key]
-                if property_name in schema_properties:
+                if property_name in _graph_props:
                     self._add_schema_property_for_field(
                         props,
                         record,
@@ -321,15 +323,15 @@ class SalesforceObjectHandler:
                         property_name,
                         instance_url,
                     )
-                    _field_mapping.append((field_key, property_name, "selectedFields", property_name in _graph_props))
+                    _field_mapping.append((field_key, property_name, "selectedFields", True))
                     if property_name == CONTENT_FIELD_NAME:
                         raw_value = record.get(field_key)
                         content = Content(raw_value if isinstance(raw_value, str) and raw_value else "")
                 else:
-                    _field_mapping.append((field_key, property_name, "SKIPPED (not in schema)", False))
+                    _field_mapping.append((field_key, property_name, "selectedFields → content", False))
             elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
                 property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
-                if property_name in schema_properties:
+                if property_name in _graph_props:
                     self._add_schema_property_for_field(
                         props,
                         record,
@@ -337,9 +339,9 @@ class SalesforceObjectHandler:
                         property_name,
                         instance_url,
                     )
-                    _field_mapping.append((field_key, property_name, "metadata", property_name in _graph_props))
+                    _field_mapping.append((field_key, property_name, "metadata", True))
                 else:
-                    _field_mapping.append((field_key, property_name, "SKIPPED (not in schema)", False))
+                    _field_mapping.append((field_key, property_name, "metadata → content", False))
             elif field_value is not None and isinstance(field_value, dict):
                 if field_key in self.object_fields:
                     self._add_schema_property_for_object_field(
@@ -366,14 +368,14 @@ class SalesforceObjectHandler:
         if "AccountId" in props:
             props["AccountUrl"] = f"{instance_url}/{props['AccountId']}"
 
-        authors = self._get_authors_source_property(props, schema_properties)
+        authors = self._get_authors_source_property(props, _graph_props)
         if authors:
             props[AUTHORS_SOURCE_PROPERTY] = authors
 
-        if SYSTEM_CREATED_BY_USER_ID in schema_properties and "CreatedById" in record:
+        if SYSTEM_CREATED_BY_USER_ID in _graph_props and "CreatedById" in record:
             props[SYSTEM_CREATED_BY_USER_ID] = str(record["CreatedById"])
 
-        if SYSTEM_MODIFIED_BY_USER_ID in schema_properties and "LastModifiedById" in record:
+        if SYSTEM_MODIFIED_BY_USER_ID in _graph_props and "LastModifiedById" in record:
             props[SYSTEM_MODIFIED_BY_USER_ID] = str(record["LastModifiedById"])
 
         content_parts: list[str] = []
@@ -381,17 +383,17 @@ class SalesforceObjectHandler:
             content_parts.append(content.parsed_data)
 
         for field_key, field_value in record.items():
-            if field_key in {"attributes", "Id"}:
+            if field_key in {"attributes", "Id", "url", "objectType"}:
                 continue
 
             field_in_schema = False
             if field_key in self.selected_fields:
                 property_name = self.selected_fields[field_key]
-                if property_name in schema_properties:
+                if property_name in _graph_props:
                     field_in_schema = True
             elif field_key in METADATA_COLUMN_SCHEMA_MAPPING:
                 property_name = METADATA_COLUMN_SCHEMA_MAPPING[field_key]
-                if property_name in schema_properties:
+                if property_name in _graph_props:
                     field_in_schema = True
 
             if field_in_schema or field_value is None:

@@ -48,6 +48,22 @@ _CONTROLLED_BY_PARENT_VALUES: frozenset[str] = frozenset({
     OWDVisibility.CONTROLLED_BY_LEAD_OR_CONTACT.value,
 })
 
+# ── EntityDefinition.InternalSharingModel → OWDVisibility value mapping ──────
+# EntityDefinition returns different string literals than the Organization table
+# fields.  This dict normalises them to the OWDVisibility values the rest of
+# the engine already understands.
+_ENTITY_DEF_TO_OWD_VALUE: dict[str, str] = {
+    "Private":                    OWDVisibility.PRIVATE.value,
+    "Read":                       OWDVisibility.PUBLIC_READ.value,
+    "ReadSelect":                 OWDVisibility.PUBLIC_READ.value,
+    "ReadWrite":                  OWDVisibility.PUBLIC_READ_WRITE.value,
+    "ReadWriteTransfer":          OWDVisibility.PUBLIC_READ_WRITE_TRANSFER.value,
+    "FullAccess":                 OWDVisibility.ALL.value,
+    "ControlledByParent":         OWDVisibility.CONTROLLED_BY_PARENT.value,
+    "ControlledByCampaign":       OWDVisibility.CONTROLLED_BY_CAMPAIGN.value,
+    "ControlledByLeadOrContact":  OWDVisibility.CONTROLLED_BY_LEAD_OR_CONTACT.value,
+}
+
 
 def _load_owd_field_map(owd_field_map: dict[str, str] | None = None) -> dict[str, str]:
     """
@@ -67,6 +83,18 @@ def _load_owd_field_map(owd_field_map: dict[str, str] | None = None) -> dict[str
 
     logger.debug("[OWD] Loaded owdField map from schema.json: %s", mapping)
     return mapping
+
+
+def _load_object_names(object_names: list[str] | None = None) -> list[str]:
+    """Return all object names from schema.json."""
+    if object_names is not None:
+        return list(object_names)
+    try:
+        from salesforce.settings import build_object_name_list
+        return build_object_name_list()
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("[OWD] Cannot load object names from schema.json: %s", exc)
+        return []
 
 
 class OWDFetcher:
@@ -92,6 +120,8 @@ class OWDFetcher:
         sf_client: SalesforceClient,
         owd_field_map: dict[str, str] | None = None,
         owd_overrides: dict[str, str] | None = None,
+        use_entity_definition_owd: bool = False,
+        object_names: list[str] | None = None,
     ) -> None:
         self._sf = sf_client
         # {objectName → owdField}  e.g. {"Account": "DefaultAccountAccess"}
@@ -100,6 +130,16 @@ class OWDFetcher:
         self._org_owd_cache: Optional[dict[str, str]] = None
         # Optional overrides from config (e.g. {"Account": "Private"})
         self._owd_overrides: dict[str, str] = owd_overrides or {}
+
+        # ── EntityDefinition flight ──────────────────────────────────────────
+        self._use_entity_definition_owd = use_entity_definition_owd
+        # All object names from schema.json (used for the EntityDefinition query)
+        self._object_names: list[str] = _load_object_names(object_names) if use_entity_definition_owd else []
+        # Populated once; {objectName → OWDVisibility value string}
+        self._entity_def_cache: Optional[dict[str, str]] = None
+        self._entity_def_lock: asyncio.Lock = asyncio.Lock()
+        # ── End EntityDefinition flight ──────────────────────────────────────
+
         # asyncio.Lock prevents the thundering-herd problem where hundreds of
         # concurrent coroutines all see _org_owd_cache=None and each fire the
         # same failing OWD query.  Only ONE coroutine primes the cache; the
@@ -114,10 +154,13 @@ class OWDFetcher:
         """
         Return the OWD string for *object_type*.
 
-        For objects with an ``owdField`` in schema.json: fires (once) a single
-        ``SELECT <fields> FROM Organization`` and returns the cached value.
+        When ``use_entity_definition_owd`` is enabled:
+          1. Queries ``EntityDefinition`` for all objects in schema.json (once).
+          2. Maps ``InternalSharingModel`` to the canonical ``OWDVisibility`` value.
+          3. Falls back to the Organisation-table approach for any object not
+             found in the EntityDefinition result set.
 
-        For objects not in schema.json: returns "Private" (safe default).
+        When disabled: behaves exactly as before (Organisation table query).
 
         Parameters
         ----------
@@ -127,25 +170,45 @@ class OWDFetcher:
         -------
         str – one of the OWDVisibility values (e.g. "Private", "Read", …).
         """
-        if object_type not in self._owd_field_map:
-            logger.debug(
-                "[OWD] %s has no owdField in schema.json → defaulting to Private",
-                object_type,
-            )
-            return OWDVisibility.PRIVATE.value
+        owd: Optional[str] = None
 
-        if self._org_owd_cache is None:
-            async with self._prime_lock_async:
-                # Double-check after acquiring the async lock — another coroutine
-                # may have primed the cache while we were waiting.
+        # ── NEW PATH: EntityDefinition ────────────────────────────────────────
+        if self._use_entity_definition_owd:
+            if self._entity_def_cache is None:
+                async with self._entity_def_lock:
+                    if self._entity_def_cache is None:
+                        self._entity_def_cache = await self._prime_entity_definition_cache()
+
+            if object_type in (self._entity_def_cache or {}):
+                owd = self._entity_def_cache[object_type]  # type: ignore[index]
+                logger.debug("[OWD] %s → %s (via EntityDefinition)", object_type, owd)
+            else:
+                logger.debug(
+                    "[OWD] %s not found in EntityDefinition result; falling back to Organization query",
+                    object_type,
+                )
+        # ── END NEW PATH ──────────────────────────────────────────────────────
+
+        # ── OLD PATH (fallback): Organization table ───────────────────────────
+        if owd is None:
+            if object_type not in self._owd_field_map:
+                logger.debug(
+                    "[OWD] %s has no owdField in schema.json → defaulting to Private",
+                    object_type,
+                )
+                owd = OWDVisibility.PRIVATE.value
+            else:
                 if self._org_owd_cache is None:
-                    candidate = await self._prime_org_owd_cache()
-                    with self._prime_lock:
-                        self._org_owd_cache = candidate
+                    async with self._prime_lock_async:
+                        if self._org_owd_cache is None:
+                            candidate = await self._prime_org_owd_cache()
+                            with self._prime_lock:
+                                self._org_owd_cache = candidate
 
-        owd_field = self._owd_field_map[object_type]
-        owd = (self._org_owd_cache or {}).get(object_type, OWDVisibility.PRIVATE.value)
-        logger.debug("[OWD] %s (Organization.%s) → %s", object_type, owd_field, owd)
+                owd_field = self._owd_field_map[object_type]
+                owd = (self._org_owd_cache or {}).get(object_type, OWDVisibility.PRIVATE.value)
+                logger.debug("[OWD] %s (Organization.%s) → %s", object_type, owd_field, owd)
+        # ── END OLD PATH ──────────────────────────────────────────────────────
 
         # ── OWD OVERRIDE (from OWD_OVERRIDES config) ─────────────────────────
         if object_type in self._owd_overrides:
@@ -158,6 +221,69 @@ class OWDFetcher:
 
         return owd
 
+
+    # ── EntityDefinition query (new path) ─────────────────────────────────────
+
+    async def _prime_entity_definition_cache(self) -> dict[str, str]:
+        """
+        Query ``EntityDefinition`` for all objects in schema.json and return a
+        cache dict ``{objectName: OWDVisibility value}``.
+
+        Fires:
+            SELECT QualifiedApiName, InternalSharingModel
+            FROM EntityDefinition
+            WHERE QualifiedApiName IN ('Account', 'Contact', …)
+
+        ``InternalSharingModel`` values are normalised to ``OWDVisibility``
+        string values via ``_ENTITY_DEF_TO_OWD_VALUE``.  Unknown values
+        default to ``Private`` (principle of least privilege).
+        """
+        if not self._object_names:
+            logger.warning("[OWD] No object names available for EntityDefinition query")
+            return {}
+
+        quoted = ", ".join(f"'{name}'" for name in self._object_names)
+        soql = (
+            "SELECT QualifiedApiName, InternalSharingModel "
+            "FROM EntityDefinition "
+            f"WHERE QualifiedApiName IN ({quoted})"
+        )
+        logger.info("[OWD] Fetching OWD via EntityDefinition: %s", soql)
+
+        try:
+            records = await self._sf.query_all(soql, tooling=True)
+        except RuntimeError as exc:
+            logger.warning(
+                "[OWD] EntityDefinition query failed (%s); will fall back to Organization query",
+                exc,
+            )
+            return {}
+
+        cache: dict[str, str] = {}
+        for row in records:
+            api_name: Optional[str] = row.get("QualifiedApiName")
+            raw_model: Optional[str] = row.get("InternalSharingModel")
+            if not api_name:
+                continue
+            owd_value = _ENTITY_DEF_TO_OWD_VALUE.get(
+                raw_model or "", OWDVisibility.PRIVATE.value
+            )
+            cache[api_name] = owd_value
+            logger.info(
+                "[OWD] EntityDefinition: %s → InternalSharingModel='%s' → OWD='%s'",
+                api_name, raw_model, owd_value,
+            )
+
+        # Log objects that were queried but not returned by EntityDefinition
+        missing = set(self._object_names) - set(cache.keys())
+        if missing:
+            logger.warning("[OWD] EntityDefinition returned no rows for: %s", missing)
+
+        logger.info(
+            "[OWD] EntityDefinition cache primed for %d/%d object(s)",
+            len(cache), len(self._object_names),
+        )
+        return cache
 
     # ── Organization query (primes the in-memory cache) ───────────────────────
 

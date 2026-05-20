@@ -31,6 +31,22 @@ logger = logging.getLogger("salesforce_connector.acl_engine.identity")
 # Salesforce limits the number of IDs in an IN clause
 _MAX_IN_CLAUSE_IDS = 50
 
+# ── EntityDefinition.InternalSharingModel → EntityVisibility mapping ─────────
+# EntityDefinition returns different string literals than the Organization table.
+# This dict normalises them to the EntityVisibility values the rest of the
+# group-ACL engine already understands.
+_ENTITY_DEF_TO_VISIBILITY: dict[str, EntityVisibility] = {
+    "Private":                    EntityVisibility.NONE,
+    "Read":                       EntityVisibility.READ,
+    "ReadSelect":                 EntityVisibility.READ,
+    "ReadWrite":                  EntityVisibility.EDIT,
+    "ReadWriteTransfer":          EntityVisibility.READ_EDIT_TRANSFER,
+    "FullAccess":                 EntityVisibility.READ_EDIT_TRANSFER,
+    "ControlledByParent":         EntityVisibility.CONTROLLED_BY_PARENT,
+    "ControlledByCampaign":       EntityVisibility.CONTROLLED_BY_CAMPAIGN,
+    "ControlledByLeadOrContact":  EntityVisibility.CONTROLLED_BY_LEAD_OR_CONTACT,
+}
+
 
 def _share_table_name(object_type: str) -> str:
     """Derive the share table API name for a given sObject type.
@@ -65,6 +81,10 @@ class IdentityQueryClient:
                     the OWD query is built dynamically from this map.  When
                     omitted, falls back to loading from ``config/schema.json``.
     batch_size   : Max IDs per SOQL IN clause (default 50, Salesforce limit).
+    use_entity_definition_owd : When True, query ``EntityDefinition`` for OWD
+                    values before falling back to the Organization table.
+    object_names : All object names from schema.json (used for the
+                    EntityDefinition query).  When omitted, loaded from config.
     """
 
     def __init__(
@@ -72,12 +92,21 @@ class IdentityQueryClient:
         sf_client: SalesforceClient,
         owd_field_map: dict[str, str] | None = None,
         batch_size: int = _MAX_IN_CLAUSE_IDS,
+        use_entity_definition_owd: bool = False,
+        object_names: list[str] | None = None,
     ) -> None:
         self._sf = sf_client
         self._batch_size = batch_size
         self._owd_field_map = owd_field_map if owd_field_map is not None else self._load_owd_field_map()
         self._no_share_table_types: set[str] = set()
         self._invalid_owd_fields: set[str] = set()
+        # ── EntityDefinition flight ──────────────────────────────────────────
+        self._use_entity_definition_owd = use_entity_definition_owd
+        self._object_names: list[str] = (
+            list(object_names) if object_names is not None
+            else self._load_object_names()
+        ) if use_entity_definition_owd else []
+        # ── End EntityDefinition flight ──────────────────────────────────────
 
     @staticmethod
     def _load_owd_field_map() -> dict[str, str]:
@@ -89,34 +118,143 @@ class IdentityQueryClient:
             logger.warning("[IdentityQuery] Could not load owd_field_map from config")
             return {}
 
+    @staticmethod
+    def _load_object_names() -> list[str]:
+        """Fallback: load all object names from config/schema.json."""
+        try:
+            from salesforce.settings import build_object_name_list
+            return build_object_name_list()
+        except Exception:
+            logger.warning("[IdentityQuery] Could not load object names from config")
+            return []
+
     # ── 3.1  Org-Wide Defaults ───────────────────────────────────────────────
 
     async def get_org_wide_defaults(self) -> dict[str, EntityVisibility]:
         """
-        Query OWD settings from the Organization object.
+        Query OWD settings for all configured objects.
 
-        The SELECT field list is built dynamically from ``owd_field_map``
-        (loaded from ``config/schema.json``).  Fields that don't exist on the
-        Organization entity are silently skipped (e.g. ``DefaultUserAccess``).
+        When ``use_entity_definition_owd`` is enabled:
+          1. Queries ``EntityDefinition`` for all objects in schema.json.
+          2. Maps ``InternalSharingModel`` to ``EntityVisibility``.
+          3. Falls back to the Organization-table approach for objects not
+             found in the EntityDefinition result set.
+
+        When disabled: behaves exactly as before (Organization table query).
 
         Returns ``{object_name: EntityVisibility}``.
         """
-        if not self._owd_field_map:
-            logger.warning("[IdentityQuery] No owd_field_map available; returning empty OWD")
+        owd_map: dict[str, EntityVisibility] = {}
+
+        # ── NEW PATH: EntityDefinition ────────────────────────────────────────
+        entity_def_resolved: set[str] = set()
+        if self._use_entity_definition_owd and self._object_names:
+            entity_def_map = await self._fetch_entity_def_owd()
+            owd_map.update(entity_def_map)
+            entity_def_resolved = set(entity_def_map.keys())
+            logger.info(
+                "[IdentityQuery] EntityDefinition resolved %d object(s): %s",
+                len(entity_def_resolved),
+                {k: v.value for k, v in entity_def_map.items()},
+            )
+        # ── END NEW PATH ──────────────────────────────────────────────────────
+
+        # ── OLD PATH (fallback): Organization table ───────────────────────────
+        # Only query for objects NOT already resolved by EntityDefinition
+        remaining_map = {
+            obj: fld for obj, fld in self._owd_field_map.items()
+            if obj not in entity_def_resolved
+        }
+        if remaining_map:
+            org_owd = await self._fetch_org_table_owd(remaining_map)
+            owd_map.update(org_owd)
+        # ── END OLD PATH ──────────────────────────────────────────────────────
+
+        logger.info("[IdentityQuery] OWD map: %s", {k: v.value for k, v in owd_map.items()})
+        return owd_map
+
+    async def _fetch_entity_def_owd(self) -> dict[str, EntityVisibility]:
+        """
+        Query ``EntityDefinition`` for all objects in schema.json and return
+        ``{objectName: EntityVisibility}``.
+
+        Fires:
+            SELECT QualifiedApiName, InternalSharingModel
+            FROM EntityDefinition
+            WHERE QualifiedApiName IN ('Account', 'Contact', …)
+
+        Unknown ``InternalSharingModel`` values default to ``NONE`` (Private).
+        """
+        quoted = ", ".join(f"'{name}'" for name in self._object_names)
+        soql = (
+            "SELECT QualifiedApiName, InternalSharingModel "
+            "FROM EntityDefinition "
+            f"WHERE QualifiedApiName IN ({quoted})"
+        )
+        logger.info("[IdentityQuery] Fetching OWD via EntityDefinition: %s", soql)
+
+        try:
+            result = await self._sf.query(soql, tooling=True)
+            records = result.get("records", [])
+        except Exception as exc:
+            logger.warning(
+                "[IdentityQuery] EntityDefinition query failed (%s); "
+                "will fall back to Organization query",
+                exc,
+            )
+            return {}
+
+        owd_map: dict[str, EntityVisibility] = {}
+        for row in records:
+            api_name = row.get("QualifiedApiName")
+            raw_model = row.get("InternalSharingModel")
+            if not api_name:
+                continue
+            vis = _ENTITY_DEF_TO_VISIBILITY.get(
+                raw_model or "", EntityVisibility.NONE
+            )
+            owd_map[api_name] = vis
+            logger.info(
+                "[IdentityQuery] EntityDefinition: %s → InternalSharingModel='%s' → OWD='%s'",
+                api_name, raw_model, vis.value,
+            )
+
+        # Log objects that were queried but not returned by EntityDefinition
+        missing = set(self._object_names) - set(owd_map.keys())
+        if missing:
+            logger.warning("[IdentityQuery] EntityDefinition returned no rows for: %s", missing)
+
+        logger.info(
+            "[IdentityQuery] EntityDefinition cache: %d/%d object(s)",
+            len(owd_map), len(self._object_names),
+        )
+        return owd_map
+
+    async def _fetch_org_table_owd(
+        self, field_map: dict[str, str],
+    ) -> dict[str, EntityVisibility]:
+        """
+        Query OWD from the Organization table for the given field map.
+
+        This is the original Organization-table implementation, extracted into
+        its own method so it can serve as a fallback when the EntityDefinition
+        path is enabled.
+        """
+        if not field_map:
             return {}
 
         # Validate fields against Organization describe to avoid INVALID_FIELD
         valid_fields = await self._get_org_fields()
         filtered_map = {
-            obj: fld for obj, fld in self._owd_field_map.items()
+            obj: fld for obj, fld in field_map.items()
             if fld in valid_fields
         }
-        skipped = set(self._owd_field_map) - set(filtered_map)
+        skipped = set(field_map) - set(filtered_map)
         if skipped:
-            self._invalid_owd_fields = {self._owd_field_map[obj] for obj in skipped}
+            self._invalid_owd_fields = {field_map[obj] for obj in skipped}
             logger.warning(
                 "[IdentityQuery] Skipping objects with invalid OWD fields on Organization: %s",
-                {obj: self._owd_field_map[obj] for obj in skipped},
+                {obj: field_map[obj] for obj in skipped},
             )
 
         if not filtered_map:
@@ -141,7 +279,6 @@ class IdentityQueryClient:
             raw = record.get(owd_field, "None")
             owd_map[obj_name] = parse_visibility(raw)
 
-        logger.info("[IdentityQuery] OWD map: %s", {k: v.value for k, v in owd_map.items()})
         return owd_map
 
     async def _get_org_fields(self) -> set[str]:

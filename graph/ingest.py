@@ -218,6 +218,8 @@ async def _resolve_acl_new_engine(
             parent_map=config.parent_map,
             owd_overrides=config.owd_overrides,
             max_parent_depth=config.tuning.acl_max_parent_depth,
+            use_entity_definition_owd=config.use_entity_definition_owd,
+            object_names=config.object_names,
         )
         mapper = PrincipalMapper(
             sf_client=sf_client,
@@ -1053,6 +1055,8 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             parent_map=config.parent_map,
             owd_overrides=config.owd_overrides,
             max_parent_depth=config.tuning.acl_max_parent_depth,
+            use_entity_definition_owd=config.use_entity_definition_owd,
+            object_names=config.object_names,
         )
         _new_acl_mapper = PrincipalMapper(
             sf_client=_acl_sf_client,
@@ -1088,6 +1092,8 @@ def ingest_content(config: AppConfig, client: GraphClient, since: datetime | Non
             parent_map=config.parent_map,
             owd_field_map=config.owd_field_map,
             principal_mapper=_grp_principal_mapper,
+            use_entity_definition_owd=config.use_entity_definition_owd,
+            object_names=config.object_names,
         )
         logger.info("Group ACL builder initialised")
         # Pre-fetch OWD map so the dashboard can show ACL types

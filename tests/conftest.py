@@ -33,8 +33,10 @@ def test_config() -> AppConfig:
         owd_field_map=build_owd_field_map(schema),
         parent_map=build_parent_map(schema),
         owd_overrides={},
+        object_names=[obj["objectName"] for obj in schema.get("objectList", []) if "objectName" in obj],
         use_new_acl_engine=False,
         use_group_acl=False,
+        use_entity_definition_owd=False,
         debug_object_type=None,
         debug_item_id=None,
         tuning=TuningSettings(

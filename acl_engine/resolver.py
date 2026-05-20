@@ -123,9 +123,17 @@ class AclResolver:
         parent_map: dict[str, tuple[str, str]] | None = None,
         owd_overrides: dict[str, str] | None = None,
         max_parent_depth: int = _DEFAULT_MAX_PARENT_DEPTH,
+        use_entity_definition_owd: bool = False,
+        object_names: list[str] | None = None,
     ) -> None:
         self._sf = sf_client
-        self._owd_fetcher = OWDFetcher(sf_client, owd_field_map=owd_field_map, owd_overrides=owd_overrides)
+        self._owd_fetcher = OWDFetcher(
+            sf_client,
+            owd_field_map=owd_field_map,
+            owd_overrides=owd_overrides,
+            use_entity_definition_owd=use_entity_definition_owd,
+            object_names=object_names,
+        )
         self._share_fetcher = ShareFetcher(sf_client)
         self._user_handler = UserHandler(sf_client)
         self._group_handler = GroupHandler(sf_client)
