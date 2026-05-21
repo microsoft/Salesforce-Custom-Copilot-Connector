@@ -4,6 +4,28 @@ A Python-based connector that syncs Salesforce CRM data into **Microsoft Search*
 
 ---
 
+## Table of Contents
+
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Logging](#logging)
+- [ACL Resolution](#acl-resolution)
+- [Tuning Parameters](#tuning-parameters)
+- [Running Tests](#running-tests)
+- [Validated Search Queries](#validated-search-queries)
+- [Known Limitations](#known-limitations)
+- [Extending for Production Use](#extending-for-production-use)
+- [Security Considerations](#security-considerations)
+- [FAQ](#faq)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Features
 
 - **Multi-object sync** — Accounts, Contacts, Leads, Opportunities, Cases, and custom objects (e.g. `Customer_Project__c`)
@@ -117,8 +139,8 @@ az login
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-org>/SaleforceCRMCustomConnector.git
-cd SaleforceCRMCustomConnector
+git clone https://github.com/<your-org>/SalesforceCRMCustomConnector.git
+cd SalesforceCRMCustomConnector
 
 # Install dependencies
 pip install -r requirements.txt
@@ -218,7 +240,158 @@ SECRET_AAD_APP_CLIENT_SECRET=<your_entra_app_client_secret>
 
 ### 2. Configure Salesforce objects
 
-Edit `config/schema.json` to define which Salesforce objects and fields to sync. Edit `config/graph-schema.json` to control which fields are searchable/queryable/refinable in Microsoft Search.
+The connector uses **two JSON config files** that work together. Both must be kept in sync — a field listed in one but missing from the other will either not be fetched from Salesforce or not be indexed in Microsoft Search.
+
+#### `config/schema.json` — What to fetch from Salesforce
+
+This file defines **which Salesforce objects and fields** to query via SOQL. The converter reads this at runtime to build queries and map Salesforce field names to Graph property names.
+
+**Structure:**
+
+```json
+{
+  "objectList": [
+    {
+      "objectName": "Account",
+      "owdField": "DefaultAccountAccess",
+      "selectedFields": {
+        "Id": "Id",
+        "Name": "Name",
+        "Industry": "Industry",
+        "Phone": "Phone",
+        "Description": "Description"
+      },
+      "parentObjectName": null,
+      "objectNameAsChild": null,
+      "flsFields": [],
+      "SfColumnTypes": {
+        "Phone": "System.String, mscorlib",
+        "NumberOfEmployees": "System.Int32, mscorlib"
+      }
+    }
+  ]
+}
+```
+
+| Key | Required | Description |
+|-----|:--------:|-------------|
+| `objectName` | Yes | Salesforce API object name (e.g. `Account`, `Case`, `Customer_Project__c`) |
+| `owdField` | Yes | Salesforce Org-Wide Default field name for ACL resolution (e.g. `DefaultAccountAccess`) |
+| `selectedFields` | Yes | Map of `"SalesforceFieldName": "GraphPropertyName"`. Only fields listed here are fetched via SOQL and mapped to Graph schema properties. |
+| `parentObjectName` | No | For child objects (e.g. Opportunity under Account), the parent object's name. Enables parent-child hierarchy and `ControlledByParent` ACL resolution. |
+| `objectNameAsChild` | No | The relationship name used when this object appears as an inline child in the parent's SOQL query (e.g. `Opportunities`). |
+| `flsFields` | No | List of field-level security fields. These are always set to `null` in the Graph item (placeholder for FLS enforcement). |
+| `SfColumnTypes` | No | Map of Salesforce field names to .NET type names for type coercion. Supported types: `System.Boolean`, `System.Double`, `System.DateTime`, `System.Int32`, `System.Int64`, `System.String`. |
+
+#### `config/graph-schema.json` — What to index in Microsoft Search
+
+This file defines the **Graph external connection schema** — the set of properties registered with Microsoft Search. It controls which fields are searchable, queryable, retrievable, and refinable.
+
+**Structure:**
+
+```json
+[
+  {
+    "name": "Name",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": false,
+    "labels": ["title"]
+  },
+  {
+    "name": "Industry",
+    "type": "String",
+    "isSearchable": true,
+    "isQueryable": true,
+    "isRetrievable": true,
+    "isRefinable": true,
+    "labels": []
+  }
+]
+```
+
+| Key | Description |
+|-----|-------------|
+| `name` | Must match the **Graph property name** (the right-hand value in `selectedFields`), not the Salesforce field name. |
+| `type` | `String`, `Int64`, `Double`, `Boolean`, or `dateTime`. |
+| `isSearchable` | Include in full-text search index. Only `String` properties can be searchable. |
+| `isQueryable` | Allow filtering via KQL in search queries (e.g. `ObjectName:Account`). |
+| `isRetrievable` | Return in search result payloads. |
+| `isRefinable` | Allow use as a refiner/facet in search results. |
+| `labels` | Microsoft Search semantic labels (e.g. `title`, `url`, `createdDateTime`, `lastModifiedDateTime`, `authors`, `iconUrl`). |
+
+#### How the two files work together
+
+```
+schema.json                          graph-schema.json
+┌──────────────────────┐             ┌──────────────────────┐
+│ selectedFields:      │             │ name: "Industry"     │
+│   "Industry":        │─── must ──▶│ type: "String"       │
+│     "Industry"       │   match     │ isSearchable: true   │
+└──────────────────────┘             └──────────────────────┘
+   Salesforce SOQL ←─── fetches        Graph API ←─── registers
+```
+
+1. The **right-hand value** in `selectedFields` (e.g. `"Industry"`) must have a matching `name` entry in `graph-schema.json`.
+2. If a field is in `schema.json` but **not** in `graph-schema.json`, the value is still fetched from Salesforce but gets pushed into the item's full-text `content` body instead of being a discrete searchable property.
+3. If a field is in `graph-schema.json` but **not** in any `selectedFields`, it is registered in the Graph schema but never populated — it will always be empty.
+
+#### Auto-generated (synthetic) properties
+
+The converter automatically generates several properties that **do not come from Salesforce fields**. These must be present in `graph-schema.json` for the connector to work correctly:
+
+| Property | Source | Purpose |
+|----------|--------|---------|
+| `ObjectName` | Set to the Salesforce object type (e.g. `Account`, `Case`) | Enables filtering by object type in search queries (`ObjectName:Account`). Must have `isQueryable: true` and `isRefinable: true`. Labelled `itemType`. |
+| `url` | Constructed as `{SALESFORCE_INSTANCE_URL}/{RecordId}` | Direct link to the Salesforce record. Must be labelled `url`. |
+| `IconUrl` | Set from the `iconUrl` value in `schema.json` per object | Icon displayed in search results. Optional — only set if present in the Graph schema. |
+| `AccountUrl` | Constructed as `{SALESFORCE_INSTANCE_URL}/{AccountId}` when `AccountId` is present | Link to the parent account. Auto-generated when the item has an `AccountId` property. |
+| `Authors` | Derived from `CreatedBy.Name` and `LastModifiedBy.Name` | Deduplicated list of author names. Must be labelled `authors` in the schema. |
+
+Additionally, the converter injects metadata columns (`CreatedDate`, `LastModifiedDate`, `Owner.Name`, `CreatedBy.Name`, `LastModifiedBy.Name`, etc.) from every Salesforce record. These are mapped via the built-in `METADATA_COLUMN_SCHEMA_MAPPING` in `item/converter.py` — you do not need to add them to `selectedFields`, but their Graph property names **must** appear in `graph-schema.json` if you want them indexed.
+
+#### Reserved field names in the converter
+
+The following field names are treated specially during conversion and are **skipped** when building item properties:
+
+| Field | Reason |
+|-------|--------|
+| `attributes` | Salesforce metadata envelope (contains `type` and `url`). Used internally to detect the object type but never indexed. |
+| `Id` | Used as the external item ID (the Graph item key). Also mapped to the `Id` schema property if present in `graph-schema.json`. |
+| `IsDeleted` | When `true`, the converter emits a delete operation instead of an upsert. |
+
+#### No code changes needed for most configurations
+
+For the majority of use cases, **no source code changes are required**. The connector is fully config-driven — you only need to:
+
+1. Set up credentials in `env/.env.local` and `env/.env.local.user` (tenant ID, client IDs/secrets for both Graph and Salesforce)
+2. Define your Salesforce objects and fields in `config/schema.json`
+3. Register the corresponding Graph properties in `config/graph-schema.json`
+
+The converter engine handles field mapping, type coercion, metadata injection, nested relationships, address serialisation, and content assembly automatically from these config files.
+
+#### When code changes ARE needed — Item ingestion path
+
+If you need **custom property transformation** beyond what the schema-driven engine provides (e.g. reformatting values, computing derived fields, combining multiple Salesforce fields into one Graph property), the changes are localised to the item ingestion pipeline. Here is the call chain and the specific files to modify:
+
+```
+run.py → commands/deploy.py or commands/ingest.py
+  └── graph/ingest.py :: ingest_content()                    ← orchestrator (fetch → ACL → transform → push)
+        └── salesforce/item_transformer.py :: transform_record()  ← per-record transform
+              └── item/converter.py :: SalesforceConverter.convert()
+                    └── SalesforceObjectHandler._build_item_properties_and_content()  ← core field mapping
+```
+
+| What you need to change | Where to do it |
+|------------------------|----------------|
+| **Custom per-property transforms** (reformat a date, truncate a string, combine fields) | `salesforce/item_transformer.py` → `_build_live_item()` — add logic in the property iteration loop after `normalized_value = self._normalize_schema_value(key, value)` |
+| **New synthetic/computed properties** (a field that doesn't exist in Salesforce but should appear in Graph) | `salesforce/item_transformer.py` → `_build_live_item()` — add to the `properties` dict before the return statement |
+| **Type coercion or field mapping changes** (across all objects) | `item/converter.py` → `SalesforceObjectHandler._build_item_properties_and_content()` — this is where `selectedFields` mappings and `_convert_value()` type coercion happen |
+| **New metadata columns** (additional Salesforce system fields to always fetch) | `item/converter.py` → `METADATA_COLUMNS` list and `METADATA_COLUMN_SCHEMA_MAPPING` dict at the top of the file |
+
+> **Tip:** For most new Salesforce objects or fields, you should **never** need to touch these files. Only modify them when the standard `selectedFields` → `graph-schema.json` mapping is insufficient for your use case.
 
 ### 3. Customise search result template
 
@@ -398,6 +571,55 @@ pytest tests/ -v
 
 ---
 
+## Validated Search Queries
+
+The following queries have been tested against the Salesforce sample data org and confirmed to return correct results through Microsoft Search via this connector. They cover a range of categories including simple lookups, field retrieval, filtered lists, date-based queries, numeric comparisons, aggregations, cross-object joins, and extended objects.
+
+For the full list of 69 validated queries, see [Queries.md](Queries.md).
+
+**Summary by category:**
+
+| Category | Passing Queries |
+|----------|:---------:|
+| List | 5 |
+| Lookup | 5 |
+| Field | 10 |
+| Filter | 13 |
+| Date | 9 |
+| Numeric | 7 |
+| Aggregation | 11 |
+| Cross-object | 8 |
+| Extended object / FeedItem / OpportunityLineItem / Order / Quote | 5 |
+
+**Example queries:**
+
+```
+Show me the top 50 open opportunities.
+What stage is the Dickenson Mobile Generators opportunity in?
+Which opportunities are in the Closed Won stage?
+What opportunities are closing in April 2026?
+Which opportunities have an amount over $200,000?
+What is the total value of all closed won opportunities?
+Give me a customer briefing for Grand Hotels — their open deals, cases, and contacts.
+```
+
+**Salesforce objects covered:**
+
+| Object | Standard / Custom | Queries |
+|--------|:-----------------:|:-------:|
+| Account | Standard | 15 |
+| Contact | Standard | 10 |
+| Opportunity | Standard | 24 |
+| Case | Standard | 7 |
+| Lead | Standard | 7 |
+| Campaign | Standard | 1 |
+| FeedItem | Standard | 1 |
+| OpportunityLineItem | Standard | 1 |
+| Order | Standard | 1 |
+| Quote | Standard | 1 |
+
+---
+
 ## Known Limitations
 
 This connector is a **reference implementation / starter project**. It demonstrates how to bridge Salesforce CRM data into Microsoft Search but has several limitations you should be aware of before running it in production.
@@ -489,10 +711,7 @@ This ensures that hard-deleted records don't remain searchable indefinitely.
 
 ### 3. Add New Salesforce Objects
 
-1. Add an entry to the `objectList` array in `config/schema.json` with `objectName`, `selectedFields`, `owdField`, and optional `parentObjectName` / `filterCondition`.
-2. Add corresponding property definitions in `config/graph-schema.json`.
-3. If the object has a custom sharing model, update `salesforce/sharing_model.py` with the appropriate `ORDERED_OBJECT_NAMES` entry.
-4. Test with `python run.py single-object YourObject__c`.
+See [Configure Salesforce objects](#2-configure-salesforce-objects) for the full walkthrough on editing `config/schema.json` and `config/graph-schema.json`. After adding the new object, test with `python run.py single-object YourObject__c`.
 
 ### 4. Integrate Secrets Management
 
