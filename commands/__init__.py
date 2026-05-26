@@ -43,6 +43,7 @@ from .ingest_item import cmd_ingest_item
 from .ingest_object import cmd_ingest_object
 from .identity_dry_run import cmd_identity_dry_run
 from .setup_connection import cmd_setup_connection
+from .retry_failed import cmd_retry_failed
 
 
 # ---------------------------------------------------------------------------
@@ -391,5 +392,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_identity.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
     p_identity.set_defaults(func=cmd_identity_dry_run)
+
+    # retry-failed
+    p_retry = subparsers.add_parser(
+        "retry-failed",
+        help="Re-ingest every item recorded in the dead-letter failed_records file",
+    )
+    p_retry.add_argument(
+        "--clear-on-success",
+        action="store_true",
+        default=False,
+        help="Delete the dead-letter file after all retries succeed.",
+    )
+    p_retry.add_argument("--verbose", action="store_true", default=False, help="Print all INFO+ logs to console.")
+    p_retry.set_defaults(func=cmd_retry_failed)
 
     return parser

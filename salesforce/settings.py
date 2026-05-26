@@ -263,7 +263,7 @@ def load_config() -> AppConfig:
             schema=load_graph_schema(),
             template=load_template(),
             salesforce=SalesforceSettings(
-                instance_url=_require_env("SALESFORCE_INSTANCE_URL"),
+                instance_url=_require_env("SALESFORCE_INSTANCE_URL").rstrip("/"),
                 api_version=_require_env("SALESFORCE_API_VERSION"),
                 client_id=_require_env("SALESFORCE_CLIENT_ID"),
                 client_secret=_require_env("SALESFORCE_CLIENT_SECRET"),

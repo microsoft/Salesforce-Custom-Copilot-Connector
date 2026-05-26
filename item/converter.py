@@ -55,30 +55,6 @@ LAST_MODIFIED_BY_SOURCE_PROPERTY = "LastModifiedBy"
 SYSTEM_CREATED_BY_USER_ID = "__System.User.CreatedBy.Id"
 SYSTEM_MODIFIED_BY_USER_ID = "__System.User.ModifiedBy.Id"
 
-# Zero GUID used as the entraId placeholder when no Entra identity mapping exists.
-_ZERO_GUID = "00000000-0000-0000-0000-000000000000"
-
-
-def _build_principal_dict(external_name: str, external_id: str) -> dict[str, Any]:
-    """Return a full principal dict with all Graph principal fields.
-
-    Entra-specific fields (entraDisplayName, entraId, email, upn, tenantId) are
-    populated later by the ACL / identity engine once a Salesforce user is mapped
-    to an Entra identity.  Until then:
-    - string fields are set to ``None``
-    - ``entraId`` is set to the zero GUID so the Graph API always receives a
-      valid GUID rather than ``null``.
-    """
-    return {
-        "externalName": external_name,
-        "externalId": external_id,
-        "entraDisplayName": None,
-        "entraId": _ZERO_GUID,
-        "email": None,
-        "upn": None,
-        "tenantId": None,
-    }
-
 METADATA_COLUMNS = [
     #"Id",
     "LastModifiedDate",
@@ -181,8 +157,6 @@ class SalesforceObjectHandler:
         self.fls_fields: set[str] = set(sf_object_config.get("flsFields", []))
         # Set externally by the transformer to reflect the actual Graph schema properties
         self.graph_schema_properties: set[str] | None = None
-        # Set externally by the transformer: maps property name → Graph schema type (e.g. "Principal")
-        self.graph_schema_property_types: dict[str, str] | None = None
 
         raw_types: dict[str, str] = sf_object_config.get("SfColumnTypes", {})
         self.field_data_types: dict[str, str] = {}
@@ -394,23 +368,9 @@ class SalesforceObjectHandler:
         if "AccountId" in props:
             props["AccountUrl"] = f"{instance_url}/{props['AccountId']}"
 
-        # Build Authors first, while CreatedBy/LastModifiedBy are still plain name strings.
-        authors = self._get_authors_source_property(props, _graph_props, record)
+        authors = self._get_authors_source_property(props, _graph_props)
         if authors:
             props[AUTHORS_SOURCE_PROPERTY] = authors
-
-        # Promote any string property to a principal dict where the schema declares Principal type.
-        # Runs after Authors so it doesn't stringify already-promoted dicts.
-        # Uses Salesforce naming convention: the ID field for a property named X is X + "Id" on the record.
-        _prop_types = self.graph_schema_property_types or {}
-        for prop_name in list(props.keys()):
-            if (
-                isinstance(props[prop_name], str)
-                and _prop_types.get(prop_name) == "Principal"
-            ):
-                id_field = f"{prop_name}Id"
-                external_id = str(record.get(id_field)) if record.get(id_field) else ""
-                props[prop_name] = _build_principal_dict(props[prop_name], external_id)
 
         if SYSTEM_CREATED_BY_USER_ID in _graph_props and "CreatedById" in record:
             props[SYSTEM_CREATED_BY_USER_ID] = str(record["CreatedById"])
@@ -576,34 +536,21 @@ class SalesforceObjectHandler:
     def _get_authors_source_property(
         props: dict[str, Any],
         schema_properties: set[str],
-        record: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]] | None:
-        """Return a list of principal dicts from CreatedBy/LastModifiedBy (no deduplication)."""
+    ) -> list[str] | None:
+        """Return a deduplicated list of author names from CreatedBy/LastModifiedBy."""
         if AUTHORS_SOURCE_PROPERTY not in schema_properties:
             return None
 
-        authors: list[dict[str, Any]] = []
+        authors: set[str] = set()
+        created_by = props.get(CREATED_BY_SOURCE_PROPERTY)
+        if created_by:
+            authors.add(str(created_by))
 
-        entries = [
-            (
-                props.get(CREATED_BY_SOURCE_PROPERTY),
-                record.get("CreatedById") if record else None,
-            ),
-            (
-                props.get(LAST_MODIFIED_BY_SOURCE_PROPERTY),
-                record.get("LastModifiedById") if record else None,
-            ),
-        ]
+        last_modified_by = props.get(LAST_MODIFIED_BY_SOURCE_PROPERTY)
+        if last_modified_by:
+            authors.add(str(last_modified_by))
 
-        for name, user_id in entries:
-            if not name and not user_id:
-                continue
-            authors.append(_build_principal_dict(
-                str(name) if name else "",
-                str(user_id) if user_id else "",
-            ))
-
-        return authors if authors else None
+        return list(authors) if authors else None
 
 
 def build_handlers_from_config(
