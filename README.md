@@ -229,6 +229,9 @@ USE_GROUP_ACL=true
 # Force specific object OWD values for testing (JSON object, e.g. {"Account":"Private"})
 # Leave empty or omit to use real Salesforce OWD values
 OWD_OVERRIDES=
+
+# Flag to enable retrieving OWD from Entity Definition table
+USE_ENTITY_DEFINITION_OWD=true
 ```
 
 Create `env/.env.local.user` for secrets:
@@ -390,6 +393,7 @@ run.py → commands/deploy.py or commands/ingest.py
 | **New synthetic/computed properties** (a field that doesn't exist in Salesforce but should appear in Graph) | `salesforce/item_transformer.py` → `_build_live_item()` — add to the `properties` dict before the return statement |
 | **Type coercion or field mapping changes** (across all objects) | `item/converter.py` → `SalesforceObjectHandler._build_item_properties_and_content()` — this is where `selectedFields` mappings and `_convert_value()` type coercion happen |
 | **New metadata columns** (additional Salesforce system fields to always fetch) | `item/converter.py` → `METADATA_COLUMNS` list and `METADATA_COLUMN_SCHEMA_MAPPING` dict at the top of the file |
+| **Principal / PrincipalCollection property with no 1-to-1 Salesforce mapping** | `item/converter.py` → `SalesforceObjectHandler._build_item_properties_and_content()` — explicitly construct the principal dict: `props["MyProperty"] = {"externalName": record.get("MyUser.Name") or "", "externalId": record.get("MyUserId") or ""}`. Ensure both Salesforce fields are in `selectedFields` in `config/schema.json`. The `@odata.type` annotation is injected automatically by `salesforce/item_transformer.py` → `_normalize_schema_value()` as long as `MyProperty` is declared as `Principal` or `PrincipalCollection` in `config/graph-schema.json` — no transformer change needed. |
 
 > **Tip:** For most new Salesforce objects or fields, you should **never** need to touch these files. Only modify them when the standard `selectedFields` → `graph-schema.json` mapping is insufficient for your use case.
 
@@ -440,6 +444,9 @@ python run.py ingest-item --id 500f6000008iCNYAA2
 
 # Debug: ingest all records of one object type
 python run.py ingest-object --type Case
+
+# Ingest failed items only
+python run.py retry-failed --file logs\failed_records_VerifyOdata2605.jsonl
 ```
 
 ### After a Crash
