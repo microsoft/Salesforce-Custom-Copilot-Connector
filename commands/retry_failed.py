@@ -11,6 +11,7 @@ once all retries pass.
 Usage::
 
     python run.py retry-failed
+    python run.py retry-failed --file logs/failed_records_MyConnector.jsonl
     python run.py retry-failed --verbose
     python run.py retry-failed --clear-on-success
 """
@@ -18,12 +19,13 @@ Usage::
 import logging
 import time
 from dataclasses import replace
+from pathlib import Path
 
 from graph.connection import is_connection_ready
 from graph.client import GraphClient
 from graph.ingest import ingest_content, IngestionStats
 from salesforce.settings import load_config
-from config.sync_state import read_failed_records, clear_failed_records
+from config.sync_state import read_failed_records, clear_failed_records, failed_records_path
 
 
 def cmd_retry_failed(args) -> None:
@@ -47,10 +49,34 @@ def cmd_retry_failed(args) -> None:
         config = load_config()
         connector_id = config.connector.id
 
+        # ── Resolve dead-letter file path ────────────────────────────────────
+        explicit_file = getattr(args, "file", None)
+        if explicit_file:
+            dl_path = Path(explicit_file)
+            if not dl_path.is_absolute():
+                dl_path = Path.cwd() / dl_path
+        else:
+            dl_path = failed_records_path(connector_id)
+
+        logger.info("  Dead-letter file: %s", dl_path)
+
         # ── Read dead-letter file ────────────────────────────────────────────
-        failed_entries = read_failed_records(connector_id)
+        if not dl_path.exists():
+            logger.info("✓ No dead-letter file found at %s — nothing to retry.", dl_path)
+            progress.info("No failed records to retry.")
+            elapsed = time.monotonic() - start_time
+            write_summary(summary_file, log_file, stats, "N/A", connector_id, elapsed, label)
+            return
+
+        import json
+        failed_entries: list[dict] = []
+        with open(dl_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    failed_entries.append(json.loads(line))
         if not failed_entries:
-            logger.info("✓ No failed records found in logs/failed_records_%s.jsonl — nothing to retry.", connector_id)
+            logger.info("✓ Dead-letter file is empty — nothing to retry.")
             progress.info("No failed records to retry.")
             elapsed = time.monotonic() - start_time
             write_summary(summary_file, log_file, stats, "N/A", connector_id, elapsed, label)
@@ -65,7 +91,6 @@ def cmd_retry_failed(args) -> None:
         unique_entries = list(seen.values())
 
         logger.info("  Connector ID: %s", connector_id)
-        logger.info("  Failed records file: logs/failed_records_%s.jsonl", connector_id)
         logger.info("  Items to retry: %d (%d total entries, %d duplicates removed)",
                     len(unique_entries), len(failed_entries), len(failed_entries) - len(unique_entries))
         progress.info("Found %d unique item(s) to retry.", len(unique_entries))
@@ -115,6 +140,9 @@ def cmd_retry_failed(args) -> None:
                 stats.failed_count += item_stats.failed_count
                 stats.deleted_count += item_stats.deleted_count
                 stats.total_fetched += item_stats.total_fetched
+                # Reflect the actual ACL engine used (set from the first item that runs).
+                if stats.acl_engine == "LEGACY" and item_stats.acl_engine != "LEGACY":
+                    stats.acl_engine = item_stats.acl_engine
                 if item_stats.failed_count:
                     all_success = False
                     logger.warning("  ✗ %s still failed after retry", item_id)
@@ -127,7 +155,7 @@ def cmd_retry_failed(args) -> None:
 
         # ── Optionally clear the dead-letter file ────────────────────────────
         if all_success and getattr(args, "clear_on_success", False):
-            clear_failed_records(connector_id)
+            dl_path.unlink(missing_ok=True)
             logger.info("✓ Dead-letter file cleared (all retries succeeded).")
         elif getattr(args, "clear_on_success", False) and not all_success:
             logger.warning("Some items still failed — dead-letter file NOT cleared.")

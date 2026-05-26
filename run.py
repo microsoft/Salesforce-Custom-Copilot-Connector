@@ -37,6 +37,7 @@ Examples:
     python run.py ingest-item --id 001dN00000sh4neQAA --object-type Account
     python run.py ingest-object --type Case
     python run.py retry-failed
+    python run.py retry-failed --file logs/failed_records_MyConnector.jsonl
     python run.py retry-failed --clear-on-success
     python run.py identity-dry-run --verbose
     python run.py identity-dry-run --save --verbose

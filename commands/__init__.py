@@ -399,6 +399,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-ingest every item recorded in the dead-letter failed_records file",
     )
     p_retry.add_argument(
+        "--file",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to the dead-letter JSONL file to retry "
+            "(default: logs/failed_records_<connector_id>.jsonl)."
+        ),
+    )
+    p_retry.add_argument(
         "--clear-on-success",
         action="store_true",
         default=False,
