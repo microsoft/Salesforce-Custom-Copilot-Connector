@@ -11,6 +11,7 @@ COLLECTION_SCHEMA_TO_ODATA_TYPE = {
     "DoubleCollection": "Double",
     "BooleanCollection": "Boolean",
     "DateTimeCollection": "DateTime",
+    "PrincipalCollection": "Principal",
 }
 
 def _fallback_acl() -> list[dict[str, str]]:

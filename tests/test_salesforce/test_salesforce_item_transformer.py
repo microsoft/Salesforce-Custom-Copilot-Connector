@@ -107,3 +107,23 @@ def test_collection_types_get_odata_annotation(mock_converter_cls, schema):
     props = result[0]["properties"]
     assert "Tags@odata.type" in props
     assert props["Tags@odata.type"] == "Collection(String)"
+
+
+@patch("salesforce.item_transformer.SalesforceConverter")
+def test_principal_collection_gets_odata_annotation(mock_converter_cls):
+    schema = [
+        {"name": "Url", "type": "String"},
+        {"name": "ObjectName", "type": "String"},
+        {"name": "Authors", "type": "PrincipalCollection"},
+    ]
+    mock_converter = mock_converter_cls.return_value
+    mock_converter.object_names = ["Account"]
+    mock_converter.get_handler.return_value = None
+    mock_converter.convert.return_value = [
+        {"id": "001", "properties": {"Url": "https://sf.com/001", "Authors": ["user1", "user2"]}, "content": {}}
+    ]
+    t = SalesforceItemTransformer("https://test.my.salesforce.com", schema)
+    result = t.transform_record({"Id": "001", "objectType": "Account", "url": "https://sf.com/001"})
+    props = result[0]["properties"]
+    assert "Authors@odata.type" in props
+    assert props["Authors@odata.type"] == "Collection(Principal)"
