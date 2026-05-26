@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from salesforce.item_transformer import SalesforceItemTransformer, _fallback_acl, COLLECTION_SCHEMA_TO_ODATA_TYPE
+from salesforce.item_transformer import SalesforceItemTransformer, _fallback_acl, COLLECTION_SCHEMA_TO_ODATA_TYPE, PRINCIPAL_ODATA_TYPE
 
 
 @pytest.fixture
@@ -120,10 +120,78 @@ def test_principal_collection_gets_odata_annotation(mock_converter_cls):
     mock_converter.object_names = ["Account"]
     mock_converter.get_handler.return_value = None
     mock_converter.convert.return_value = [
-        {"id": "001", "properties": {"Url": "https://sf.com/001", "Authors": ["user1", "user2"]}, "content": {}}
+        {"id": "001", "properties": {"Url": "https://sf.com/001", "Authors": [{"externalName": "user1", "externalId": "id1"}, {"externalName": "user2", "externalId": "id2"}]}, "content": {}}
     ]
     t = SalesforceItemTransformer("https://test.my.salesforce.com", schema)
     result = t.transform_record({"Id": "001", "objectType": "Account", "url": "https://sf.com/001"})
     props = result[0]["properties"]
     assert "Authors@odata.type" in props
-    assert props["Authors@odata.type"] == "Collection(Principal)"
+    assert props["Authors@odata.type"] == "Collection(microsoft.graph.externalConnectors.principal)"
+    # each principal dict gets @odata.type injected
+    assert props["Authors"][0]["@odata.type"] == PRINCIPAL_ODATA_TYPE
+    assert props["Authors"][0]["externalId"] == "id1"
+    assert props["Authors"][1]["@odata.type"] == PRINCIPAL_ODATA_TYPE
+    assert props["Authors"][1]["externalId"] == "id2"
+
+
+@patch("salesforce.item_transformer.SalesforceConverter")
+def test_principal_collection_items_get_odata_type_injected(mock_converter_cls):
+    schema = [
+        {"name": "Url", "type": "String"},
+        {"name": "ObjectName", "type": "String"},
+        {"name": "Assignees", "type": "PrincipalCollection"},
+    ]
+    mock_converter = mock_converter_cls.return_value
+    mock_converter.object_names = ["Account"]
+    mock_converter.get_handler.return_value = None
+    mock_converter.convert.return_value = [
+        {
+            "id": "001",
+            "properties": {
+                "Url": "https://sf.com/001",
+                "Assignees": [
+                    {"entraId": "aaa", "upn": "a@test.com"},
+                    {"@odata.type": PRINCIPAL_ODATA_TYPE, "entraId": "bbb", "upn": "b@test.com"},
+                ],
+            },
+            "content": {},
+        }
+    ]
+    t = SalesforceItemTransformer("https://test.my.salesforce.com", schema)
+    result = t.transform_record({"Id": "001", "objectType": "Account", "url": "https://sf.com/001"})
+    assignees = result[0]["properties"]["Assignees"]
+    # @odata.type injected where missing
+    assert assignees[0]["@odata.type"] == PRINCIPAL_ODATA_TYPE
+    assert assignees[0]["entraId"] == "aaa"
+    # @odata.type preserved when already present
+    assert assignees[1]["@odata.type"] == PRINCIPAL_ODATA_TYPE
+    assert assignees[1]["entraId"] == "bbb"
+
+
+@patch("salesforce.item_transformer.SalesforceConverter")
+def test_single_principal_gets_odata_type_injected(mock_converter_cls):
+    schema = [
+        {"name": "Url", "type": "String"},
+        {"name": "ObjectName", "type": "String"},
+        {"name": "CreatedBy", "type": "Principal"},
+    ]
+    mock_converter = mock_converter_cls.return_value
+    mock_converter.object_names = ["Account"]
+    mock_converter.get_handler.return_value = None
+    mock_converter.convert.return_value = [
+        {
+            "id": "001",
+            "properties": {
+                "Url": "https://sf.com/001",
+                "CreatedBy": {"entraId": "b671a5be", "upn": "alex@contoso.com"},
+            },
+            "content": {},
+        }
+    ]
+    t = SalesforceItemTransformer("https://test.my.salesforce.com", schema)
+    result = t.transform_record({"Id": "001", "objectType": "Account", "url": "https://sf.com/001"})
+    created_by = result[0]["properties"]["CreatedBy"]
+    assert created_by["@odata.type"] == PRINCIPAL_ODATA_TYPE
+    assert created_by["entraId"] == "b671a5be"
+    # single Principal should NOT produce a collection annotation
+    assert "CreatedBy@odata.type" not in result[0]["properties"]

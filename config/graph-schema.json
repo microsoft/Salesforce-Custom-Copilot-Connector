@@ -1,718 +1,1000 @@
 [
- {
-    "name": "title",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": false,
-    "isRefinable": false,
-    "labels": []
-  },
- {
-    "name": "url",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "isRefinable": false,
-    "labels": [
-      "url"
-    ]
-  },
   {
     "name": "Id",
     "type": "String",
     "isSearchable": true,
-    "isQueryable": true,
     "isRetrievable": true,
+    "isQueryable": true,
     "isRefinable": false,
-    "labels": ["secondaryId"]
+    "aliases": [],
+    "labels": [],
+    "description": "Unique Salesforce record identifier (18-char). Maps to the external item ID in the Graph connection. Not displayed to users directly."
   },
-{
+  {
+    "name": "Url",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "url"
+    ],
+    "description": "Direct URL to open the record in Salesforce. Enables deep-linking from search results and Copilot cards."
+  },
+  {
+    "name": "IconUrl",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "iconUrl"
+    ],
+    "description": "URL to the object-type icon asset displayed on search result cards (e.g. Account icon, Case icon)."
+  },
+  {
     "name": "ObjectName",
     "type": "String",
-    "isSearchable": false,
-    "isQueryable": true,
+    "isSearchable": true,
     "isRetrievable": true,
-    "isRefinable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
     "labels": [
       "itemType"
-    ]
-  },
-  {
-    "name": "AccountId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the customer account for this case or work order."
-  },
-  {
-    "name": "ActualReceivedPON",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The purchase order number on the received RMA shipment."
-  },
-  {
-    "name": "ActualReceivedSerialNumber",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The serial number on the received RMA hardware."
-  },
-  {
-    "name": "AssetId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the network asset linked to this work order or line item."
-  },
-  {
-    "name": "AssignedTime",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date and time the service appointment was assigned to an engineer."
-  },
-  {
-    "name": "Case",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The case name or reference linked to this RMA line item."
-  },
-  {
-    "name": "CaseId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the case linked to this RMA line item or work order."
-  },
-  {
-    "name": "CaseNumber",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "City",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The city where the work order or line item service is located."
-  },
-  {
-    "name": "ClosedDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [
-      "closedDate"
-    ]
-  },
-  {
-    "name": "ContactEmail",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The email address of the customer contact on the case."
-  },
-  {
-    "name": "ContactId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the customer contact on the case or work order."
-  },
-  {
-    "name": "ContactPhone",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The phone number of the customer contact on the case."
-  },
-  {
-    "name": "Country",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "isRefinable": true,
-    "description": "The country where the work order or line item service is located."
-  },
-  {
-    "name": "CustomerAlternateEmail",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The alternate email for the RMA line item customer."
-  },
-  {
-    "name": "CustomerEmail",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The primary email of the RMA line item customer."
-  },
-  {
-    "name": "DateReceivedFromCustomer",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date RMA hardware was received from the customer."
-  },
-  {
-    "name": "DateShipToCustomer",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date RMA hardware was shipped back to the customer."
-  },
-  {
-    "name": "Description",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "Discount",
-    "type": "Double",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The discount applied to the work order or work order line item."
-  },
-  {
-    "name": "DispatchedTime",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date and time the field engineer was dispatched."
-  },
-  {
-    "name": "DueDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [
-      "dueDate"
-    ]
-  },
-  {
-    "name": "Duration",
-    "type": "Double",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The duration of the work order or line item."
-  },
-  {
-    "name": "DurationType",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The unit of measurement for duration, such as hours or days."
-  },
-  {
-    "name": "EndDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The end date of the work order or work order line item."
-  },
-  {
-    "name": "EngineerEmail",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The email of the field engineer on the service appointment."
-  },
-  {
-    "name": "EngineerName",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The name of the field engineer on the case or service appointment."
-  },
-  {
-    "name": "EngineerPhone",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The phone number of the field engineer."
-  },
-  {
-    "name": "ExpectedShipDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The expected date for RMA hardware to be shipped."
-  },
-  {
-    "name": "FLMOnTime",
-    "type": "boolean",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "Whether first level maintenance was completed within SLA."
-  },
-  {
-    "name": "FMARequested",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "isRefinable": true,
-    "description": "Whether a failure mode analysis was requested."
-  },
-  {
-    "name": "FailureMode",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "isRefinable": true,
-    "description": "The identified hardware failure mode or root cause category."
-  },
-  {
-    "name": "GrandTotal",
-    "type": "Double",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The grand total monetary value of the work order."
-  },
-  {
-    "name": "HRRType",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The type of hardware return request for this RMA line item."
-  },
-  {
-    "name": "IsClosed",
-    "type": "boolean",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "Whether this case, work order, or line item has been closed."
-  },
-  {
-    "name": "IsEscalated",
-    "type": "boolean",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "Whether this case has been escalated."
-  },
-  {
-    "name": "LineItemCount",
-    "type": "Int64",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The number of line items in the work order."
-  },
-  {
-    "name": "LineItemNumber",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The line item reference number within the work order."
-  },
-  {
-    "name": "Name",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": ["title"],
-    "description": "The name or record identifier of the RMA line item or service appointment."
-  },
-  {
-    "name": "OnSiteArrivalTime",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date and time the engineer arrived on site."
-  },
-  {
-    "name": "OnSiteDepartTime",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The date and time the engineer departed the site."
-  },
-  {
-    "name": "OrderId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the order for this work order line item."
-  },
-  {
-    "name": "Origin",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "isRefinable": true,
-    "description": "The channel through which the case was created."
-  },
-  {
-    "name": "ParentId",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the parent case."
-  },
-  {
-    "name": "Priority",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [
-      "priority"
     ],
-    "isRefinable": true
-  },
-  {
-    "name": "Product2Id",
-    "type": "String",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the product on the work order line item."
-  },
-  {
-    "name": "Quantity",
-    "type": "Double",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The quantity of items on the work order line item."
-  },
-  {
-    "name": "Reason",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "isRefinable": true,
-    "description": "The reason the case was created or the root cause."
-  },
-  {
-    "name": "RequestedStartTime",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The customer requested start time for the service."
-  },
-  {
-    "name": "ResolutionSummary",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": []
-  },
-  {
-    "name": "SLAFailureReason",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The reason the SLA was not met."
-  },
-  {
-    "name": "SLAStatus",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "isRefinable": true,
-    "description": "The SLA compliance status of the service appointment."
-  },
-  {
-    "name": "StartDate",
-    "type": "dateTime",
-    "isSearchable": false,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The start date of the work order or line item."
-  },
-  {
-    "name": "Status",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [
-      "state"
-    ],
-    "isRefinable": true
-  },
-  {
-    "name": "StatusCategory",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "isRefinable": true,
-    "description": "The high-level status grouping of the record."
-  },
-  {
-    "name": "Street",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The street address where the service is located."
-  },
-  {
-    "name": "Subject",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The subject line or brief summary of the case, work order, or line item."
-  },
-  {
-    "name": "Subtotal",
-    "type": "Double",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The subtotal value of the work order before discounts."
-  },
-  {
-    "name": "TimeOnSite",
-    "type": "Double",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The total time in hours the engineer spent on site."
-  },
-  {
-    "name": "TotalPrice",
-    "type": "Double",
-    "isSearchable": false,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The total price of the work order line item."
+    "description": "CRM object type name (Account, Contact, Lead, Opportunity, Case). Used as the primary entity-type filter and for the itemType semantic label."
   },
   {
     "name": "Type",
     "type": "String",
     "isSearchable": true,
-    "isQueryable": true,
     "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
     "labels": [],
-    "description": "The classification type of the case."
+    "description": "Record sub-classification within an object (e.g. 'Customer', 'Partner' for Account; 'Problem', 'Question' for Case). Null for Lead and Contact."
   },
   {
-    "name": "UnitPrice",
+    "name": "Source",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Marketing/lead attribution source indicating how the record entered the pipeline (e.g. 'Web', 'Phone Inquiry', 'Partner Referral'). Merges AccountSource, LeadSource, and Origin."
+  },
+  {
+    "name": "Number",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "secondaryId"
+    ],
+    "description": "The number assigned to an Account or Case. For Account this is the customer/vendor AccountNumber; for Case this is the auto-generated CaseNumber. Contains null if the record is not an Account or Case."
+  },
+  {
+    "name": "Name",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "title"
+    ],
+    "description": "Primary display name of the record (e.g. account company name, contact full name, opportunity deal name, case subject). Mapped to the 'title' semantic label for search result rendering."
+  },
+  {
+    "name": "Owner",
+    "type": "Principal",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "assignedToPeople"
+    ],
+    "description": "The user who owns this record, resolved as a Principal type carrying both display name and profile URL. Enables queries like 'show my leads' or 'leads owned by Alice'."
+  },
+  {
+    "name": "CreatedBy",
+    "type": "Principal",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "createdBy"
+    ],
+    "description": "The user who created this record, resolved as a Principal type. Semantic label 'createdBy' enables platform-native 'created by' filtering in Microsoft Search."
+  },
+  {
+    "name": "CreatedDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": true,
+    "aliases": [],
+    "labels": [
+      "createdDateTime"
+    ],
+    "description": "Timestamp when the record was created. Enables time-based queries like 'cases opened this week' or 'leads created last month'. Semantic label 'createdDateTime'."
+  },
+  {
+    "name": "LastModifiedBy",
+    "type": "Principal",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "lastModifiedBy"
+    ],
+    "description": "The user who last modified this record, resolved as a Principal type. Semantic label 'lastModifiedBy' for platform audit features."
+  },
+  {
+    "name": "LastModifiedDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": true,
+    "aliases": [],
+    "labels": [
+      "lastModifiedDateTime"
+    ],
+    "description": "Timestamp of the most recent modification to the record. Enables recency-based queries like 'recently updated opportunities'. Semantic label 'lastModifiedDateTime'."
+  },
+  {
+    "name": "AccountName",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Name of the related Account record. For Lead, only populated after conversion (null for unconverted leads). Enables queries like 'find contacts at Acme Corp'."
+  },
+  {
+    "name": "AccountId",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Salesforce ID of the related Account record. Enables relationship traversal across objects. For Lead, only populated after conversion (null for unconverted leads)."
+  },
+  {
+    "name": "ContactName",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Full contact name. For Contact and Lead, computed from Salutation + FirstName + LastName. For Opportunity and Case, the related Contact's name. Null for Account."
+  },
+  {
+    "name": "ContactId",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Salesforce ID of the related Contact record. For Lead, maps from ConvertedContactId (null for unconverted leads). Null for Account and Contact itself. Enables cross-object relationship traversal."
+  },
+  {
+    "name": "ContactDetails",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Consolidated contact details (phone, email, fax) as a single JSON string. Contact has work/home/other/mobile/assistant phones + fax + email; Lead has work/mobile/fax + email; Account has phone + fax."
+  },
+  {
+    "name": "Email",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Primary email address. Queryable for exact-match lookups like 'find lead with email X'. Also present in the ContactDetails JSON for keyword discovery. Null for Account and Opportunity."
+  },
+  {
+    "name": "Address",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Consolidated address as JSON string. Account: billing + shipping. Contact: mailing + other. Lead: single address. Preserves type label (billing/shipping/mailing/other) within one property slot."
+  },
+  {
+    "name": "Status",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Lifecycle status of the record (e.g. 'Open', 'Closed Won', 'Qualified'). For Opportunity this is StageName (also duplicated to Opp-specific Stage). Null for Account and Contact."
+  },
+  {
+    "name": "IsClosed",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Boolean indicating the record has reached a terminal state (closed case, closed opp, converted lead). For Lead, maps from IsConverted. Null for Account and Contact."
+  },
+  {
+    "name": "LastActivityDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Date of the most recent logged activity (call, email, task) on the record. Useful for detecting stale records (e.g. 'accounts with no activity in 90 days'). Null for Case."
+  },
+  {
+    "name": "Industry",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Industry classification picklist (e.g. 'Technology', 'Healthcare', 'Finance'). Only populated for Account and Lead. Enables queries like 'show tech industry accounts'."
+  },
+  {
+    "name": "Rating",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Engagement rating picklist (Hot, Warm, Cold). Same picklist on both Account and Lead. Null for Contact, Opportunity, and Case."
+  },
+  {
+    "name": "Website",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Company website URL. Only populated for Account and Lead. Null for Contact, Opportunity, and Case."
+  },
+  {
+    "name": "AnnualRevenue",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Annual revenue of the company, normalized to the org's base currency. Only populated for Account and Lead. Base currency must be specified in the Copilot description during Connector setup."
+  },
+  {
+    "name": "NumberOfEmployees",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Number of employees at the company. Only populated for Account and Lead."
+  },
+  {
+    "name": "ParentId",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "itemParentId"
+    ],
+    "description": "Foreign key to the parent record. Account links to parent Account; Case links to parent Case. The 'itemParentId' semantic label enables platform hierarchy navigation."
+  },
+  {
+    "name": "ParentName",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Display name of the parent record. For Account this is the parent account name; for Case it's the parent case number. Denormalized for display without additional lookups."
+  },
+  {
+    "name": "ParentUrl",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "parentUrl"
+    ],
+    "description": "URL deep link to the parent record in Salesforce. Null when no parent relationship exists."
+  },
+  {
+    "name": "ClosedDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": true,
+    "aliases": [],
+    "labels": [],
+    "description": "Date the record was closed or converted. For Opportunity this is CloseDate; for Lead it's ConvertedDate; for Case it's ClosedDate. Null for Account and Contact."
+  },
+  {
+    "name": "Ownership",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Ownership structure picklist (Public, Private, Subsidiary, Other)."
+  },
+  {
+    "name": "TickerSymbol",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Stock market ticker symbol (e.g. 'MSFT', 'AAPL'). Only relevant for publicly traded companies."
+  },
+  {
+    "name": "SicCode",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Standard Industrial Classification (SIC) code for industry categorization. Complements the Industry picklist for more granular classification."
+  },
+  {
+    "name": "Site",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Location descriptor label for the account (e.g. 'HQ', 'Branch', 'Regional Office'). Not the website URL — purely an organizational location label."
+  },
+  {
+    "name": "JobTitle",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Job title of the contact or lead (e.g. 'VP of Engineering', 'CTO'). Free-text with inconsistent values. Searchable-only — better for keyword discovery than KQL filtering."
+  },
+  {
+    "name": "Department",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Department the contact belongs to (e.g. 'Engineering', 'Sales', 'Marketing'). Free-text field with inconsistent entries — better suited as searchable rather than queryable."
+  },
+  {
+    "name": "Birthdate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": true,
+    "aliases": [],
+    "labels": [],
+    "description": "Contact's date of birth. PII-sensitive — some organizations may choose not to index this field."
+  },
+  {
+    "name": "AssistantName",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Name of the contact's administrative assistant."
+  },
+  {
+    "name": "ReportsTo",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Name of the contact's manager/supervisor, denormalized from the ReportsTo relationship. Enables hierarchical queries like 'who does X report to'."
+  },
+  {
+    "name": "ReportsToId",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Salesforce ID of the contact's manager/supervisor. Enables hierarchy traversal for queries like 'find all contacts reporting to X'."
+  },
+  {
+    "name": "ConvertedDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": false,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Date when the lead was converted to a Contact + Account + Opportunity. Null for unconverted leads."
+  },
+  {
+    "name": "ConvertedOpportunityName",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": false,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Name of the Opportunity record created during lead conversion. Denormalized from ConvertedOpportunityId for human-readable display. Null if no Opportunity was created."
+  },
+  {
+    "name": "ConvertedOpportunityId",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Salesforce ID of the Opportunity record created during lead conversion. Enables relationship traversal to the converted opportunity. Null if no Opportunity was created."
+  },
+  {
+    "name": "Company",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": false,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Company or organization name for the lead. Free-text field populated before conversion. After conversion, the Account name is available via common AccountName."
+  },
+  {
+    "name": "Stage",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Opportunity pipeline stage (e.g. 'Prospecting', 'Negotiation', 'Closed Won'). Intentionally duplicates common Status because Stage is the primary CRM concept for opportunities."
+  },
+  {
+    "name": "Amount",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Deal monetary value. Key pipeline metric for revenue-based queries (e.g. 'opportunities over $100K'). Normalised to the org base currency (specify in connection description)."
+  },
+  {
+    "name": "Probability",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Estimated probability of winning the deal as a percentage (0-100). Often auto-populated based on Stage in many Salesforce orgs."
+  },
+  {
+    "name": "ExpectedRevenue",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Weighted expected revenue (Amount × Probability). Computed by Salesforce; normalised to the org base currency (specify in connection description)."
+  },
+  {
+    "name": "NextStep",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Free-text field describing the next planned action or milestone for this deal."
+  },
+  {
+    "name": "IsWon",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Boolean flag indicating whether the opportunity was won. Combined with IsClosed distinguishes between 'Closed Won' and 'Closed Lost'."
+  },
+  {
+    "name": "ForecastCategory",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Sales forecast category bucket (Pipeline, Best Case, Commit, Closed). Key field for sales forecasting roll-ups and pipeline reviews."
+  },
+  {
+    "name": "FiscalQuarter",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Fiscal quarter number (1-4) computed by Salesforce based on CloseDate and the org's fiscal year settings."
+  },
+  {
+    "name": "FiscalYear",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Fiscal year number computed by Salesforce based on CloseDate and the org's fiscal year settings."
+  },
+  {
+    "name": "Fiscal",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Human-readable fiscal period label combining year and quarter (e.g. '2026 Q2'). Convenience property for display."
+  },
+  {
+    "name": "Subject",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Case subject line / headline summarizing the issue. Primary textual identifier beyond the auto-numbered CaseNumber."
+  },
+  {
+    "name": "Priority",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "priority"
+    ],
+    "description": "Case priority picklist (High, Medium, Low, Critical). Key triage filter for support workflows — 'show high priority cases'. Semantic label 'priority'."
+  },
+  {
+    "name": "Reason",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Root cause category picklist (e.g. 'Installation', 'Performance', 'User Error')."
+  },
+  {
+    "name": "IsEscalated",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Boolean flag indicating the case has been escalated. Useful for identifying and filtering escalated support issues."
+  },
+  {
+    "name": "InternalComments",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Internal agent-facing comments and case notes. Mapped to CONTENT for semantic search alongside the Description field."
+  },
+  {
+    "name": "SuppliedEmail",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": false,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Email address submitted through Web-to-Case or Email-to-Case. May differ from the linked Contact's email for unlinked cases."
+  },
+  {
+    "name": "LifecycleState",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Normalised lifecycle state across all CRM objects: Open, Closed, or Converted. Computed from StageName (Opp), IsClosed (Case), IsConverted (Lead), or Status (Task)."
+  },
+  {
+    "name": "OpportunityOutcome",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Three-way outcome for Opportunity records: 'Won' (Closed Won), 'Lost' (Closed Lost), or 'InProgress' (any other stage). Computed at ingestion."
+  },
+  {
+    "name": "CaseProduct",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "The product associated with this support case (e.g. 'GC1020', 'GC3060', 'GC5040', 'GC5060'). Custom Salesforce field. Useful for queries like 'cases on GC5060 products'."
+  },
+  {
+    "name": "SLAViolation",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Whether the SLA was violated on this case. Useful for support escalation and SLA reporting queries."
+  },
+  {
+    "name": "PotentialLiability",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Whether this case has potential legal or financial liability flagged. Custom Salesforce field used for risk and compliance queries."
+  },
+  {
+    "name": "CampaignStatus",
+    "type": "String",
+    "isSearchable": true,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Marketing campaign status (e.g. 'Planned', 'In Progress', 'Completed'). Salesforce Campaign Status field, distinct from the generic Status property to avoid object-type collision."
+  },
+  {
+    "name": "BudgetedCost",
     "type": "Double",
     "isSearchable": false,
-    "isQueryable": false,
     "isRetrievable": true,
-    "labels": [],
-    "description": "The price per unit for the work order line item."
-  },
-  {
-    "name": "WorkOrder",
-    "type": "String",
-    "isSearchable": true,
     "isQueryable": true,
-    "isRetrievable": true,
+    "isRefinable": false,
+    "aliases": [],
     "labels": [],
-    "description": "The work order reference linked to this service appointment."
+    "description": "Planned budget for the campaign in the org's base currency. Used for campaign budget queries."
   },
   {
-    "name": "WorkOrderId",
+    "name": "CampaignStartDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": true,
+    "aliases": [],
+    "labels": [],
+    "description": "Start date of the marketing campaign. Refinable for date-range facets."
+  },
+  {
+    "name": "NumberOfOpportunities",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Total opportunities sourced from this campaign."
+  },
+  {
+    "name": "NumberOfWonOpportunities",
+    "type": "Int64",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Won opportunities sourced from this campaign — campaign ROI signal."
+  },
+  {
+    "name": "DueDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": true,
+    "aliases": [],
+    "labels": [
+      "dueDate"
+    ],
+    "description": "Due date for the Task. Refinable for date-range facets like 'tasks due this week'."
+  },
+  {
+    "name": "IsAllDayEvent",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Whether this Event spans the full day or has specific start/end times."
+  },
+  {
+    "name": "RelatedToId",
     "type": "String",
     "isSearchable": false,
-    "isQueryable": true,
     "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
     "labels": [],
-    "description": "The identifier of the work order this line item belongs to."
+    "description": "ID of the record this Task/Event/FeedItem/CaseComment relates to — typically an Opportunity, Account, or Case (Salesforce 'WhatId')."
   },
   {
-    "name": "WorkOrderNumber",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The work order reference number."
-  },
-  {
-    "name": "RecordTypeId",
+    "name": "RelatedPersonId",
     "type": "String",
     "isSearchable": false,
-    "isQueryable": false,
     "isRetrievable": true,
-    "labels": [],
-    "description": "The identifier of the record type."
-  },
-  {
-    "name": "ActualRecievedSerialNumber",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": false,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The serial number recorded on receipt of hardware."
-  },
-  {
-    "name": "AssetSerialNumber",
-    "type": "String",
-    "isSearchable": true,
     "isQueryable": true,
-    "isRetrievable": true,
+    "isRefinable": false,
+    "aliases": [],
     "labels": [],
-    "description": "The serial number of the network asset."
+    "description": "ID of the person this Task/Event relates to — typically a Contact or Lead (Salesforce 'WhoId')."
   },
   {
-    "name": "CountryofIssue",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The country where the case issue was reported."
-  },
-  {
-    "name": "CustomerReference",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The customer reference number for this case or work order."
-  },
-  {
-    "name": "EndCustomer",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The end customer or final recipient of the service."
-  },
-  {
-    "name": "NetworkImpact",
-    "type": "String",
-    "isSearchable": true,
-    "isQueryable": true,
-    "isRetrievable": true,
-    "labels": [],
-    "description": "The impact level of the issue on the customer network."
-  },
-  {
-    "name": "ProductId",
+    "name": "LeadId",
     "type": "String",
     "isSearchable": false,
-    "isQueryable": false,
     "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
     "labels": [],
-    "description": "The identifier of the product linked to this case or RMA line item."
+    "description": "ID of the Lead associated with this CampaignMember."
   },
   {
-    "name": "ProductRelease",
+    "name": "MemberStatus",
     "type": "String",
     "isSearchable": true,
-    "isQueryable": true,
     "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
     "labels": [],
-    "description": "The product software release version for this case."
+    "description": "Engagement status of a CampaignMember (e.g. 'Sent', 'Responded', 'Registered')."
+  },
+  {
+    "name": "OpportunityId",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "ID of the Opportunity this OpportunityLineItem or Quote belongs to."
+  },
+  {
+    "name": "OrderId",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "ID of the Order this OrderItem belongs to."
+  },
+  {
+    "name": "QuoteId",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "ID of the Quote this QuoteLineItem belongs to."
+  },
+  {
+    "name": "Product2Id",
+    "type": "String",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "ID of the Product associated with this line item, order item, or quote line item."
+  },
+  {
+    "name": "Quantity",
+    "type": "Double",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Quantity on the OpportunityLineItem, OrderItem, or QuoteLineItem."
+  },
+  {
+    "name": "TotalPrice",
+    "type": "Double",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Total price on a line item (Quantity x UnitPrice)."
+  },
+  {
+    "name": "IsPublished",
+    "type": "Boolean",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Whether the CaseComment is visible to the customer (true) or internal-only (false)."
+  },
+  {
+    "name": "EffectiveDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Effective date of an Order. Refinable for date-range filtering."
+  },
+  {
+    "name": "ExpirationDate",
+    "type": "DateTime",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": true,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [],
+    "description": "Expiration date of a Quote. Refinable for date-range filtering."
+  },
+  {
+    "name": "Authors",
+    "type": "PrincipalCollection",
+    "isSearchable": false,
+    "isRetrievable": true,
+    "isQueryable": false,
+    "isRefinable": false,
+    "aliases": [],
+    "labels": [
+      "authors"
+    ],
+    "description": "All people who participated in the record — typically the creator and last modifier. Resolved as a PrincipalCollection for accurate people-based search."
   }
 ]

@@ -5,14 +5,23 @@ from typing import Any
 from item.converter import SalesforceConverter
 
 
+PRINCIPAL_ODATA_TYPE = "#microsoft.graph.externalConnectors.principal"
+
 COLLECTION_SCHEMA_TO_ODATA_TYPE = {
     "StringCollection": "String",
     "Int64Collection": "Int64",
     "DoubleCollection": "Double",
     "BooleanCollection": "Boolean",
     "DateTimeCollection": "DateTime",
-    "PrincipalCollection": "Principal",
+    "PrincipalCollection": "microsoft.graph.externalConnectors.principal",
 }
+
+
+def _inject_principal_odata_type(obj: Any) -> Any:
+    """Inject ``@odata.type`` into a principal dict if not already present."""
+    if isinstance(obj, dict) and "@odata.type" not in obj:
+        return {"@odata.type": PRINCIPAL_ODATA_TYPE, **obj}
+    return obj
 
 def _fallback_acl() -> list[dict[str, str]]:
     """Return a deny-everyone ACL when no ACL could be resolved.
@@ -42,10 +51,11 @@ class SalesforceItemTransformer:
         self._schema_properties = set(self._schema_property_types)
         self._converter = SalesforceConverter(instance_url=instance_url)
         self._supported_objects = set(self._converter.object_names)
-        # Inject the real Graph schema properties into each handler so the
-        # debug mapping table can accurately report "In Schema" status.
+        # Inject the real Graph schema properties and types into each handler so the
+        # debug mapping table and principal promotion can use live schema info.
         for handler in self._converter._handlers.values():
             handler.graph_schema_properties = set(self._schema_properties)
+            handler.graph_schema_property_types = self._schema_property_types
 
     @property
     def handlers(self) -> dict[str, Any]:
@@ -110,17 +120,26 @@ class SalesforceItemTransformer:
 
     def _normalize_schema_value(self, live_key: str, value: Any) -> Any:
         """Wrap scalar values in a list when the schema declares a collection type."""
-        collection_type = COLLECTION_SCHEMA_TO_ODATA_TYPE.get(self._schema_property_types.get(live_key, ""))
+        schema_type = self._schema_property_types.get(live_key, "")
+
+        if schema_type == "Principal":
+            return _inject_principal_odata_type(value)
+
+        collection_type = COLLECTION_SCHEMA_TO_ODATA_TYPE.get(schema_type)
         if not collection_type:
             return value
 
         if isinstance(value, list):
-            return value
+            items = value
+        elif isinstance(value, tuple):
+            items = list(value)
+        else:
+            items = [value]
 
-        if isinstance(value, tuple):
-            return list(value)
+        if schema_type == "PrincipalCollection":
+            return [_inject_principal_odata_type(item) for item in items]
 
-        return [value]
+        return items
 
     def _apply_collection_annotation(
         self,
