@@ -121,6 +121,7 @@ def cmd_retry_failed(args) -> None:
         logger.info("=" * 70)
 
         all_success = True
+        still_failing: list[dict] = []  # entries that failed again — written to a new file at the end
         for idx, entry in enumerate(unique_entries, start=1):
             item_id = entry["item_id"]
             object_type = entry.get("object_type") or None
@@ -145,13 +146,34 @@ def cmd_retry_failed(args) -> None:
                     stats.acl_engine = item_stats.acl_engine
                 if item_stats.failed_count:
                     all_success = False
+                    still_failing.append(entry)
                     logger.warning("  ✗ %s still failed after retry", item_id)
                 else:
                     logger.info("  ✓ %s ingested successfully", item_id)
             except Exception as exc:
                 all_success = False
+                still_failing.append(entry)
                 stats.failed_count += 1
                 logger.exception("  ✗ Exception while retrying %s: %s", item_id, exc)
+
+        # ── Write still-failing items to a new file ────────────────────────
+        # These can be targeted directly on the next retry-failed run via --file.
+        if still_failing:
+            import json as _json
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            pending_path = dl_path.parent / f"retry_pending_{connector_id}_{ts}.jsonl"
+            with open(pending_path, "w", encoding="utf-8") as fh:
+                for rec in still_failing:
+                    fh.write(_json.dumps(rec, default=str) + "\n")
+            logger.warning(
+                "  %d item(s) still failing — written to: %s",
+                len(still_failing), pending_path,
+            )
+            logger.warning(
+                "  To retry only these items run: python run.py retry-failed --file %s",
+                pending_path,
+            )
 
         # ── Optionally clear the dead-letter file ────────────────────────────
         if all_success and getattr(args, "clear_on_success", False):
