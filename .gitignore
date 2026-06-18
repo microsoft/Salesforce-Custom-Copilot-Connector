@@ -21,3 +21,5 @@ data/
 *.zip
 .vscode/
 /tmp
+# Visual Studio workspace state (auto-generated per machine)
+.vs/
