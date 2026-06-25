@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 Legacy ACL resolver for Salesforce → Microsoft Graph external items.
 

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for acl_engine.identity_sync — Identity Crawl handler."""
 from __future__ import annotations
 

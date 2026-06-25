@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 retry-failed command — re-ingest every item recorded in the dead-letter file.
 

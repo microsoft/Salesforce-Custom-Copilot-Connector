@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for the CLI argument parser (commands.build_parser)."""
 from __future__ import annotations
 

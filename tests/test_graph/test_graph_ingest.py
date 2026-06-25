@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for the graph.ingest ingestion pipeline."""
 from __future__ import annotations
 

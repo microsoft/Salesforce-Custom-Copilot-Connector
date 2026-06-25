@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for the item conversion engine (item.converter)."""
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for graph.identity_publisher — Graph API publishing with SQLite diff."""
 from __future__ import annotations
 

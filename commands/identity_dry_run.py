@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 identity-dry-run command — preview identity crawl changes without calling Graph.
 

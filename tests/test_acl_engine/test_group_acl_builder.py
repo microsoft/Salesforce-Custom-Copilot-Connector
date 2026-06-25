@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for acl_engine.group_acl_builder — Group-based ACL resolution."""
 from __future__ import annotations
 

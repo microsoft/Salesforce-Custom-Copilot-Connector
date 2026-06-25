@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 CLI command modules for the Salesforce CRM Custom Connector.
 

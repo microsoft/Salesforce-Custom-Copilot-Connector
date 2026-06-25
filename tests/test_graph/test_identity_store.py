@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for graph.identity_store — SQLite state store for identity crawl."""
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 Item ingestion pipeline — Salesforce → Graph external items.
 

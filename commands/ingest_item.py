@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 ingest-item command — ingest a single Salesforce record by its ID.
 
