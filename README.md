@@ -781,7 +781,7 @@ A: Not currently. The connector uses polling (SOQL queries). A CDC-based approac
 
 ## License
 
-Copyright (c) Microsoft Corporation. Licensed under the [MIT License](LICENSE.txt).
+Copyright (c) Microsoft Corporation. Licensed under the [MIT License](LICENSE).
 
 ## Third-party notices
 
