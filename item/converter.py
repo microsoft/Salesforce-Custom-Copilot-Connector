@@ -327,7 +327,7 @@ class SalesforceObjectHandler:
                         instance_url,
                     )
                     _field_mapping.append((field_key, property_name, "selectedFields", True))
-                    if property_name == CONTENT_FIELD_NAME:
+                    if field_key == CONTENT_FIELD_NAME or property_name == CONTENT_FIELD_NAME:
                         raw_value = record.get(field_key)
                         content = Content(raw_value if isinstance(raw_value, str) and raw_value else "")
                 else:
