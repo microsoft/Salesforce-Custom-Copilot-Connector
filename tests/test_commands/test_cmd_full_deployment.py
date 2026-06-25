@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for the full-deployment command."""
 from __future__ import annotations
 

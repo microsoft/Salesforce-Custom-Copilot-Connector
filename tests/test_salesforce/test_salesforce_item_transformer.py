@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for SalesforceItemTransformer (salesforce.item_transformer)."""
 from __future__ import annotations
 

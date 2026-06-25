@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for graph.connection functions."""
 from __future__ import annotations
 

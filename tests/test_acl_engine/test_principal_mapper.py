@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 tests/test_acl_engine/test_principal_mapper.py
 ----------------------------------------------

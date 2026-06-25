@@ -781,4 +781,12 @@ A: Not currently. The connector uses polling (SOQL queries). A CDC-based approac
 
 ## License
 
-This project is provided as-is for demonstration and internal use. See your organisation's licensing guidelines.
+Copyright (c) Microsoft Corporation. Licensed under the [MIT License](LICENSE).
+
+## Third-party notices
+
+This project includes third-party open-source software. Attribution and license details are in [NOTICE](NOTICE).
+
+## Trademarks
+
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft trademarks or logos is subject to and must follow [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general). Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos are subject to those third-party's policies.

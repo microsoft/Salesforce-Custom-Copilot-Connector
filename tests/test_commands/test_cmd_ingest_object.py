@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for the ingest-object command."""
 from __future__ import annotations
 

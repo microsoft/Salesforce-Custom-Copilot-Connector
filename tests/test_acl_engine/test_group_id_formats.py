@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for acl_engine.group_id_formats — External group ID format constants."""
 from __future__ import annotations
 

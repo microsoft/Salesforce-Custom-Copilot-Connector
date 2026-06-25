@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Tests for silent drop fixes across the ingestion pipeline.
 
 Covers every scenario where items could previously vanish without a trace:
